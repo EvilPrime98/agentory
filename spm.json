@@ -5,7 +5,9 @@
   "skills": {
     "anti-life": "https://github.com/EvilPrime98/mySkills",
     "git-commit-doctor": "https://github.com/EvilPrime98/mySkills",
-    "gpui-desktop": "https://github.com/EvilPrime98/mySkills"
+    "gpui-desktop": "https://github.com/EvilPrime98/mySkills",
+    "less-is-more": "https://github.com/EvilPrime98/mySkills",
+    "readme-creator-doctor": "https://github.com/EvilPrime98/mySkills"
   },
   "isolate": false
 }
