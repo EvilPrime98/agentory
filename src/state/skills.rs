@@ -1,0 +1,170 @@
+//! Skills of the selected project, through `spm`: read from disk, mutate by shelling out.
+
+use std::future::Future;
+use std::path::PathBuf;
+
+use gpui::{Context, SharedString};
+
+use crate::backend::spm::{self, Snapshot};
+use crate::model::DoctorReport;
+use crate::runtime;
+use crate::ui::toast;
+
+#[derive(Default)]
+pub struct SkillsStore {
+    pub project: Option<PathBuf>,
+    pub snapshot: Snapshot,
+    pub doctor: Option<DoctorReport>,
+    /// What is running right now (`"Installing foo…"`); mutations are serialized.
+    pub busy: Option<SharedString>,
+    pub revision: u64,
+    /// Bumped when the project changes so a stale response is dropped.
+    generation: u64,
+}
+
+impl SkillsStore {
+    /// Point the store at a project (or none) and reload.
+    pub fn set_project(&mut self, project: Option<PathBuf>, cx: &mut Context<Self>) {
+        if self.project == project {
+            return;
+        }
+        self.project = project;
+        self.generation += 1;
+        self.snapshot = Snapshot::default();
+        self.doctor = None;
+        self.revision += 1;
+        cx.notify();
+        self.refresh(cx);
+    }
+
+    /// Re-read `spm.json` and `.claude/skills`.
+    pub fn refresh(&mut self, cx: &mut Context<Self>) {
+        let Some(dir) = self.project.clone() else {
+            return;
+        };
+        let generation = self.generation;
+        cx.spawn(async move |this, cx| {
+            let snapshot = runtime::run(async move { spm::read_snapshot(&dir) }).await;
+            this.update(cx, |s, cx| {
+                if s.generation == generation {
+                    s.snapshot = snapshot;
+                    s.revision += 1;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Run an `spm` command, then reload. The error (stderr) is shown as a toast.
+    fn mutate<F, Fut>(&mut self, label: String, cx: &mut Context<Self>, call: F)
+    where
+        F: FnOnce(PathBuf) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<String, String>> + Send + 'static,
+    {
+        let Some(dir) = self.project.clone() else {
+            return;
+        };
+        if self.busy.is_some() {
+            return;
+        }
+        self.busy = Some(label.clone().into());
+        cx.notify();
+        let generation = self.generation;
+        cx.spawn(async move |this, cx| {
+            let result = runtime::run(call(dir)).await;
+            let current = this
+                .update(cx, |s, cx| {
+                    s.busy = None;
+                    cx.notify();
+                    if s.generation == generation {
+                        s.refresh(cx);
+                    }
+                    s.generation == generation
+                })
+                .unwrap_or(false);
+            if let Err(e) = result {
+                tracing::warn!("spm ({label}) failed: {e}");
+                cx.update(|cx| toast::error(cx, e));
+            } else if current {
+                cx.update(|cx| toast::success(cx, format!("{label}: done")));
+            }
+        })
+        .detach();
+    }
+
+    pub fn install(&mut self, names: Vec<String>, cx: &mut Context<Self>) {
+        if names.is_empty() {
+            return;
+        }
+        let label = format!("Install {}", names.join(", "));
+        self.mutate(label, cx, move |dir| async move {
+            spm::install(&dir, &names).await
+        });
+    }
+
+    pub fn uninstall(&mut self, name: String, cx: &mut Context<Self>) {
+        let label = format!("Uninstall {name}");
+        self.mutate(label, cx, move |dir| async move {
+            spm::uninstall(&dir, &name).await
+        });
+    }
+
+    pub fn update_all(&mut self, cx: &mut Context<Self>) {
+        self.mutate("Update skills".into(), cx, |dir| async move {
+            spm::update(&dir).await
+        });
+    }
+
+    pub fn add_repo(&mut self, repo: String, cx: &mut Context<Self>) {
+        let label = format!("Add repo {repo}");
+        self.mutate(label, cx, move |dir| async move {
+            spm::repo_add(&dir, &repo).await
+        });
+    }
+
+    pub fn remove_repo(&mut self, repo: String, cx: &mut Context<Self>) {
+        let label = format!("Remove repo {repo}");
+        self.mutate(label, cx, move |dir| async move {
+            spm::repo_rm(&dir, &repo).await
+        });
+    }
+
+    /// `spm doctor --json`: the context-cost report.
+    pub fn run_doctor(&mut self, cx: &mut Context<Self>) {
+        let Some(dir) = self.project.clone() else {
+            return;
+        };
+        if self.busy.is_some() {
+            return;
+        }
+        self.busy = Some("Measuring context cost…".into());
+        cx.notify();
+        let generation = self.generation;
+        cx.spawn(async move |this, cx| {
+            let result = runtime::run(async move { spm::doctor(&dir).await }).await;
+            let error = this
+                .update(cx, |s, cx| {
+                    s.busy = None;
+                    let error = match result {
+                        Ok(report) if s.generation == generation => {
+                            s.doctor = Some(report);
+                            s.revision += 1;
+                            None
+                        }
+                        Ok(_) => None,
+                        Err(e) => Some(e),
+                    };
+                    cx.notify();
+                    error
+                })
+                .ok()
+                .flatten();
+            if let Some(e) = error {
+                cx.update(|cx| toast::error(cx, e));
+            }
+        })
+        .detach();
+    }
+}
