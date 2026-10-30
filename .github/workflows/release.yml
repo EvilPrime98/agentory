@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Package (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            os: windows-latest
+          - platform: linux
+            os: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: version
+        shell: bash
+        run: |
+          version="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
+          if [ "${GITHUB_REF_TYPE}" = tag ] && [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match Cargo.toml version $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: System libraries (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev libx11-xcb-dev \
+            libvulkan-dev libfontconfig-dev libasound2-dev libssl-dev libdbus-1-dev pkg-config
+
+      - name: Stage the app folder
+        shell: bash
+        run: packaging/stage.sh
+
+      - name: Windows installer (Inno Setup)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ steps.version.outputs.version }}" packaging\windows\agentory.iss
+
+      - name: Linux tarball
+        if: matrix.platform == 'linux'
+        run: |
+          v='${{ steps.version.outputs.version }}'
+          cp packaging/linux/agentory.desktop packaging/icon.png dist/Agentory/
+          tar -C dist -czf "dist/Agentory-$v-linux-x86_64.tar.gz" Agentory
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Agentory-${{ matrix.platform }}
+          path: |
+            dist/Agentory-Setup-*.exe
+            dist/Agentory-*-linux-x86_64.tar.gz
+
+      - name: Attach to the GitHub release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Agentory-Setup-*.exe
+            dist/Agentory-*-linux-x86_64.tar.gz

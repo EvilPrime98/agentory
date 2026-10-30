@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Agentory
+Comment=Multi-session Claude Code host with skill management
+Exec=agentory
+Icon=agentory
+Categories=Development;
+Terminal=false
+StartupWMClass=agentory

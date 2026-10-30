@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [master, dev, staging]
+  pull_request:
+    branches: [master, dev, staging]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    name: Build & test (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Test
+        run: cargo test --locked --workspace
+
+      - name: Clippy
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+        continue-on-error: true # not verified clean yet: surfaced, not blocking
+
+  linux:
+    name: Build & test (Linux)
+    runs-on: ubuntu-latest
+    # The package list below is unverified, and the PTY/hook code is only exercised on Windows.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev libx11-xcb-dev \
+            libvulkan-dev libfontconfig-dev libasound2-dev libssl-dev libdbus-1-dev pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --locked --workspace
