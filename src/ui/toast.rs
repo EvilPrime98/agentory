@@ -3,9 +3,9 @@
 use std::time::{Duration, Instant};
 
 use gpui::{
-    Animation, AnimationExt as _, App, AppContext as _, Context, Entity, Global, InteractiveElement,
-    IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window,
-    div, px, relative,
+    Animation, AnimationExt as _, App, AppContext as _, Context, Entity, Global,
+    InteractiveElement, IntoElement, ParentElement, Render, SharedString,
+    StatefulInteractiveElement, Styled, Window, div, px, relative,
 };
 
 use crate::ui::theme;
@@ -205,11 +205,12 @@ impl Render for ToastHost {
                             .gap(px(8.0))
                             .child(
                                 div()
+                                    .flex_none()
                                     .text_color(accent)
                                     .font_weight(gpui::FontWeight::BOLD)
                                     .child(tag),
                             )
-                            .child(t.text.clone()),
+                            .child(div().flex_1().min_w_0().child(t.text.clone())),
                     )
                     .child(
                         div()
