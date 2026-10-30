@@ -1,0 +1,41 @@
+[package]
+name = "agentory"
+version = "0.1.0"
+edition = "2024"
+description = "Multi-session Claude Code host with skill management"
+license = "GPL-3.0-or-later"
+
+[dependencies]
+gpui-ce = "0.2.2"
+gpui_ce_platform = "0.1.0"
+anyhow = "1"
+dirs = "6"
+futures-channel = "0.3"
+futures-util = "0.3"
+open = "5"
+portable-pty = "0.9"
+rfd = "0.15"
+rust-embed = "8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "process", "time", "io-util", "macros", "sync"] }
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+vt100 = "0.15"
+
+[build-dependencies]
+winresource = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+strip = true
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 1

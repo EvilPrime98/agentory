@@ -1,0 +1,3 @@
+# Static CRT on Windows: the installer then needs no Visual C++ redistributable.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
