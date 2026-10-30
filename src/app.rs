@@ -1,4 +1,4 @@
-//! Root entity: routing, startup sequence, shell chrome (header, sidebar, skills drawer), the
+//! Root entity: routing, startup sequence, shell chrome (header, sidebar), the
 //! global overlays (toasts, confirm dialog, app loader) and the close guard.
 
 use std::time::{Duration, Instant};
@@ -18,9 +18,9 @@ use crate::ui::app_loader::app_loader;
 use crate::ui::confirm::{self, ConfirmHost, ConfirmOptions};
 use crate::ui::pages::sessions::SessionsPage;
 use crate::ui::pages::settings::SettingsPage;
+use crate::ui::pages::skills::SkillsPage;
 use crate::ui::shell::header::header;
 use crate::ui::shell::sidebar::Sidebar;
-use crate::ui::shell::skills_drawer::SkillsDrawer;
 use crate::ui::shell::usage_pill::UsagePill;
 use crate::ui::theme;
 use crate::ui::toast::{self, ToastHost};
@@ -30,7 +30,7 @@ actions!(
     [
         ToggleFullscreen,
         ToggleSidebar,
-        ToggleSkills,
+        OpenSkills,
         RequestClose,
         OpenTerminal,
         NextSession,
@@ -43,7 +43,7 @@ pub fn bind_keys(cx: &mut App) {
     cx.bind_keys([
         gpui::KeyBinding::new("f11", ToggleFullscreen, None),
         gpui::KeyBinding::new("ctrl-alt-b", ToggleSidebar, None),
-        gpui::KeyBinding::new("ctrl-alt-s", ToggleSkills, None),
+        gpui::KeyBinding::new("ctrl-alt-s", OpenSkills, None),
         gpui::KeyBinding::new("ctrl-alt-t", OpenTerminal, None),
         gpui::KeyBinding::new("ctrl-tab", NextSession, None),
         gpui::KeyBinding::new("ctrl-shift-tab", PrevSession, None),
@@ -56,10 +56,11 @@ pub fn bind_keys(cx: &mut App) {
 enum Page {
     Sessions(Entity<SessionsPage>),
     Settings(Entity<SettingsPage>),
+    Skills(Entity<SkillsPage>),
 }
 
-const DRAWER_OPEN: Duration = Duration::from_millis(220);
-const DRAWER_CLOSE: Duration = Duration::from_millis(180);
+const PANEL_OPEN: Duration = Duration::from_millis(220);
+const PANEL_CLOSE: Duration = Duration::from_millis(180);
 
 fn ease_out_cubic(t: f32) -> f32 {
     1.0 - (1.0 - t).powi(3)
@@ -69,7 +70,7 @@ fn ease_in_cubic(t: f32) -> f32 {
     t * t * t
 }
 
-/// A slide of a panel (the skills drawer or the sidebar) between `from` and `to`
+/// A slide of the sidebar between `from` and `to`
 /// (0 = hidden, 1 = fully shown).
 #[derive(Clone, Copy)]
 struct PanelAnim {
@@ -90,7 +91,7 @@ impl PanelAnim {
             None => 0.0,
         };
         let to = if was_open { 0.0 } else { 1.0 };
-        let full = if was_open { DRAWER_CLOSE } else { DRAWER_OPEN };
+        let full = if was_open { PANEL_CLOSE } else { PANEL_OPEN };
         Self {
             id: prev.map_or(0, |a| a.id + 1),
             from,
@@ -134,7 +135,6 @@ pub struct AppRoot {
     history: History,
     stores: Stores,
     sidebar: Entity<Sidebar>,
-    drawer: Entity<SkillsDrawer>,
     usage_pill: Entity<UsagePill>,
     toasts: Entity<ToastHost>,
     confirm: Entity<ConfirmHost>,
@@ -149,7 +149,6 @@ pub struct AppRoot {
     /// The close guard has been answered: the next close request goes through.
     close_confirmed: bool,
     close_check_pending: bool,
-    drawer_anim: Option<PanelAnim>,
     sidebar_anim: Option<PanelAnim>,
 }
 
@@ -164,7 +163,6 @@ impl AppRoot {
         cx.set_global(stores.clone());
 
         let sidebar = cx.new(|cx| Sidebar::new(stores.clone(), cx));
-        let drawer = cx.new(|cx| SkillsDrawer::new(stores.clone(), cx));
         let usage_pill = cx.new(|cx| UsagePill::new(stores.clone(), cx));
         let sessions_store = stores.sessions.clone();
         let subs = vec![
@@ -172,8 +170,17 @@ impl AppRoot {
                 this.navigate(ev.0.clone(), window, cx)
             }),
             cx.observe(&stores.prefs, |_, _, cx| cx.notify()),
-            // The skills drawer follows the selected project.
-            cx.observe(&stores.projects, |this, _, cx| this.sync_skills_project(cx)),
+            // The skills store follows the selected project; a Skills page whose project is gone
+            // has nothing left to show.
+            cx.observe_in(&stores.projects, window, |this, _, window, cx| {
+                this.sync_skills_project(cx);
+                if let Route::Skills(id) = this.history.current() {
+                    if this.stores.projects.read(cx).get(id).is_none() {
+                        this.history.back_or_home();
+                        this.route_changed(window, cx);
+                    }
+                }
+            }),
             cx.observe_window_activation(window, |this, window, cx| {
                 let active = window.is_window_active();
                 this.stores
@@ -191,7 +198,6 @@ impl AppRoot {
             history: History::default(),
             stores,
             sidebar,
-            drawer,
             usage_pill,
             toasts,
             confirm,
@@ -203,7 +209,6 @@ impl AppRoot {
             focus,
             close_confirmed: false,
             close_check_pending: false,
-            drawer_anim: None,
             sidebar_anim: None,
         };
         // Closing with running sessions asks first (`on_window_should_close` is synchronous, so the
@@ -326,6 +331,8 @@ impl AppRoot {
 
     fn route_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         window.set_window_title(&window_title(self.history.current()));
+        let route = self.history.current().clone();
+        self.sidebar.update(cx, |s, cx| s.set_route(route, cx));
         self.build_page(window, cx);
         cx.notify();
     }
@@ -363,6 +370,23 @@ impl AppRoot {
                 ));
                 Page::Settings(page)
             }
+            Route::Skills(id) => {
+                self.stores.projects.update(cx, |p, cx| p.select(&id, cx));
+                self.sync_skills_project(cx);
+                self.stores.skills.update(cx, |s, cx| s.refresh(cx));
+                let page = cx.new(|cx| SkillsPage::new(self.stores.clone(), cx));
+                self._page_subs.push(cx.subscribe_in(
+                    &page,
+                    window,
+                    |this, _, ev: &Navigate, window, cx| this.navigate(ev.0.clone(), window, cx),
+                ));
+                self._page_subs.push(cx.subscribe_in(
+                    &page,
+                    window,
+                    |this, _, _: &GoBack, window, cx| this.go_back(window, cx),
+                ));
+                Page::Skills(page)
+            }
         };
     }
 
@@ -373,16 +397,6 @@ impl AppRoot {
         self.stores
             .prefs
             .update(cx, |p, cx| p.update(cx, |p| p.sidebar_collapsed = was_open));
-        anim.notify_when_done(cx);
-    }
-
-    pub fn toggle_skills(&mut self, cx: &mut Context<Self>) {
-        let was_open = self.stores.prefs.read(cx).prefs.skills_drawer_open;
-        let anim = PanelAnim::toggle(self.drawer_anim, was_open);
-        self.drawer_anim = Some(anim);
-        self.stores.prefs.update(cx, |p, cx| {
-            p.update(cx, |p| p.skills_drawer_open = !was_open)
-        });
         anim.notify_when_done(cx);
     }
 
@@ -425,37 +439,6 @@ impl AppRoot {
             None => None,
         }
     }
-
-    /// The drawer as an overlay on the right edge: it slides by translating x, so the content
-    /// and the terminal never resize. `None` when it is fully hidden.
-    fn drawer_overlay(&self, open: bool) -> Option<gpui::AnyElement> {
-        let width = theme::drawer_width();
-        let shell = |drawer: Entity<SkillsDrawer>| {
-            div()
-                .absolute()
-                .top_0()
-                .bottom_0()
-                .w(width)
-                .occlude()
-                .child(drawer)
-        };
-        match self.drawer_anim.filter(PanelAnim::running) {
-            Some(a) => Some(
-                shell(self.drawer.clone())
-                    .with_animation(
-                        ("skills-drawer", a.id),
-                        Animation::new(a.duration).with_easing(a.easing()),
-                        move |el, t| {
-                            let p = a.from + (a.to - a.from) * t;
-                            el.right(-width * (1.0 - p)).opacity(0.5 + 0.5 * p)
-                        },
-                    )
-                    .into_any_element(),
-            ),
-            None if open => Some(shell(self.drawer.clone()).right_0().into_any_element()),
-            None => None,
-        }
-    }
 }
 
 impl Focusable for AppRoot {
@@ -477,6 +460,7 @@ impl Render for AppRoot {
         let content = match &self.page {
             Page::Sessions(page) => AnyView::from(page.clone()).into_any_element(),
             Page::Settings(page) => AnyView::from(page.clone()).into_any_element(),
+            Page::Skills(page) => AnyView::from(page.clone()).into_any_element(),
         };
 
         div()
@@ -485,7 +469,12 @@ impl Render for AppRoot {
             .track_focus(&self.focus)
             .on_action(cx.listener(|_, _: &ToggleFullscreen, window, _| window.toggle_fullscreen()))
             .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
-            .on_action(cx.listener(|this, _: &ToggleSkills, _, cx| this.toggle_skills(cx)))
+            .on_action(cx.listener(|this, _: &OpenSkills, window, cx| {
+                let selected = this.stores.projects.read(cx).selected.clone();
+                if let Some(id) = selected {
+                    this.navigate(Route::Skills(id), window, cx);
+                }
+            }))
             .on_action(cx.listener(|this, _: &OpenTerminal, window, cx| {
                 // The default shell in the selected project's folder.
                 let selected = this.stores.projects.read(cx).selected.clone();
@@ -517,7 +506,6 @@ impl Render for AppRoot {
             .child(header(
                 window,
                 self.usage_pill.clone(),
-                prefs.skills_drawer_open,
                 route == Route::Settings,
                 cx,
             ))
@@ -528,8 +516,7 @@ impl Render for AppRoot {
                     .flex_1()
                     .min_h_0()
                     .children(self.sidebar_panel(!prefs.sidebar_collapsed))
-                    .child(content)
-                    .children(self.drawer_overlay(prefs.skills_drawer_open)),
+                    .child(content),
             )
             .child(self.toasts.clone())
             .child(self.confirm.clone())

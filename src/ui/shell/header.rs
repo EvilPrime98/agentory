@@ -1,4 +1,4 @@
-//! Header: burger, logo → home, drag region, usage pill, skills + settings toggles, window controls.
+//! Header: burger, logo → home, drag region, usage pill, settings toggle, window controls.
 
 use gpui::{
     Context, Entity, InteractiveElement, IntoElement, ParentElement, Rgba,
@@ -51,7 +51,6 @@ fn header_button(id: &'static str, glyph: Icon, active: bool) -> gpui::Stateful<
 pub fn header(
     window: &Window,
     usage_pill: Entity<UsagePill>,
-    skills_open: bool,
     settings_open: bool,
     cx: &mut Context<AppRoot>,
 ) -> impl IntoElement {
@@ -97,10 +96,6 @@ pub fn header(
                 .window_control_area(WindowControlArea::Drag),
         )
         .child(usage_pill)
-        .child(
-            header_button("skills-toggle", Icon::Puzzle, skills_open)
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_skills(cx))),
-        )
         .child(
             header_button("settings", Icon::Gear, settings_open)
                 .mr(px(8.0))

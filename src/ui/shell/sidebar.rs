@@ -81,6 +81,8 @@ pub struct Sidebar {
     picker_open: bool,
     shell_menu: Option<ShellMenu>,
     shell_menu_closed_at: Option<Instant>,
+    /// The current route: only the Sessions page highlights a session, only Skills its row.
+    route: Route,
 }
 
 /// The open "new terminal" menu of one project.
@@ -121,6 +123,14 @@ impl Sidebar {
             picker_open: false,
             shell_menu: None,
             shell_menu_closed_at: None,
+            route: Route::home(),
+        }
+    }
+
+    pub fn set_route(&mut self, route: Route, cx: &mut Context<Self>) {
+        if self.route != route {
+            self.route = route;
+            cx.notify();
         }
     }
 
@@ -370,7 +380,12 @@ impl Sidebar {
             project.id.clone(),
         );
 
-        let full_h = ROW_H * sessions.len() as f32
+        let skills_active = self.route == Route::Skills(project.id.clone());
+        let on_sessions = self.route == Route::Sessions;
+        let skills_id = project.id.clone();
+
+        let full_h = ROW_H
+            + ROW_H * sessions.len() as f32
             + if terminals.is_empty() {
                 0.0
             } else {
@@ -554,9 +569,35 @@ impl Sidebar {
             .flex()
             .flex_col()
             .flex_none()
+            .child(
+                div()
+                    .id(gpui::SharedString::from(format!("skills-{}", project.id)))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .h(px(ROW_H))
+                    .ml(px(26.0))
+                    .px(px(6.0))
+                    .rounded(px(6.0))
+                    .cursor_pointer()
+                    .when(skills_active, |s| s.bg(theme::accent_soft()))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.stores
+                            .projects
+                            .update(cx, |p, cx| p.select(&skills_id, cx));
+                        cx.emit(Navigate(Route::Skills(skills_id.clone())));
+                    }))
+                    .child(icon(Icon::Puzzle, px(13.0)).text_color(theme::text_muted()))
+                    .child(
+                        div()
+                            .text_size(px(12.5))
+                            .text_color(theme::text())
+                            .child("Skills"),
+                    ),
+            )
             .children(sessions.into_iter().map(|(id, name, status, worktree)| {
                 let (pick_id, close_id) = (id.clone(), id.clone());
-                let is_active = active.as_deref() == Some(id.as_str());
+                let is_active = on_sessions && active.as_deref() == Some(id.as_str());
                 div()
                     .flex()
                     .items_center()
@@ -635,7 +676,7 @@ impl Sidebar {
                 )
                 .children(terminals.into_iter().map(|(id, name)| {
                     let (pick_id, close_id) = (id.clone(), id.clone());
-                    let is_active = active.as_deref() == Some(id.as_str());
+                    let is_active = on_sessions && active.as_deref() == Some(id.as_str());
                     div()
                         .flex()
                         .items_center()

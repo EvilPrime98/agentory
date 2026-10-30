@@ -1,12 +1,13 @@
-//! Right-hand drawer: the selected project's skills, managed through `spm`.
+//! Skills page: a project's skills, managed through `spm`.
 
 use std::collections::BTreeSet;
 
 use gpui::{
-    AnyElement, Context, Entity, InteractiveElement, IntoElement, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Subscription, Window, div, prelude::*, px,
+    AnyElement, Context, Entity, EventEmitter, InteractiveElement, IntoElement, ParentElement,
+    Render, StatefulInteractiveElement, Styled, Subscription, Window, div, prelude::*, px,
 };
 
+use crate::route::{GoBack, Navigate};
 use crate::state::Stores;
 use crate::ui::components::button::small_button;
 use crate::ui::components::smooth_scroll::SmoothScroll;
@@ -14,7 +15,7 @@ use crate::ui::components::text_input::{TextInput, TextInputEvent};
 use crate::ui::icons::{Icon, icon};
 use crate::ui::theme;
 
-pub struct SkillsDrawer {
+pub struct SkillsPage {
     stores: Stores,
     install_input: Entity<TextInput>,
     repo_input: Entity<TextInput>,
@@ -23,6 +24,9 @@ pub struct SkillsDrawer {
     available_scroll: SmoothScroll,
     _subs: Vec<Subscription>,
 }
+
+/// Narrowest a card gets before the row wraps and the cards stack.
+const CARD_MIN_W: f32 = 340.0;
 
 fn field(input: &Entity<TextInput>) -> impl IntoElement {
     div()
@@ -48,8 +52,8 @@ fn card(
     div()
         .flex()
         .flex_col()
-        .flex_none()
-        .mt(px(10.0))
+        .flex_1()
+        .min_w(px(CARD_MIN_W))
         .p(px(10.0))
         .gap(px(6.0))
         .rounded(px(6.0))
@@ -129,7 +133,10 @@ fn muted_note(text: gpui::SharedString) -> impl IntoElement {
         .child(text)
 }
 
-impl SkillsDrawer {
+impl EventEmitter<Navigate> for SkillsPage {}
+impl EventEmitter<GoBack> for SkillsPage {}
+
+impl SkillsPage {
     pub fn new(stores: Stores, cx: &mut Context<Self>) -> Self {
         let install_input = cx.new(|cx| TextInput::new("skill or market:skill", cx));
         let repo_input = cx.new(|cx| TextInput::new("owner/repo", cx));
@@ -189,7 +196,7 @@ impl SkillsDrawer {
     }
 }
 
-impl Render for SkillsDrawer {
+impl Render for SkillsPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let skills = self.stores.skills.read(cx);
         let has_project = skills.project.is_some();
@@ -374,69 +381,66 @@ impl Render for SkillsDrawer {
         let no_manifest = has_project && manifest.is_none();
 
         div()
+            .id("skills-scroll")
             .flex()
             .flex_col()
-            .flex_none()
-            .w(theme::drawer_width())
-            .h_full()
-            .bg(theme::bg_panel())
-            .border_l_1()
-            .border_color(theme::border_subtle())
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .overflow_y_scroll()
+            .items_center()
             .child(
                 div()
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .justify_between()
-                    .h(px(40.0))
-                    .px(px(14.0))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(8.0))
-                            .child(icon(Icon::Puzzle, px(16.0)).text_color(theme::accent()))
-                            .child(
-                                div()
-                                    .text_size(px(13.0))
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .child("Skills"),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .id("skills-refresh")
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .size(px(26.0))
-                            .rounded(px(6.0))
-                            .cursor_pointer()
-                            .hover(|s| s.bg(theme::hover()))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.stores.skills.update(cx, |s, cx| s.refresh(cx));
-                            }))
-                            .child(icon(Icon::Refresh, px(15.0)).text_color(theme::text())),
-                    ),
-            )
-            .child(
-                div()
-                    .id("skills-scroll")
                     .flex()
                     .flex_col()
-                    .flex_1()
-                    .min_h_0()
-                    .px(px(14.0))
-                    .pb(px(14.0))
-                    .overflow_y_scroll()
-                    .when(!has_project, |s| {
-                        s.child(
-                            div()
-                                .text_size(px(12.5))
-                                .text_color(theme::text_muted())
-                                .child("Select a project to manage its skills."),
-                        )
-                    })
+                    .w_full()
+                    .max_w(px(1100.0))
+                    .p(px(24.0))
+                    .gap(px(12.0))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .text_size(px(20.0))
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .child("Skills"),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(8.0))
+                                    .when_some(busy, |s, label| {
+                                        s.child(
+                                            div()
+                                                .text_size(px(12.0))
+                                                .text_color(theme::accent())
+                                                .child(format!("{label}…")),
+                                        )
+                                    })
+                                    .child(
+                                        div()
+                                            .id("skills-refresh")
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .size(px(26.0))
+                                            .rounded(px(6.0))
+                                            .cursor_pointer()
+                                            .hover(|s| s.bg(theme::hover()))
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.stores.skills.update(cx, |s, cx| s.refresh(cx));
+                                            }))
+                                            .child(
+                                                icon(Icon::Refresh, px(15.0))
+                                                    .text_color(theme::text()),
+                                            ),
+                                    ),
+                            ),
+                    )
                     .when(no_manifest, |s| {
                         s.child(
                             div()
@@ -511,7 +515,7 @@ impl Render for SkillsDrawer {
                                         .id("skills-installed")
                                         .flex()
                                         .flex_col()
-                                        .max_h(px(220.0))
+                                        .max_h(px(360.0))
                                         .children(rows),
                                     window,
                                 )
@@ -537,7 +541,7 @@ impl Render for SkillsDrawer {
                                         .id("skills-available")
                                         .flex()
                                         .flex_col()
-                                        .max_h(px(220.0))
+                                        .max_h(px(360.0))
                                         .children(available_rows),
                                     window,
                                 )
@@ -560,24 +564,20 @@ impl Render for SkillsDrawer {
                         ];
                         repo_body.extend(repos);
 
-                        s.child(card("Context cost", None, Some(cost_actions), cost_body))
-                            .child(card("Installed", Some(installed_count), None, installed_body))
-                            .child(card("Available", Some(available_count), None, available_body))
-                            .child(card("Repos", Some(repo_count), None, repo_body))
+                        // Summary and sources on top, the two long lists side by side below;
+                        // each row wraps into a stack when the window is narrow.
+                        let row = || div().flex().flex_wrap().items_start().gap(px(12.0));
+                        s.child(
+                            row()
+                                .child(card("Context cost", None, Some(cost_actions), cost_body))
+                                .child(card("Repos", Some(repo_count), None, repo_body)),
+                        )
+                        .child(
+                            row()
+                                .child(card("Installed", Some(installed_count), None, installed_body))
+                                .child(card("Available", Some(available_count), None, available_body)),
+                        )
                     }),
             )
-            .when_some(busy, |s, label| {
-                s.child(
-                    div()
-                        .flex_none()
-                        .px(px(14.0))
-                        .py(px(8.0))
-                        .border_t_1()
-                        .border_color(theme::border_subtle())
-                        .text_size(px(12.0))
-                        .text_color(theme::accent())
-                        .child(format!("{label}…")),
-                )
-            })
     }
 }

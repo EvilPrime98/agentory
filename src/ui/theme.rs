@@ -58,9 +58,6 @@ pub fn header_height() -> Pixels {
 pub fn sidebar_width() -> Pixels {
     px(260.0)
 }
-pub fn drawer_width() -> Pixels {
-    px(360.0)
-}
 
 /// Font for the whole app, UI and terminal. Embedded under `assets/fonts` so it does not depend
 /// on the system (Cascadia Mono only ships with Windows 11).

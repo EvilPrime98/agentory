@@ -17,7 +17,6 @@ pub struct Prefs {
     pub fullscreen_agents: bool,
     pub terminal_font_size: f32,
     pub sidebar_collapsed: bool,
-    pub skills_drawer_open: bool,
     /// Id of the shell last opened as a project terminal.
     pub last_shell: String,
 }
@@ -31,7 +30,6 @@ impl Default for Prefs {
             fullscreen_agents: true,
             terminal_font_size: 13.0,
             sidebar_collapsed: false,
-            skills_drawer_open: false,
             last_shell: String::new(),
         }
     }

@@ -11,7 +11,7 @@ sessions side by side and manages each project's skills through the
 - **Status**: sessions are launched with `claude --settings <generated file>` whose hooks
   (`Notification`, `Stop`, `UserPromptSubmit`) write to `%APPDATA%\Agentory\status\<id>.status`.
   No project or global settings are edited.
-- **Skills drawer**: reads `spm.json` / `.claude/skills`, shells out to `spm` for install, uninstall,
+- **Skills page**: reads `spm.json` / `.claude/skills`, shells out to `spm` for install, uninstall,
   update and repo changes, and shows `spm doctor --json` context cost.
 
 ## Run
@@ -23,7 +23,7 @@ AGENTORY_OPEN=settings         # dev aid: open a page at startup
 AGENTORY_AUTOSTART=1           # dev aid: start a session in the selected project
 ```
 
-Keys: `Ctrl+Alt+B` sidebar, `Ctrl+Alt+S` skills drawer, `F11` fullscreen,
+Keys: `Ctrl+Alt+B` sidebar, `Ctrl+Alt+S` skills page, `F11` fullscreen,
 `Ctrl+Shift+V` paste, `Ctrl+Shift+C` copy the visible screen. Everything else goes to the PTY.
 
 App data: `%APPDATA%\Agentory` (prefs, projects), `%LOCALAPPDATA%\Agentory` (logs, status, worktrees).
