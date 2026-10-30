@@ -35,7 +35,7 @@ pub fn read_snapshot(project: &Path) -> Snapshot {
 }
 
 pub async fn install(project: &Path, skills: &[String]) -> Result<String, String> {
-    let mut args = vec!["install"];
+    let mut args = vec!["install", "--yes"];
     args.extend(skills.iter().map(String::as_str));
     capture("spm", &args, project).await
 }
