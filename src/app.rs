@@ -58,9 +58,10 @@ fn ease_in_cubic(t: f32) -> f32 {
     t * t * t
 }
 
-/// A slide of the skills drawer between `from` and `to` (0 = hidden, 1 = fully shown).
+/// A slide of a panel (the skills drawer or the sidebar) between `from` and `to`
+/// (0 = hidden, 1 = fully shown).
 #[derive(Clone, Copy)]
-struct DrawerAnim {
+struct PanelAnim {
     id: usize,
     from: f32,
     to: f32,
@@ -68,7 +69,38 @@ struct DrawerAnim {
     duration: Duration,
 }
 
-impl DrawerAnim {
+impl PanelAnim {
+    /// Starts a slide toward the opposite of `was_open`, reversing from wherever `prev` currently is
+    /// so a mid-animation toggle does not jump.
+    fn toggle(prev: Option<Self>, was_open: bool) -> Self {
+        let from = match prev {
+            Some(a) => a.progress(),
+            None if was_open => 1.0,
+            None => 0.0,
+        };
+        let to = if was_open { 0.0 } else { 1.0 };
+        let full = if was_open { DRAWER_CLOSE } else { DRAWER_OPEN };
+        Self {
+            id: prev.map_or(0, |a| a.id + 1),
+            from,
+            to,
+            started: Instant::now(),
+            duration: full
+                .mul_f32((to - from).abs())
+                .max(Duration::from_millis(1)),
+        }
+    }
+
+    /// Re-renders once the slide is over so a closed panel is unmounted.
+    fn notify_when_done(&self, cx: &mut Context<AppRoot>) {
+        let wait = self.duration + Duration::from_millis(16);
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(wait).await;
+            this.update(cx, |_, cx| cx.notify()).ok();
+        })
+        .detach();
+    }
+
     fn easing(&self) -> fn(f32) -> f32 {
         if self.to > self.from {
             ease_out_cubic
@@ -106,7 +138,8 @@ pub struct AppRoot {
     /// The close guard has been answered: the next close request goes through.
     close_confirmed: bool,
     close_check_pending: bool,
-    drawer_anim: Option<DrawerAnim>,
+    drawer_anim: Option<PanelAnim>,
+    sidebar_anim: Option<PanelAnim>,
 }
 
 impl AppRoot {
@@ -160,6 +193,7 @@ impl AppRoot {
             close_confirmed: false,
             close_check_pending: false,
             drawer_anim: None,
+            sidebar_anim: None,
         };
         // Closing with running sessions asks first (`on_window_should_close` is synchronous, so the
         // answer arrives later and the window closes itself).
@@ -322,43 +356,63 @@ impl AppRoot {
     }
 
     pub fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
+        let was_open = !self.stores.prefs.read(cx).prefs.sidebar_collapsed;
+        let anim = PanelAnim::toggle(self.sidebar_anim, was_open);
+        self.sidebar_anim = Some(anim);
         self.stores.prefs.update(cx, |p, cx| {
-            p.update(cx, |p| p.sidebar_collapsed = !p.sidebar_collapsed)
+            p.update(cx, |p| p.sidebar_collapsed = was_open)
         });
+        anim.notify_when_done(cx);
     }
 
     pub fn toggle_skills(&mut self, cx: &mut Context<Self>) {
         let was_open = self.stores.prefs.read(cx).prefs.skills_drawer_open;
-        // Reverse from wherever the slide currently is, so a mid-animation toggle does not jump.
-        let from = match self.drawer_anim {
-            Some(a) => a.progress(),
-            None if was_open => 1.0,
-            None => 0.0,
-        };
-        let to = if was_open { 0.0 } else { 1.0 };
-        let full = if was_open { DRAWER_CLOSE } else { DRAWER_OPEN };
-        let duration = full
-            .mul_f32((to - from).abs())
-            .max(Duration::from_millis(1));
-        let id = self.drawer_anim.map_or(0, |a| a.id + 1);
-        self.drawer_anim = Some(DrawerAnim {
-            id,
-            from,
-            to,
-            started: Instant::now(),
-            duration,
-        });
+        let anim = PanelAnim::toggle(self.drawer_anim, was_open);
+        self.drawer_anim = Some(anim);
         self.stores.prefs.update(cx, |p, cx| {
             p.update(cx, |p| p.skills_drawer_open = !was_open)
         });
-        // Re-render once the slide is over so a closed drawer is unmounted.
-        cx.spawn(async move |this, cx| {
-            cx.background_executor()
-                .timer(duration + Duration::from_millis(16))
-                .await;
-            this.update(cx, |_, cx| cx.notify()).ok();
-        })
-        .detach();
+        anim.notify_when_done(cx);
+    }
+
+    /// The sidebar in a wrapper that animates its width and clips it. The sidebar keeps its full
+    /// width, pinned to the wrapper's right edge, so it slides left and its text never rewraps.
+    /// `None` when it is fully hidden.
+    fn sidebar_panel(&self, open: bool) -> Option<gpui::AnyElement> {
+        let width = theme::sidebar_width();
+        let shell = || {
+            div()
+                .relative()
+                .flex_none()
+                .overflow_hidden()
+                .w(width)
+                .child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .bottom_0()
+                        .right_0()
+                        .w(width)
+                        .flex()
+                        .child(self.sidebar.clone()),
+                )
+        };
+        match self.sidebar_anim.filter(PanelAnim::running) {
+            Some(a) => Some(
+                shell()
+                    .with_animation(
+                        ("sidebar", a.id),
+                        Animation::new(a.duration).with_easing(a.easing()),
+                        move |el, t| {
+                            let p = a.from + (a.to - a.from) * t;
+                            el.w(width * p).opacity(0.5 + 0.5 * p)
+                        },
+                    )
+                    .into_any_element(),
+            ),
+            None if open => Some(shell().into_any_element()),
+            None => None,
+        }
     }
 
     /// The drawer as an overlay on the right edge: it slides by translating x, so the content
@@ -374,7 +428,7 @@ impl AppRoot {
                 .occlude()
                 .child(drawer)
         };
-        match self.drawer_anim.filter(DrawerAnim::running) {
+        match self.drawer_anim.filter(PanelAnim::running) {
             Some(a) => Some(
                 shell(self.drawer.clone())
                     .with_animation(
@@ -448,7 +502,7 @@ impl Render for AppRoot {
                     .flex()
                     .flex_1()
                     .min_h_0()
-                    .when(!prefs.sidebar_collapsed, |s| s.child(self.sidebar.clone()))
+                    .children(self.sidebar_panel(!prefs.sidebar_collapsed))
                     .child(content)
                     .children(self.drawer_overlay(prefs.skills_drawer_open)),
             )
