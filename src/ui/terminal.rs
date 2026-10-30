@@ -19,7 +19,7 @@ use gpui::{
     App, ClipboardItem, ColorExt, Context, EventEmitter, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyDownEvent, Keystroke, Modifiers, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, Render, Rgba,
-    ScrollWheelEvent, SharedString, Size, Styled, Window, canvas, div, prelude::*, px, rgb,
+    ScrollWheelEvent, SharedString, Size, Styled, Task, Window, canvas, div, prelude::*, px, rgb,
 };
 
 use crate::platform::pty::{Pty, Spawned};
@@ -29,6 +29,8 @@ use crate::ui::selection::{
 use crate::ui::theme;
 
 const SCROLLBACK_LINES: usize = 5000;
+/// How long the size must stay stable before the grid and the pty are resized.
+const RESIZE_SETTLE: Duration = Duration::from_millis(40);
 
 /// Emitted once when the child process is gone.
 pub struct TerminalExited;
@@ -110,6 +112,11 @@ pub struct Terminal {
     /// Cell size in px, measured from the font on every render.
     cell: (f32, f32),
     font_size: f32,
+    /// Grid size waiting for the layout to settle, and the timer that applies it.
+    pending_size: Option<(u16, u16)>,
+    resize_timer: Option<Task<()>>,
+    /// The next layout applies at once: before the first one and after a font size change.
+    apply_next_size: bool,
     wheel_remainder: f32,
     /// Top-left of the cell grid in window coordinates, from the last layout.
     origin: Point<Pixels>,
@@ -314,6 +321,9 @@ impl Terminal {
             cols,
             cell: (font_size * 0.6, (font_size * 1.35).round()),
             font_size,
+            pending_size: None,
+            resize_timer: None,
+            apply_next_size: true,
             wheel_remainder: 0.0,
             origin: Point::default(),
             selection: None,
@@ -369,6 +379,7 @@ impl Terminal {
     pub fn set_font_size(&mut self, size: f32, cx: &mut Context<Self>) {
         if (self.font_size - size).abs() > f32::EPSILON {
             self.font_size = size;
+            self.apply_next_size = true;
             cx.notify();
         }
     }
@@ -403,12 +414,40 @@ impl Terminal {
         }
     }
 
-    /// Fit the grid to the pixel area the widget got.
+    /// Fit the grid to the pixel area the widget got. Size changes settle for `RESIZE_SETTLE`
+    /// first, so the child is not resized on every frame of a window drag or sidebar animation;
+    /// meanwhile the old grid stays on screen, clipped at the edges.
     fn set_viewport(&mut self, size: Size<Pixels>, cx: &mut Context<Self>) {
         let (cw, ch) = self.cell;
         let cols = ((f32::from(size.width) / cw).floor() as u16).max(10);
         let rows = ((f32::from(size.height) / ch).floor() as u16).max(3);
-        if cols == self.cols && rows == self.rows {
+        if self.apply_next_size {
+            self.apply_next_size = false;
+            self.pending_size = Some((rows, cols));
+            self.apply_pending_size(cx);
+            return;
+        }
+        if (rows, cols) == (self.rows, self.cols) {
+            self.pending_size = None;
+            self.resize_timer = None;
+            return;
+        }
+        if self.pending_size == Some((rows, cols)) {
+            return;
+        }
+        self.pending_size = Some((rows, cols));
+        self.resize_timer = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(RESIZE_SETTLE).await;
+            this.update(cx, |t, cx| t.apply_pending_size(cx)).ok();
+        }));
+    }
+
+    fn apply_pending_size(&mut self, cx: &mut Context<Self>) {
+        self.resize_timer = None;
+        let Some((rows, cols)) = self.pending_size.take() else {
+            return;
+        };
+        if (rows, cols) == (self.rows, self.cols) {
             return;
         }
         self.cols = cols;
