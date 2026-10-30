@@ -166,7 +166,7 @@ impl SkillsStore {
     }
 
     pub fn update_all(&mut self, cx: &mut Context<Self>) {
-        self.mutate("Update skills".into(), false, cx, |dir| async move {
+        self.mutate("Updating skills".into(), false, cx, |dir| async move {
             spm::update(&dir).await
         });
     }

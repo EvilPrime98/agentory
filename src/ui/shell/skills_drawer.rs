@@ -35,14 +35,87 @@ fn field(input: &Entity<TextInput>) -> impl IntoElement {
         .child(input.clone())
 }
 
-fn section_title(text: &'static str) -> impl IntoElement {
+/// Bordered section: header (title, optional count badge, optional right-side action) then body.
+fn card(
+    title: &'static str,
+    count: Option<usize>,
+    action: Option<AnyElement>,
+    body: Vec<AnyElement>,
+) -> impl IntoElement {
     div()
-        .mt(px(14.0))
-        .mb(px(6.0))
-        .text_size(px(11.0))
-        .font_weight(gpui::FontWeight::SEMIBOLD)
-        .text_color(theme::text_muted())
-        .child(text)
+        .flex()
+        .flex_col()
+        .flex_none()
+        .mt(px(10.0))
+        .p(px(10.0))
+        .gap(px(6.0))
+        .rounded(px(6.0))
+        .border_1()
+        .border_color(theme::border_subtle())
+        .bg(theme::bg_app())
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(px(8.0))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.0))
+                        .child(
+                            div()
+                                .text_size(px(12.0))
+                                .font_weight(gpui::FontWeight::SEMIBOLD)
+                                .child(title),
+                        )
+                        .when_some(count, |s, n| {
+                            s.child(
+                                div()
+                                    .px(px(6.0))
+                                    .rounded(px(8.0))
+                                    .bg(theme::hover())
+                                    .text_size(px(11.0))
+                                    .text_color(theme::text_muted())
+                                    .child(n.to_string()),
+                            )
+                        }),
+                )
+                .when_some(action, |s, a| s.child(a)),
+        )
+        .children(body)
+}
+
+fn icon_button(
+    id: impl Into<gpui::ElementId>,
+    glyph: Icon,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .size(px(24.0))
+        .rounded(px(4.0))
+        .cursor_pointer()
+        .hover(|s| s.bg(theme::hover()))
+        .on_click(on_click)
+        .child(icon(glyph, px(14.0)).text_color(theme::text_muted()))
+}
+
+/// Hairline between list rows: every row but the first gets a top border.
+fn row_base(index: usize) -> gpui::Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(8.0))
+        .py(px(5.0))
+        .when(index > 0, |s| {
+            s.border_t_1().border_color(theme::border_subtle())
+        })
 }
 
 fn muted_note(text: gpui::SharedString) -> impl IntoElement {
@@ -127,7 +200,8 @@ impl Render for SkillsDrawer {
         let installed_names = names.clone();
         let rows: Vec<AnyElement> = names
             .into_iter()
-            .map(|name| {
+            .enumerate()
+            .map(|(i, name)| {
                 let on_disk = skills.snapshot.installed.contains(&name);
                 let source = manifest.as_ref().and_then(|m| m.source_of(&name));
                 let cost = doctor.as_ref().and_then(|d| {
@@ -137,11 +211,16 @@ impl Render for SkillsDrawer {
                         .map(|s| s.description_tokens)
                 });
                 let remove_name = name.clone();
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .py(px(4.0))
+                row_base(i)
+                    .when(!on_disk, |s| {
+                        s.child(
+                            div()
+                                .flex_none()
+                                .size(px(6.0))
+                                .rounded_full()
+                                .bg(theme::warning()),
+                        )
+                    })
                     .child(
                         div()
                             .flex()
@@ -177,14 +256,17 @@ impl Render for SkillsDrawer {
                         s.child(
                             div()
                                 .flex_none()
+                                .px(px(6.0))
+                                .rounded(px(4.0))
+                                .bg(theme::hover())
                                 .text_size(px(11.0))
                                 .text_color(theme::text_muted())
                                 .child(format!("{tokens} tok")),
                         )
                     })
-                    .child(small_button(
+                    .child(icon_button(
                         gpui::SharedString::from(format!("rm-skill-{}", name.clone())),
-                        "Remove",
+                        Icon::Trash,
                         cx.listener(move |this, _, _, cx| {
                             let n = remove_name.clone();
                             this.stores.skills.update(cx, |s, cx| s.uninstall(n, cx));
@@ -214,13 +296,10 @@ impl Render for SkillsDrawer {
         let no_match = !nothing_new && matches.is_empty();
         let available_rows: Vec<AnyElement> = matches
             .into_iter()
-            .map(|a| {
+            .enumerate()
+            .map(|(i, a)| {
                 let install_name = a.name.clone();
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .py(px(4.0))
+                row_base(i)
                     .child(
                         div()
                             .flex()
@@ -244,9 +323,9 @@ impl Render for SkillsDrawer {
                                 )
                             }),
                     )
-                    .child(small_button(
+                    .child(icon_button(
                         gpui::SharedString::from(format!("add-skill-{}", a.name)),
-                        "Install",
+                        Icon::Plus,
                         cx.listener(move |this, _, _, cx| {
                             let n = install_name.clone();
                             this.stores
@@ -262,13 +341,10 @@ impl Render for SkillsDrawer {
             .map(|m| m.repos.clone())
             .unwrap_or_default()
             .into_iter()
-            .map(|repo| {
+            .enumerate()
+            .map(|(i, repo)| {
                 let remove_repo = repo.clone();
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .py(px(2.0))
+                row_base(i)
                     .child(
                         div()
                             .flex_1()
@@ -278,9 +354,9 @@ impl Render for SkillsDrawer {
                             .text_color(theme::text_muted())
                             .child(repo.clone()),
                     )
-                    .child(small_button(
+                    .child(icon_button(
                         gpui::SharedString::from(format!("rm-repo-{}", repo)),
-                        "×",
+                        Icon::Close,
                         cx.listener(move |this, _, _, cx| {
                             let r = remove_repo.clone();
                             this.stores.skills.update(cx, |s, cx| s.remove_repo(r, cx));
@@ -367,87 +443,107 @@ impl Render for SkillsDrawer {
                         )
                     })
                     .when(has_project && !no_manifest, |s| {
-                        s.child(section_title("INSTALLED"))
-                            .children(rows)
-                            .child(
+                        let cost_actions = div()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.0))
+                            .child(small_button(
+                                "run-doctor",
+                                "Measure",
+                                cx.listener(|this, _, _, cx| {
+                                    this.stores.skills.update(cx, |s, cx| s.run_doctor(cx));
+                                }),
+                            ))
+                            .child(small_button(
+                                "update-skills",
+                                "Update all",
+                                cx.listener(|this, _, _, cx| {
+                                    this.stores.skills.update(cx, |s, cx| s.update_all(cx));
+                                }),
+                            ))
+                            .into_any_element();
+                        let cost_body: Vec<AnyElement> = total
+                            .map(|t| {
                                 div()
                                     .flex()
-                                    .items_center()
+                                    .items_baseline()
                                     .gap(px(6.0))
-                                    .mt(px(6.0))
-                                    .child(field(&self.install_input))
-                                    .child(small_button(
-                                        "install-skill",
-                                        "Install",
-                                        cx.listener(|this, _, _, cx| this.submit_install(cx)),
-                                    )),
-                            )
-                            .child(section_title("AVAILABLE"))
-                            .child(
-                                div()
-                                    .flex()
-                                    .child(field(&self.filter_input)),
-                            )
-                            .when_some(available_error, |s, e| {
-                                s.child(muted_note(e))
+                                    .child(
+                                        div()
+                                            .text_size(px(24.0))
+                                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                                            .child(t.to_string()),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_size(px(12.0))
+                                            .text_color(theme::text_muted())
+                                            .child("tokens in descriptions"),
+                                    )
+                                    .into_any_element()
                             })
-                            .when(nothing_new && !has_available_error, |s| {
-                                s.child(muted_note("Nothing to install".into()))
-                            })
-                            .when(no_match, |s| s.child(muted_note("No skills match".into())))
-                            .child(
-                                div()
-                                    .id("skills-available")
-                                    .flex()
-                                    .flex_col()
-                                    .max_h(px(220.0))
-                                    .overflow_y_scroll()
-                                    .children(available_rows),
-                            )
-                            .child(section_title("REPOS"))
-                            .children(repos)
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(6.0))
-                                    .mt(px(6.0))
-                                    .child(field(&self.repo_input))
-                                    .child(small_button(
-                                        "add-repo",
-                                        "Add",
-                                        cx.listener(|this, _, _, cx| this.submit_repo(cx)),
-                                    )),
-                            )
-                            .child(section_title("CONTEXT COST"))
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(8.0))
-                                    .child(small_button(
-                                        "run-doctor",
-                                        "Measure",
-                                        cx.listener(|this, _, _, cx| {
-                                            this.stores.skills.update(cx, |s, cx| s.run_doctor(cx));
-                                        }),
-                                    ))
-                                    .child(small_button(
-                                        "update-skills",
-                                        "Update all",
-                                        cx.listener(|this, _, _, cx| {
-                                            this.stores.skills.update(cx, |s, cx| s.update_all(cx));
-                                        }),
-                                    ))
-                                    .when_some(total, |s, t| {
-                                        s.child(
-                                            div()
-                                                .text_size(px(12.0))
-                                                .text_color(theme::text_muted())
-                                                .child(format!("{t} tokens in descriptions")),
-                                        )
-                                    }),
-                            )
+                            .into_iter()
+                            .collect();
+
+                        let installed_count = rows.len();
+                        let mut installed_body: Vec<AnyElement> = vec![
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(6.0))
+                                .child(field(&self.install_input))
+                                .child(small_button(
+                                    "install-skill",
+                                    "Install",
+                                    cx.listener(|this, _, _, cx| this.submit_install(cx)),
+                                ))
+                                .into_any_element(),
+                        ];
+                        installed_body.extend(rows);
+
+                        let available_count = available_rows.len();
+                        let mut available_body: Vec<AnyElement> =
+                            vec![div().flex().child(field(&self.filter_input)).into_any_element()];
+                        if let Some(e) = available_error {
+                            available_body.push(muted_note(e).into_any_element());
+                        }
+                        if nothing_new && !has_available_error {
+                            available_body.push(muted_note("Nothing to install".into()).into_any_element());
+                        }
+                        if no_match {
+                            available_body.push(muted_note("No skills match".into()).into_any_element());
+                        }
+                        available_body.push(
+                            div()
+                                .id("skills-available")
+                                .flex()
+                                .flex_col()
+                                .max_h(px(220.0))
+                                .overflow_y_scroll()
+                                .children(available_rows)
+                                .into_any_element(),
+                        );
+
+                        let repo_count = repos.len();
+                        let mut repo_body: Vec<AnyElement> = vec![
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(6.0))
+                                .child(field(&self.repo_input))
+                                .child(small_button(
+                                    "add-repo",
+                                    "Add",
+                                    cx.listener(|this, _, _, cx| this.submit_repo(cx)),
+                                ))
+                                .into_any_element(),
+                        ];
+                        repo_body.extend(repos);
+
+                        s.child(card("Context cost", None, Some(cost_actions), cost_body))
+                            .child(card("Installed", Some(installed_count), None, installed_body))
+                            .child(card("Available", Some(available_count), None, available_body))
+                            .child(card("Repos", Some(repo_count), None, repo_body))
                     }),
             )
             .when_some(busy, |s, label| {
