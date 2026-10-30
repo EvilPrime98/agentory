@@ -9,6 +9,7 @@ use gpui::{
 
 use crate::state::Stores;
 use crate::ui::components::button::small_button;
+use crate::ui::components::smooth_scroll::SmoothScroll;
 use crate::ui::components::text_input::{TextInput, TextInputEvent};
 use crate::ui::icons::{Icon, icon};
 use crate::ui::theme;
@@ -18,6 +19,7 @@ pub struct SkillsDrawer {
     install_input: Entity<TextInput>,
     repo_input: Entity<TextInput>,
     filter_input: Entity<TextInput>,
+    available_scroll: SmoothScroll,
     _subs: Vec<Subscription>,
 }
 
@@ -155,6 +157,7 @@ impl SkillsDrawer {
             install_input,
             repo_input,
             filter_input,
+            available_scroll: SmoothScroll::new(),
             _subs: subs,
         }
     }
@@ -185,7 +188,7 @@ impl SkillsDrawer {
 }
 
 impl Render for SkillsDrawer {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let skills = self.stores.skills.read(cx);
         let has_project = skills.project.is_some();
         let busy = skills.busy.clone();
@@ -514,13 +517,16 @@ impl Render for SkillsDrawer {
                             available_body.push(muted_note("No skills match".into()).into_any_element());
                         }
                         available_body.push(
-                            div()
-                                .id("skills-available")
-                                .flex()
-                                .flex_col()
-                                .max_h(px(220.0))
-                                .overflow_y_scroll()
-                                .children(available_rows)
+                            self.available_scroll
+                                .attach(
+                                    div()
+                                        .id("skills-available")
+                                        .flex()
+                                        .flex_col()
+                                        .max_h(px(220.0))
+                                        .children(available_rows),
+                                    window,
+                                )
                                 .into_any_element(),
                         );
 
