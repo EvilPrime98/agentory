@@ -19,6 +19,7 @@ pub struct SkillsDrawer {
     install_input: Entity<TextInput>,
     repo_input: Entity<TextInput>,
     filter_input: Entity<TextInput>,
+    installed_scroll: SmoothScroll,
     available_scroll: SmoothScroll,
     _subs: Vec<Subscription>,
 }
@@ -157,6 +158,7 @@ impl SkillsDrawer {
             install_input,
             repo_input,
             filter_input,
+            installed_scroll: SmoothScroll::new(),
             available_scroll: SmoothScroll::new(),
             _subs: subs,
         }
@@ -502,7 +504,19 @@ impl Render for SkillsDrawer {
                                 ))
                                 .into_any_element(),
                         ];
-                        installed_body.extend(rows);
+                        installed_body.push(
+                            self.installed_scroll
+                                .attach(
+                                    div()
+                                        .id("skills-installed")
+                                        .flex()
+                                        .flex_col()
+                                        .max_h(px(220.0))
+                                        .children(rows),
+                                    window,
+                                )
+                                .into_any_element(),
+                        );
 
                         let available_count = available_rows.len();
                         let mut available_body: Vec<AnyElement> =
