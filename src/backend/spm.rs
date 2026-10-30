@@ -34,6 +34,13 @@ pub fn read_snapshot(project: &Path) -> Snapshot {
     }
 }
 
+/// `spm init [repo]`: create `spm.json`, optionally seeding the pool with `repo`.
+pub async fn init(project: &Path, repo: Option<&str>) -> Result<String, String> {
+    let mut args = vec!["init"];
+    args.extend(repo);
+    capture("spm", &args, project).await
+}
+
 pub async fn install(project: &Path, skills: &[String]) -> Result<String, String> {
     let mut args = vec!["install", "--yes"];
     args.extend(skills.iter().map(String::as_str));

@@ -148,6 +148,15 @@ impl SkillsStore {
         .detach();
     }
 
+    pub fn init(&mut self, repo: Option<String>, cx: &mut Context<Self>) {
+        self.mutate(
+            "Initializing skills".into(),
+            true,
+            cx,
+            move |dir| async move { spm::init(&dir, repo.as_deref()).await },
+        );
+    }
+
     pub fn install(&mut self, names: Vec<String>, cx: &mut Context<Self>) {
         if names.is_empty() {
             return;

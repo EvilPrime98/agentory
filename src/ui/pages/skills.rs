@@ -19,6 +19,7 @@ pub struct SkillsPage {
     stores: Stores,
     install_input: Entity<TextInput>,
     repo_input: Entity<TextInput>,
+    init_repo_input: Entity<TextInput>,
     filter_input: Entity<TextInput>,
     installed_scroll: SmoothScroll,
     available_scroll: SmoothScroll,
@@ -140,6 +141,7 @@ impl SkillsPage {
     pub fn new(stores: Stores, cx: &mut Context<Self>) -> Self {
         let install_input = cx.new(|cx| TextInput::new("skill or market:skill", cx));
         let repo_input = cx.new(|cx| TextInput::new("owner/repo", cx));
+        let init_repo_input = cx.new(|cx| TextInput::new("owner/repo (optional)", cx));
         let filter_input = cx.new(|cx| TextInput::new("filter available skills", cx));
         let subs = vec![
             cx.observe(&stores.skills, |_, _, cx| cx.notify()),
@@ -154,6 +156,11 @@ impl SkillsPage {
                     cx.notify();
                 }
             }),
+            cx.subscribe(&init_repo_input, |this, _, ev: &TextInputEvent, cx| {
+                if matches!(ev, TextInputEvent::Submit) {
+                    this.submit_init(cx);
+                }
+            }),
             cx.subscribe(&repo_input, |this, _, ev: &TextInputEvent, cx| {
                 if matches!(ev, TextInputEvent::Submit) {
                     this.submit_repo(cx);
@@ -164,6 +171,7 @@ impl SkillsPage {
             stores,
             install_input,
             repo_input,
+            init_repo_input,
             filter_input,
             installed_scroll: SmoothScroll::new(),
             available_scroll: SmoothScroll::new(),
@@ -184,6 +192,13 @@ impl SkillsPage {
         }
         self.install_input.update(cx, |i, cx| i.set_value("", cx));
         self.stores.skills.update(cx, |s, cx| s.install(names, cx));
+    }
+
+    fn submit_init(&mut self, cx: &mut Context<Self>) {
+        let repo = self.init_repo_input.read(cx).value().trim().to_string();
+        self.init_repo_input.update(cx, |i, cx| i.set_value("", cx));
+        let repo = (!repo.is_empty()).then_some(repo);
+        self.stores.skills.update(cx, |s, cx| s.init(repo, cx));
     }
 
     fn submit_repo(&mut self, cx: &mut Context<Self>) {
@@ -444,10 +459,29 @@ impl Render for SkillsPage {
                     .when(no_manifest, |s| {
                         s.child(
                             div()
-                                .text_size(px(12.5))
-                                .text_color(theme::text_muted())
+                                .flex()
+                                .flex_col()
+                                .gap(px(8.0))
                                 .child(
-                                    "This project has no spm.json. Run `spm init` in the project folder.",
+                                    div()
+                                        .text_size(px(12.5))
+                                        .text_color(theme::text_muted())
+                                        .child(
+                                            "This project has no spm.json. Initializing creates it and hides global skills in this project.",
+                                        ),
+                                )
+                                .child(
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(6.0))
+                                        .max_w(px(480.0))
+                                        .child(field(&self.init_repo_input))
+                                        .child(small_button(
+                                            "init-skills",
+                                            "Initialize skills",
+                                            cx.listener(|this, _, _, cx| this.submit_init(cx)),
+                                        )),
                                 ),
                         )
                     })
