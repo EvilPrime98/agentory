@@ -40,6 +40,39 @@ pub async fn install(project: &Path, skills: &[String]) -> Result<String, String
     capture("spm", &args, project).await
 }
 
+/// A skill in the repo pool that `spm available` lists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AvailableSkill {
+    pub name: String,
+    /// Empty when the pool has no usable description.
+    pub description: String,
+}
+
+/// `spm available`: one skill per line, a padded name column then a truncated description.
+pub async fn list_available(project: &Path) -> Result<Vec<AvailableSkill>, String> {
+    let out = capture("spm", &["available"], project).await?;
+    Ok(parse_available(&out))
+}
+
+fn parse_available(out: &str) -> Vec<AvailableSkill> {
+    out.lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            let (name, rest) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
+            if name.is_empty() {
+                return None;
+            }
+            let description = rest.trim();
+            // Folded YAML descriptions (`>`) leave a bare marker behind.
+            let description = if description == ">" { "" } else { description };
+            Some(AvailableSkill {
+                name: name.to_string(),
+                description: description.to_string(),
+            })
+        })
+        .collect()
+}
+
 pub async fn uninstall(project: &Path, skill: &str) -> Result<String, String> {
     capture("spm", &["uninstall", skill], project).await
 }
@@ -73,6 +106,18 @@ pub async fn available() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn available_lines_split_on_the_name_column() {
+        let out = "alpha          Does a thing\ncleaner-doctor >\nbeta\n\n";
+        let got = parse_available(out);
+        assert_eq!(got.len(), 3);
+        assert_eq!(got[0].name, "alpha");
+        assert_eq!(got[0].description, "Does a thing");
+        assert_eq!(got[1].name, "cleaner-doctor");
+        assert_eq!(got[1].description, "");
+        assert_eq!(got[2].description, "");
+    }
 
     #[test]
     fn snapshot_of_missing_folder_is_empty() {

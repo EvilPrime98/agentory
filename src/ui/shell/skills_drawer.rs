@@ -17,6 +17,7 @@ pub struct SkillsDrawer {
     stores: Stores,
     install_input: Entity<TextInput>,
     repo_input: Entity<TextInput>,
+    filter_input: Entity<TextInput>,
     _subs: Vec<Subscription>,
 }
 
@@ -44,16 +45,30 @@ fn section_title(text: &'static str) -> impl IntoElement {
         .child(text)
 }
 
+fn muted_note(text: gpui::SharedString) -> impl IntoElement {
+    div()
+        .mt(px(6.0))
+        .text_size(px(12.0))
+        .text_color(theme::text_muted())
+        .child(text)
+}
+
 impl SkillsDrawer {
     pub fn new(stores: Stores, cx: &mut Context<Self>) -> Self {
         let install_input = cx.new(|cx| TextInput::new("skill or market:skill", cx));
         let repo_input = cx.new(|cx| TextInput::new("owner/repo", cx));
+        let filter_input = cx.new(|cx| TextInput::new("filter available skills", cx));
         let subs = vec![
             cx.observe(&stores.skills, |_, _, cx| cx.notify()),
             cx.observe(&stores.projects, |_, _, cx| cx.notify()),
             cx.subscribe(&install_input, |this, _, ev: &TextInputEvent, cx| {
                 if matches!(ev, TextInputEvent::Submit) {
                     this.submit_install(cx);
+                }
+            }),
+            cx.subscribe(&filter_input, |_, _, ev: &TextInputEvent, cx| {
+                if matches!(ev, TextInputEvent::Changed) {
+                    cx.notify();
                 }
             }),
             cx.subscribe(&repo_input, |this, _, ev: &TextInputEvent, cx| {
@@ -66,6 +81,7 @@ impl SkillsDrawer {
             stores,
             install_input,
             repo_input,
+            filter_input,
             _subs: subs,
         }
     }
@@ -108,6 +124,7 @@ impl Render for SkillsDrawer {
         if let Some(m) = &manifest {
             names.extend(m.skills.keys().cloned());
         }
+        let installed_names = names.clone();
         let rows: Vec<AnyElement> = names
             .into_iter()
             .map(|name| {
@@ -171,6 +188,70 @@ impl Render for SkillsDrawer {
                         cx.listener(move |this, _, _, cx| {
                             let n = remove_name.clone();
                             this.stores.skills.update(cx, |s, cx| s.uninstall(n, cx));
+                        }),
+                    ))
+                    .into_any_element()
+            })
+            .collect();
+        let filter = self.filter_input.read(cx).value().trim().to_lowercase();
+        let pool: Vec<_> = skills
+            .available
+            .iter()
+            .filter(|a| !installed_names.contains(&a.name))
+            .cloned()
+            .collect();
+        let available_error = skills.available_error.clone();
+        let has_available_error = available_error.is_some();
+        let nothing_new = pool.is_empty();
+        let matches: Vec<_> = pool
+            .into_iter()
+            .filter(|a| {
+                filter.is_empty()
+                    || a.name.to_lowercase().contains(&filter)
+                    || a.description.to_lowercase().contains(&filter)
+            })
+            .collect();
+        let no_match = !nothing_new && matches.is_empty();
+        let available_rows: Vec<AnyElement> = matches
+            .into_iter()
+            .map(|a| {
+                let install_name = a.name.clone();
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .py(px(4.0))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_size(px(13.0))
+                                    .text_color(theme::text())
+                                    .child(a.name.clone()),
+                            )
+                            .when(!a.description.is_empty(), |s| {
+                                s.child(
+                                    div()
+                                        .truncate()
+                                        .text_size(px(11.0))
+                                        .text_color(theme::text_muted())
+                                        .child(a.description.clone()),
+                                )
+                            }),
+                    )
+                    .child(small_button(
+                        gpui::SharedString::from(format!("add-skill-{}", a.name)),
+                        "Install",
+                        cx.listener(move |this, _, _, cx| {
+                            let n = install_name.clone();
+                            this.stores
+                                .skills
+                                .update(cx, |s, cx| s.install(vec![n], cx));
                         }),
                     ))
                     .into_any_element()
@@ -300,6 +381,28 @@ impl Render for SkillsDrawer {
                                         "Install",
                                         cx.listener(|this, _, _, cx| this.submit_install(cx)),
                                     )),
+                            )
+                            .child(section_title("AVAILABLE"))
+                            .child(
+                                div()
+                                    .flex()
+                                    .child(field(&self.filter_input)),
+                            )
+                            .when_some(available_error, |s, e| {
+                                s.child(muted_note(e))
+                            })
+                            .when(nothing_new && !has_available_error, |s| {
+                                s.child(muted_note("Nothing to install".into()))
+                            })
+                            .when(no_match, |s| s.child(muted_note("No skills match".into())))
+                            .child(
+                                div()
+                                    .id("skills-available")
+                                    .flex()
+                                    .flex_col()
+                                    .max_h(px(220.0))
+                                    .overflow_y_scroll()
+                                    .children(available_rows),
                             )
                             .child(section_title("REPOS"))
                             .children(repos)
