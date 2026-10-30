@@ -4,6 +4,7 @@ pub mod prefs;
 pub mod projects;
 pub mod sessions;
 pub mod skills;
+pub mod usage;
 
 use gpui::{App, AppContext as _, Entity, Global};
 
@@ -15,17 +16,29 @@ pub struct Stores {
     pub projects: Entity<projects::ProjectsStore>,
     pub sessions: Entity<sessions::SessionsStore>,
     pub skills: Entity<skills::SkillsStore>,
+    pub usage: Entity<usage::UsageStore>,
 }
 
 impl Global for Stores {}
 
 impl Stores {
     pub fn new(cx: &mut App) -> Self {
+        let prefs = cx.new(|_| prefs::PrefsStore::load());
+        let sessions = cx.new(sessions::SessionsStore::new);
+        // Terminals follow the font size preference whichever page is mounted.
+        let sessions_for_font = sessions.clone();
+        cx.observe(&prefs, move |prefs, cx| {
+            let size = prefs.read(cx).prefs.terminal_font_size;
+            sessions_for_font.update(cx, |s, cx| s.set_font_size(size, cx));
+        })
+        .detach();
+        let usage = cx.new(|cx| usage::UsageStore::new(sessions.clone(), cx));
         Self {
-            prefs: cx.new(|_| prefs::PrefsStore::load()),
+            prefs,
             projects: cx.new(|_| projects::ProjectsStore::load()),
-            sessions: cx.new(sessions::SessionsStore::new),
+            sessions,
             skills: cx.new(|_| skills::SkillsStore::default()),
+            usage,
         }
     }
 }

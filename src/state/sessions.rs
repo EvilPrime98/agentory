@@ -15,10 +15,35 @@ use crate::runtime;
 use crate::state::Stores;
 use crate::state::prefs::Prefs;
 use crate::ui::confirm::{self, ConfirmOptions};
-use crate::ui::terminal::{Terminal, TerminalExited};
+use crate::ui::terminal::{Terminal, TerminalExited, TerminalTitle};
 use crate::ui::toast;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
+const MAX_TITLE_CHARS: usize = 40;
+
+/// A session name from a terminal title: status glyphs and spinners stripped, long titles
+/// ellipsized. `None` for titles that say nothing about the conversation.
+fn clean_title(raw: &str) -> Option<String> {
+    let title = raw
+        .trim()
+        .trim_start_matches(|c: char| !c.is_alphanumeric())
+        .trim();
+    let lower = title.to_lowercase();
+    let generic = title.is_empty()
+        || matches!(lower.as_str(), "claude" | "claude code")
+        || lower.ends_with(".exe")
+        || title.contains(['\\', '/']);
+    if generic {
+        return None;
+    }
+    let mut chars = title.chars();
+    let head: String = chars.by_ref().take(MAX_TITLE_CHARS).collect();
+    Some(if chars.next().is_some() {
+        format!("{}…", head.trim_end())
+    } else {
+        head
+    })
+}
 
 pub struct Session {
     pub id: String,
@@ -29,6 +54,7 @@ pub struct Session {
     pub status: SessionStatus,
     pub terminal: Entity<Terminal>,
     _exit_sub: Subscription,
+    _title_sub: Subscription,
 }
 
 pub struct SessionsStore {
@@ -41,6 +67,13 @@ pub struct SessionsStore {
 }
 
 impl SessionsStore {
+    /// Apply a font size to every session's terminal.
+    pub fn set_font_size(&mut self, size: f32, cx: &mut Context<Self>) {
+        for s in &self.items {
+            s.terminal.update(cx, |t, cx| t.set_font_size(size, cx));
+        }
+    }
+
     pub fn new(cx: &mut Context<Self>) -> Self {
         cx.spawn(async move |this, cx| {
             loop {
@@ -143,6 +176,10 @@ impl SessionsStore {
         let exit_sub = cx.subscribe(&terminal, move |this, _, _: &TerminalExited, cx| {
             this.set_status(&exit_id, SessionStatus::Exited, cx);
         });
+        let title_id = id.clone();
+        let title_sub = cx.subscribe(&terminal, move |this, _, ev: &TerminalTitle, cx| {
+            this.set_title(&title_id, &ev.0, cx);
+        });
         self.items.push(Session {
             id: id.clone(),
             project_id: project.id.clone(),
@@ -152,6 +189,7 @@ impl SessionsStore {
             status: SessionStatus::Starting,
             terminal,
             _exit_sub: exit_sub,
+            _title_sub: title_sub,
         });
         self.active = Some(id);
         self.revision += 1;
@@ -188,6 +226,26 @@ impl SessionsStore {
         for s in &self.items {
             s.terminal.update(cx, |t, _| t.kill());
             status::cleanup(&s.id);
+        }
+    }
+
+    /// Follow the terminal title; unusable titles keep the current name.
+    fn set_title(&mut self, id: &str, raw: &str, cx: &mut Context<Self>) {
+        let Some(title) = clean_title(raw) else {
+            return;
+        };
+        let Some(s) = self.items.iter_mut().find(|s| s.id == id) else {
+            return;
+        };
+        let name = if s.worktree.is_some() {
+            format!("{title} (worktree)")
+        } else {
+            title
+        };
+        if s.name != name {
+            s.name = name;
+            self.revision += 1;
+            cx.notify();
         }
     }
 
@@ -292,9 +350,9 @@ pub fn begin_new(project_id: &str, cx: &mut App) {
     confirm::ask(cx, options, move |answer, remember, cx| {
         let Some(worktree) = answer else { return };
         if remember {
-            stores
-                .projects
-                .update(cx, |p, cx| p.set_use_worktree(&project.id, Some(worktree), cx));
+            stores.projects.update(cx, |p, cx| {
+                p.set_use_worktree(&project.id, Some(worktree), cx)
+            });
         }
         launch(stores, project, worktree, cx);
     });
@@ -352,5 +410,30 @@ fn spawn_session(
     if let Err(e) = result {
         tracing::error!("could not start a session: {e}");
         toast::error(cx, e);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn glyphs_are_stripped() {
+        assert_eq!(clean_title("✳ Fix the login bug").as_deref(), Some("Fix the login bug"));
+        assert_eq!(clean_title("⠂ Refactor parser").as_deref(), Some("Refactor parser"));
+    }
+
+    #[test]
+    fn generic_titles_are_ignored() {
+        for t in ["", "  ", "Claude Code", "✳ Claude Code", "claude", r"C:\bin\claude.exe"] {
+            assert_eq!(clean_title(t), None, "{t:?}");
+        }
+    }
+
+    #[test]
+    fn long_titles_are_ellipsized() {
+        let got = clean_title(&"word ".repeat(30)).unwrap();
+        assert!(got.ends_with('…'));
+        assert!(got.chars().count() <= MAX_TITLE_CHARS + 1);
     }
 }

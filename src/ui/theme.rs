@@ -62,13 +62,12 @@ pub fn drawer_width() -> Pixels {
     px(360.0)
 }
 
-/// UI font; GPUI falls back to a system font when it is not installed.
-pub const FONT_SANS: &str = "Segoe UI";
-/// Terminal font. Cascadia Mono ships with Windows 11.
-pub const FONT_MONO: &str = "Cascadia Mono";
+/// Font for the whole app, UI and terminal. Embedded under `assets/fonts` so it does not depend
+/// on the system (Cascadia Mono only ships with Windows 11).
+pub const FONT: &str = "Cascadia Mono";
 
-/// Register fonts embedded under `assets/fonts` (none shipped yet: the system fonts above are
-/// used). A missing or unreadable file only costs that face and is logged, not fatal.
+/// Register the font files embedded under `assets/fonts`. A missing or unreadable file only costs
+/// that face and is logged, not fatal.
 pub fn register_fonts(cx: &mut gpui::App) {
     use crate::assets::Assets;
     use gpui::AssetSource as _;
@@ -77,6 +76,7 @@ pub fn register_fonts(cx: &mut gpui::App) {
     };
     let fonts: Vec<_> = paths
         .iter()
+        .filter(|p| p.ends_with(".ttf") || p.ends_with(".otf"))
         .filter_map(|p| match Assets.load(p) {
             Ok(Some(data)) => Some(data),
             _ => {

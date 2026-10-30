@@ -3,6 +3,7 @@ pub mod components;
 pub mod confirm;
 pub mod icons;
 pub mod pages;
+pub mod selection;
 pub mod shell;
 pub mod terminal;
 pub mod theme;

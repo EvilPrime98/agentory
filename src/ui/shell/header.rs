@@ -1,13 +1,14 @@
-//! Header: burger, logo → home, drag region, skills + settings toggles, window controls.
+//! Header: burger, logo → home, drag region, usage pill, skills + settings toggles, window controls.
 
 use gpui::{
-    Context, InteractiveElement, IntoElement, ParentElement, Rgba, StatefulInteractiveElement,
+    Context, Entity, InteractiveElement, IntoElement, ParentElement, Rgba, StatefulInteractiveElement,
     Styled, Window, WindowControlArea, div, px,
 };
 
 use crate::app::AppRoot;
 use crate::route::Route;
 use crate::ui::icons::{Icon, icon};
+use crate::ui::shell::usage_pill::UsagePill;
 use crate::ui::shell::window_controls::window_controls;
 use crate::ui::theme;
 
@@ -49,6 +50,7 @@ fn header_button(id: &'static str, glyph: Icon, active: bool) -> gpui::Stateful<
 
 pub fn header(
     window: &Window,
+    usage_pill: Entity<UsagePill>,
     skills_open: bool,
     settings_open: bool,
     cx: &mut Context<AppRoot>,
@@ -94,6 +96,7 @@ pub fn header(
                 .h_full()
                 .window_control_area(WindowControlArea::Drag),
         )
+        .child(usage_pill)
         .child(
             header_button("skills-toggle", Icon::Puzzle, skills_open)
                 .on_click(cx.listener(|this, _, _, cx| this.toggle_skills(cx))),

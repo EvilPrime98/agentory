@@ -30,22 +30,6 @@ impl SessionsPage {
             .detach();
         cx.observe(&stores.projects, |_, _, cx| cx.notify())
             .detach();
-        cx.observe(&stores.prefs, |this, prefs, cx| {
-            // Terminals follow the font size preference.
-            let size = prefs.read(cx).prefs.terminal_font_size;
-            let terms: Vec<_> = this
-                .stores
-                .sessions
-                .read(cx)
-                .items
-                .iter()
-                .map(|s| s.terminal.clone())
-                .collect();
-            for t in terms {
-                t.update(cx, |t, cx| t.set_font_size(size, cx));
-            }
-        })
-        .detach();
         Self {
             stores,
             focused: None,

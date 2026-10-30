@@ -1,8 +1,10 @@
 //! Root entity: routing, startup sequence, shell chrome (header, sidebar, skills drawer), the
 //! global overlays (toasts, confirm dialog, app loader) and the close guard.
 
+use std::time::{Duration, Instant};
+
 use gpui::{
-    AnyView, App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement,
+    Animation, AnimationExt as _, AnyView, App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement,
     IntoElement, ParentElement, Render, Styled, Subscription, Window, actions, div, prelude::*, px,
 };
 
@@ -18,6 +20,7 @@ use crate::ui::pages::settings::SettingsPage;
 use crate::ui::shell::header::header;
 use crate::ui::shell::sidebar::Sidebar;
 use crate::ui::shell::skills_drawer::SkillsDrawer;
+use crate::ui::shell::usage_pill::UsagePill;
 use crate::ui::theme;
 use crate::ui::toast::{self, ToastHost};
 
@@ -43,11 +46,48 @@ enum Page {
     Settings(Entity<SettingsPage>),
 }
 
+const DRAWER_OPEN: Duration = Duration::from_millis(220);
+const DRAWER_CLOSE: Duration = Duration::from_millis(180);
+
+fn ease_out_cubic(t: f32) -> f32 {
+    1.0 - (1.0 - t).powi(3)
+}
+
+fn ease_in_cubic(t: f32) -> f32 {
+    t * t * t
+}
+
+/// A slide of the skills drawer between `from` and `to` (0 = hidden, 1 = fully shown).
+#[derive(Clone, Copy)]
+struct DrawerAnim {
+    id: usize,
+    from: f32,
+    to: f32,
+    started: Instant,
+    duration: Duration,
+}
+
+impl DrawerAnim {
+    fn easing(&self) -> fn(f32) -> f32 {
+        if self.to > self.from { ease_out_cubic } else { ease_in_cubic }
+    }
+
+    fn running(&self) -> bool {
+        self.started.elapsed() < self.duration
+    }
+
+    fn progress(&self) -> f32 {
+        let t = (self.started.elapsed().as_secs_f32() / self.duration.as_secs_f32()).min(1.0);
+        self.from + (self.to - self.from) * self.easing()(t)
+    }
+}
+
 pub struct AppRoot {
     history: History,
     stores: Stores,
     sidebar: Entity<Sidebar>,
     drawer: Entity<SkillsDrawer>,
+    usage_pill: Entity<UsagePill>,
     toasts: Entity<ToastHost>,
     confirm: Entity<ConfirmHost>,
     page: Page,
@@ -61,6 +101,7 @@ pub struct AppRoot {
     /// The close guard has been answered: the next close request goes through.
     close_confirmed: bool,
     close_check_pending: bool,
+    drawer_anim: Option<DrawerAnim>,
 }
 
 impl AppRoot {
@@ -75,6 +116,7 @@ impl AppRoot {
 
         let sidebar = cx.new(|cx| Sidebar::new(stores.clone(), cx));
         let drawer = cx.new(|cx| SkillsDrawer::new(stores.clone(), cx));
+        let usage_pill = cx.new(|cx| UsagePill::new(stores.clone(), cx));
         let sessions_store = stores.sessions.clone();
         let subs = vec![
             cx.subscribe_in(&sidebar, window, |this, _, ev: &Navigate, window, cx| {
@@ -101,6 +143,7 @@ impl AppRoot {
             stores,
             sidebar,
             drawer,
+            usage_pill,
             toasts,
             confirm,
             page: Page::Sessions(cx.new(|cx| SessionsPage::new(cx.global::<Stores>().clone(), cx))),
@@ -111,6 +154,7 @@ impl AppRoot {
             focus,
             close_confirmed: false,
             close_check_pending: false,
+            drawer_anim: None,
         };
         // Closing with running sessions asks first (`on_window_should_close` is synchronous, so the
         // answer arrives later and the window closes itself).
@@ -279,9 +323,66 @@ impl AppRoot {
     }
 
     pub fn toggle_skills(&mut self, cx: &mut Context<Self>) {
-        self.stores.prefs.update(cx, |p, cx| {
-            p.update(cx, |p| p.skills_drawer_open = !p.skills_drawer_open)
+        let was_open = self.stores.prefs.read(cx).prefs.skills_drawer_open;
+        // Reverse from wherever the slide currently is, so a mid-animation toggle does not jump.
+        let from = match self.drawer_anim {
+            Some(a) => a.progress(),
+            None if was_open => 1.0,
+            None => 0.0,
+        };
+        let to = if was_open { 0.0 } else { 1.0 };
+        let full = if was_open { DRAWER_CLOSE } else { DRAWER_OPEN };
+        let duration = full.mul_f32((to - from).abs()).max(Duration::from_millis(1));
+        let id = self.drawer_anim.map_or(0, |a| a.id + 1);
+        self.drawer_anim = Some(DrawerAnim {
+            id,
+            from,
+            to,
+            started: Instant::now(),
+            duration,
         });
+        self.stores.prefs.update(cx, |p, cx| {
+            p.update(cx, |p| p.skills_drawer_open = !was_open)
+        });
+        // Re-render once the slide is over so a closed drawer is unmounted.
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(duration + Duration::from_millis(16))
+                .await;
+            this.update(cx, |_, cx| cx.notify()).ok();
+        })
+        .detach();
+    }
+
+    /// The drawer as an overlay on the right edge: it slides by translating x, so the content
+    /// and the terminal never resize. `None` when it is fully hidden.
+    fn drawer_overlay(&self, open: bool) -> Option<gpui::AnyElement> {
+        let width = theme::drawer_width();
+        let shell = |drawer: Entity<SkillsDrawer>| {
+            div()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .w(width)
+                .occlude()
+                .child(drawer)
+        };
+        match self.drawer_anim.filter(DrawerAnim::running) {
+            Some(a) => Some(
+                shell(self.drawer.clone())
+                    .with_animation(
+                        ("skills-drawer", a.id),
+                        Animation::new(a.duration).with_easing(a.easing()),
+                        move |el, t| {
+                            let p = a.from + (a.to - a.from) * t;
+                            el.right(-width * (1.0 - p)).opacity(0.5 + 0.5 * p)
+                        },
+                    )
+                    .into_any_element(),
+            ),
+            None if open => Some(shell(self.drawer.clone()).right_0().into_any_element()),
+            None => None,
+        }
     }
 }
 
@@ -323,24 +424,26 @@ impl Render for AppRoot {
             .flex()
             .flex_col()
             .size_full()
-            .font_family(theme::FONT_SANS)
+            .font_family(theme::FONT)
             .text_size(px(14.0))
             .text_color(theme::text())
             .bg(theme::bg_app())
             .child(header(
                 window,
+                self.usage_pill.clone(),
                 prefs.skills_drawer_open,
                 route == Route::Settings,
                 cx,
             ))
             .child(
                 div()
+                    .relative()
                     .flex()
                     .flex_1()
                     .min_h_0()
                     .when(!prefs.sidebar_collapsed, |s| s.child(self.sidebar.clone()))
                     .child(content)
-                    .when(prefs.skills_drawer_open, |s| s.child(self.drawer.clone())),
+                    .children(self.drawer_overlay(prefs.skills_drawer_open)),
             )
             .child(self.toasts.clone())
             .child(self.confirm.clone())
