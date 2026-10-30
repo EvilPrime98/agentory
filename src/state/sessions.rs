@@ -4,14 +4,16 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use gpui::{App, AppContext as _, Context, Entity, Subscription};
+use gpui::{App, AppContext as _, Context, Entity, Subscription, Window};
 
+use crate::app::AppRoot;
 use crate::backend::git::{self, Worktree};
 use crate::backend::spm;
 use crate::model::{Project, SessionStatus, new_id};
 use crate::platform::pty::{self, SpawnSpec};
 use crate::platform::shells::{self, Shell};
 use crate::platform::{notify, status};
+use crate::route::Route;
 use crate::runtime;
 use crate::state::Stores;
 use crate::state::prefs::Prefs;
@@ -371,7 +373,10 @@ impl SessionsStore {
         if !enabled || watching {
             return;
         }
-        toast::success(cx, format!("{name} {message}"));
+        let session_id = id.to_string();
+        toast::success_with(cx, format!("{name} {message}"), move |window, cx| {
+            reveal(&session_id, window, cx)
+        });
         if !self.app_active {
             let (title, body) = ("Agentory".to_string(), format!("{name} {message}"));
             cx.spawn(async move |_, _| runtime::run(notify::toast(title, body)).await)
@@ -599,5 +604,25 @@ mod tests {
         let got = clean_title(&"word ".repeat(30)).unwrap();
         assert!(got.ends_with('…'));
         assert!(got.chars().count() <= MAX_TITLE_CHARS + 1);
+    }
+}
+
+/// Toast click: show the sessions page with `session_id` active. A session closed since is skipped.
+fn reveal(session_id: &str, window: &mut Window, cx: &mut App) {
+    let stores = cx.global::<Stores>().clone();
+    let Some(project_id) = stores
+        .sessions
+        .read(cx)
+        .get(session_id)
+        .map(|s| s.project_id.clone())
+    else {
+        return;
+    };
+    stores
+        .projects
+        .update(cx, |p, cx| p.select(&project_id, cx));
+    stores.sessions.update(cx, |s, cx| s.select(session_id, cx));
+    if let Some(Some(root)) = window.root::<AppRoot>() {
+        root.update(cx, |root, cx| root.navigate(Route::Sessions, window, cx));
     }
 }

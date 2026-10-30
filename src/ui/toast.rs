@@ -1,5 +1,6 @@
 //! Toasts: top-center HUD cards, 2.5 s (errors 5 s), slide/fade in and out, countdown bar.
 
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
@@ -28,6 +29,8 @@ impl Kind {
     }
 }
 
+type OnClick = Rc<dyn Fn(&mut Window, &mut App)>;
+
 struct Toast {
     id: u64,
     kind: Kind,
@@ -37,6 +40,7 @@ struct Toast {
     remaining: Duration,
     hovered: bool,
     exit_started: Option<Instant>,
+    on_click: Option<OnClick>,
 }
 
 #[derive(Default)]
@@ -83,14 +87,23 @@ pub fn init(cx: &mut App) -> Entity<ToastHost> {
 }
 
 pub fn success(cx: &mut App, text: impl Into<SharedString>) {
-    push(cx, Kind::Success, text.into());
+    push(cx, Kind::Success, text.into(), None);
+}
+
+/// A success toast whose click runs `on_click` before dismissing it.
+pub fn success_with(
+    cx: &mut App,
+    text: impl Into<SharedString>,
+    on_click: impl Fn(&mut Window, &mut App) + 'static,
+) {
+    push(cx, Kind::Success, text.into(), Some(Rc::new(on_click)));
 }
 
 pub fn error(cx: &mut App, text: impl Into<SharedString>) {
-    push(cx, Kind::Error, text.into());
+    push(cx, Kind::Error, text.into(), None);
 }
 
-fn push(cx: &mut App, kind: Kind, text: SharedString) {
+fn push(cx: &mut App, kind: Kind, text: SharedString, on_click: Option<OnClick>) {
     let Some(host) = cx.try_global::<ToastGlobal>().map(|g| g.0.clone()) else {
         return;
     };
@@ -107,6 +120,7 @@ fn push(cx: &mut App, kind: Kind, text: SharedString) {
             remaining: ttl,
             hovered: false,
             exit_started: None,
+            on_click,
         });
         let live: Vec<u64> = host
             .items
@@ -158,6 +172,7 @@ impl Render for ToastHost {
             .gap(px(8.0))
             .children(self.items.iter().map(|t| {
                 let id = t.id;
+                let on_click = t.on_click.clone();
                 // glow = accent (#ff5c5c / #d97757) as HSL at 35 % alpha
                 let (accent, tag, glow) = if t.kind == Kind::Error {
                     (theme::error(), "[ERR]", gpui::hsla(0.0, 1.0, 0.68, 0.35))
@@ -192,9 +207,14 @@ impl Render for ToastHost {
                             cx.notify();
                         }
                     }))
-                    .on_click(cx.listener(move |host, _, _, cx| {
+                    .on_click(cx.listener(move |host, _, window, cx| {
                         host.start_exit(id);
                         cx.notify();
+                        if let Some(f) = &on_click {
+                            // Deferred: the callback may update entities this click is inside of.
+                            let f = f.clone();
+                            window.defer(cx, move |window, cx| f(window, cx));
+                        }
                     }))
                     .font_family(theme::FONT)
                     .text_size(px(13.0))
