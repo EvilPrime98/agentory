@@ -16,6 +16,8 @@ pub struct Prefs {
     pub terminal_font_size: f32,
     pub sidebar_collapsed: bool,
     pub skills_drawer_open: bool,
+    /// Id of the shell last opened as a project terminal.
+    pub last_shell: String,
 }
 
 impl Default for Prefs {
@@ -27,6 +29,7 @@ impl Default for Prefs {
             terminal_font_size: 13.0,
             sidebar_collapsed: false,
             skills_drawer_open: false,
+            last_shell: String::new(),
         }
     }
 }

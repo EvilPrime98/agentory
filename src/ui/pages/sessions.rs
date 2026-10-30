@@ -9,7 +9,7 @@ use gpui::{
 
 use crate::route::{GoBack, Navigate};
 use crate::state::Stores;
-use crate::state::sessions;
+use crate::state::sessions::{self, SessionKind};
 use crate::ui::components::button::{ButtonVariant, button};
 use crate::ui::icons::{Icon, icon};
 use crate::ui::shell::sidebar::{status_dot, status_label};
@@ -62,10 +62,10 @@ impl Render for SessionsPage {
         let tabs: Vec<_> = store
             .items
             .iter()
-            .map(|s| (s.id.clone(), s.name.clone(), s.status))
+            .map(|s| (s.id.clone(), s.name.clone(), s.status, s.kind))
             .collect();
         let terminal = active.map(|s| s.terminal.clone());
-        let status = active.map(|s| (s.status, s.cwd.display().to_string()));
+        let status = active.map(|s| (s.kind, s.status, s.cwd.display().to_string()));
         let selected_project = self.stores.projects.read(cx).selected.clone();
         let has_projects = !self.stores.projects.read(cx).items.is_empty();
 
@@ -88,7 +88,7 @@ impl Render for SessionsPage {
                     .border_b_1()
                     .border_color(theme::border_subtle())
                     .overflow_x_scroll()
-                    .children(tabs.into_iter().map(|(id, name, st)| {
+                    .children(tabs.into_iter().map(|(id, name, st, kind)| {
                         let (pick, close) = (id.clone(), id.clone());
                         let is_active = active_id.as_deref() == Some(id.as_str());
                         div()
@@ -121,7 +121,12 @@ impl Render for SessionsPage {
                                         this.focused = None;
                                         cx.notify();
                                     }))
-                                    .child(status_dot(st))
+                                    .child(match kind {
+                                        SessionKind::Agent => status_dot(st).into_any_element(),
+                                        SessionKind::Shell => icon(Icon::Terminal, px(13.0))
+                                            .text_color(theme::text_muted())
+                                            .into_any_element(),
+                                    })
                                     .child(
                                         div()
                                             .text_size(px(12.5))
@@ -143,10 +148,8 @@ impl Render for SessionsPage {
                                     .rounded(px(4.0))
                                     .cursor_pointer()
                                     .hover(|s| s.bg(theme::hover()))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.stores
-                                            .sessions
-                                            .update(cx, |s, cx| s.close(&close, cx));
+                                    .on_click(cx.listener(move |_, _, _, cx| {
+                                        sessions::request_close(&close, cx);
                                     }))
                                     .child(
                                         icon(Icon::Close, px(12.0)).text_color(theme::text_muted()),
@@ -179,7 +182,7 @@ impl Render for SessionsPage {
                     .flex_1()
                     .min_h_0()
                     .child(t)
-                    .when_some(status, |s, (st, cwd)| {
+                    .when_some(status, |s, (kind, st, cwd)| {
                         s.child(
                             div()
                                 .flex()
@@ -193,8 +196,9 @@ impl Render for SessionsPage {
                                 .border_color(theme::border_subtle())
                                 .text_size(px(11.0))
                                 .text_color(theme::text_muted())
-                                .child(status_dot(st))
-                                .child(status_label(st))
+                                .when(kind == SessionKind::Agent, |s| {
+                                    s.child(status_dot(st)).child(status_label(st))
+                                })
                                 .child(div().truncate().child(cwd)),
                         )
                     })

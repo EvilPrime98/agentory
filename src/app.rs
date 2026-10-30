@@ -27,7 +27,7 @@ use crate::ui::toast::{self, ToastHost};
 
 actions!(
     agentory,
-    [ToggleFullscreen, ToggleSidebar, ToggleSkills, RequestClose]
+    [ToggleFullscreen, ToggleSidebar, ToggleSkills, RequestClose, OpenTerminal]
 );
 
 pub fn bind_keys(cx: &mut App) {
@@ -36,6 +36,7 @@ pub fn bind_keys(cx: &mut App) {
         gpui::KeyBinding::new("f11", ToggleFullscreen, None),
         gpui::KeyBinding::new("ctrl-alt-b", ToggleSidebar, None),
         gpui::KeyBinding::new("ctrl-alt-s", ToggleSkills, None),
+        gpui::KeyBinding::new("ctrl-alt-t", OpenTerminal, None),
         #[cfg(target_os = "macos")]
         gpui::KeyBinding::new("ctrl-cmd-f", ToggleFullscreen, None),
     ]);
@@ -475,6 +476,14 @@ impl Render for AppRoot {
             .on_action(cx.listener(|_, _: &ToggleFullscreen, window, _| window.toggle_fullscreen()))
             .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
             .on_action(cx.listener(|this, _: &ToggleSkills, _, cx| this.toggle_skills(cx)))
+            .on_action(cx.listener(|this, _: &OpenTerminal, window, cx| {
+                // The default shell in the selected project's folder.
+                let selected = this.stores.projects.read(cx).selected.clone();
+                if let Some(id) = selected {
+                    this.navigate(Route::Sessions, window, cx);
+                    sessions::begin_shell(&id, None, sessions::ShellDir::Project, cx);
+                }
+            }))
             // The Linux close button goes through here so it is guarded like the OS close.
             .on_action(cx.listener(|this, _: &RequestClose, window, cx| {
                 if this.guard_close(window, cx) {

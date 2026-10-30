@@ -10,6 +10,7 @@ use crate::backend::git::{self, Worktree};
 use crate::backend::spm;
 use crate::model::{Project, SessionStatus, new_id};
 use crate::platform::pty::{self, SpawnSpec};
+use crate::platform::shells::{self, Shell};
 use crate::platform::{notify, status};
 use crate::runtime;
 use crate::state::Stores;
@@ -45,8 +46,16 @@ fn clean_title(raw: &str) -> Option<String> {
     })
 }
 
+/// What a session runs: a Claude agent, or a plain shell opened from the project's Terminals.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionKind {
+    Agent,
+    Shell,
+}
+
 pub struct Session {
     pub id: String,
+    pub kind: SessionKind,
     pub project_id: String,
     pub name: String,
     pub cwd: PathBuf,
@@ -104,6 +113,11 @@ impl SessionsStore {
         self.items
             .iter()
             .filter(move |s| s.project_id == project_id)
+    }
+
+    pub fn agents<'a>(&'a self, project_id: &'a str) -> impl Iterator<Item = &'a Session> {
+        self.for_project(project_id)
+            .filter(|s| s.kind == SessionKind::Agent)
     }
 
     /// Sessions whose process is still running.
@@ -167,7 +181,7 @@ impl SessionsStore {
         let font_size = prefs.terminal_font_size;
         let terminal = cx.new(|cx| Terminal::new(spawned, rows, cols, font_size, cx));
 
-        let n = self.for_project(&project.id).count() + 1;
+        let n = self.agents(&project.id).count() + 1;
         let name = match &worktree {
             Some(_) => format!("{} #{n} (worktree)", project.name),
             None => format!("{} #{n}", project.name),
@@ -182,10 +196,58 @@ impl SessionsStore {
         });
         self.items.push(Session {
             id: id.clone(),
+            kind: SessionKind::Agent,
             project_id: project.id.clone(),
             name,
             cwd,
             worktree,
+            status: SessionStatus::Starting,
+            terminal,
+            _exit_sub: exit_sub,
+            _title_sub: title_sub,
+        });
+        self.active = Some(id);
+        self.revision += 1;
+        cx.notify();
+        Ok(())
+    }
+
+    /// Open a plain shell in `cwd`. It is removed again when the shell exits.
+    pub fn start_shell(
+        &mut self,
+        project: &Project,
+        shell: &Shell,
+        cwd: PathBuf,
+        font_size: f32,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let id = new_id("t");
+        let (rows, cols) = (30, 100);
+        let spawned = pty::spawn(SpawnSpec {
+            program: shell.program.to_string_lossy().into_owned(),
+            args: shell.args.clone(),
+            cwd: cwd.clone(),
+            env: Vec::new(),
+            rows,
+            cols,
+        })
+        .map_err(|e| format!("{e:#}"))?;
+        let terminal = cx.new(|cx| Terminal::new(spawned, rows, cols, font_size, cx));
+        let exit_id = id.clone();
+        let exit_sub = cx.subscribe(&terminal, move |this, _, _: &TerminalExited, cx| {
+            this.close(&exit_id, cx);
+        });
+        let title_id = id.clone();
+        let title_sub = cx.subscribe(&terminal, move |this, _, ev: &TerminalTitle, cx| {
+            this.set_title(&title_id, &ev.0, cx);
+        });
+        self.items.push(Session {
+            id: id.clone(),
+            kind: SessionKind::Shell,
+            project_id: project.id.clone(),
+            name: shell.label.to_string(),
+            cwd,
+            worktree: None,
             status: SessionStatus::Starting,
             terminal,
             _exit_sub: exit_sub,
@@ -302,10 +364,11 @@ impl SessionsStore {
             .collect();
         for (id, terminal) in live {
             terminal.update(cx, |t, cx| t.check_exit(cx));
-            let exited = self
-                .get(&id)
-                .is_some_and(|s| s.status == SessionStatus::Exited);
-            if exited {
+            // A shell that exits closes itself; it has no hook events.
+            let Some(session) = self.get(&id) else {
+                continue;
+            };
+            if session.kind == SessionKind::Shell || session.status == SessionStatus::Exited {
                 continue;
             }
             if let Some(event) = status::read_event(&id) {
@@ -366,6 +429,69 @@ pub fn begin_new_with(project_id: &str, worktree: bool, cx: &mut App) {
     };
     let worktree = worktree && project.is_git_repo();
     launch(stores, project, worktree, cx);
+}
+
+/// Where a project terminal starts.
+pub enum ShellDir {
+    Project,
+    Worktree(PathBuf),
+}
+
+/// Open a terminal for a project. `shell` is a `Shell::id`; `None` is the remembered (default) one.
+pub fn begin_shell(project_id: &str, shell: Option<&str>, dir: ShellDir, cx: &mut App) {
+    let stores = cx.global::<Stores>().clone();
+    let Some(project) = stores.projects.read(cx).get(project_id).cloned() else {
+        return;
+    };
+    let prefs = stores.prefs.read(cx).prefs.clone();
+    let shells = shells::detect();
+    let Some(shell) = shells::pick(&shells, shell.unwrap_or(&prefs.last_shell)) else {
+        toast::error(cx, "No shell was found on this machine.");
+        return;
+    };
+    let cwd = match dir {
+        ShellDir::Project => project.path.clone(),
+        ShellDir::Worktree(path) => path,
+    };
+    let result = stores.sessions.update(cx, |s, cx| {
+        s.start_shell(&project, shell, cwd, prefs.terminal_font_size, cx)
+    });
+    match result {
+        Ok(()) => {
+            let id = shell.id.to_string();
+            stores
+                .prefs
+                .update(cx, |p, cx| p.update(cx, |p| p.last_shell = id));
+        }
+        Err(e) => {
+            tracing::error!("could not open a terminal: {e}");
+            toast::error(cx, e);
+        }
+    }
+}
+
+/// Close a session from the UI. A terminal whose shell is running a command asks first.
+pub fn request_close(id: &str, cx: &mut App) {
+    let stores = cx.global::<Stores>().clone();
+    let Some(session) = stores.sessions.read(cx).get(id) else {
+        return;
+    };
+    let busy = session.kind == SessionKind::Shell && session.terminal.read(cx).is_busy();
+    let id = id.to_string();
+    if !busy {
+        stores.sessions.update(cx, |s, cx| s.close(&id, cx));
+        return;
+    }
+    let options = ConfirmOptions::new(
+        "Close terminal",
+        "A command is still running in this terminal and will be terminated.",
+    )
+    .labels("Close", "Cancel");
+    confirm::ask(cx, options, move |answer, _, cx| {
+        if answer == Some(true) {
+            stores.sessions.update(cx, |s, cx| s.close(&id, cx));
+        }
+    });
 }
 
 fn launch(stores: Stores, project: Project, worktree: bool, cx: &mut App) {

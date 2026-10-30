@@ -1,28 +1,42 @@
 //! Sidebar: projects with their sessions nested underneath, each with a status dot.
 
 use std::collections::HashSet;
+use std::path::PathBuf;
+use std::time::Instant;
 
 use gpui::{
-    Context, EventEmitter, InteractiveElement, IntoElement, ParentElement, Render, Rgba,
-    StatefulInteractiveElement, Styled, Window, div, prelude::*, px,
+    AnyElement, Context, EventEmitter, InteractiveElement, IntoElement, ParentElement, Render,
+    Rgba, StatefulInteractiveElement, Styled, Window, deferred, div, prelude::*, px,
 };
 
 use crate::model::{Project, SessionStatus};
+use crate::platform::shells::{self, Shell};
 use crate::route::{Navigate, Route};
 use crate::runtime;
 use crate::state::Stores;
-use crate::state::sessions;
+use crate::state::sessions::{self, SessionKind, ShellDir};
 use crate::ui::confirm::{self, ConfirmOptions};
 use crate::ui::icons::{Icon, icon};
 use crate::ui::theme;
 
 const REPO_URL: &str = "https://github.com/EvilPrime98/agentory";
+/// A click on the menu button right after the menu closed itself (mouse-down-out) is the same
+/// click: it must not reopen it.
+const REOPEN_GUARD_MS: u128 = 200;
 
 pub struct Sidebar {
     stores: Stores,
     /// Projects whose session list is folded away.
     collapsed: HashSet<String>,
     picker_open: bool,
+    shell_menu: Option<ShellMenu>,
+    shell_menu_closed_at: Option<Instant>,
+}
+
+/// The open "new terminal" menu of one project.
+struct ShellMenu {
+    project_id: String,
+    shells: Vec<Shell>,
 }
 
 impl EventEmitter<Navigate> for Sidebar {}
@@ -65,7 +79,148 @@ impl Sidebar {
             stores,
             collapsed: HashSet::new(),
             picker_open: false,
+            shell_menu: None,
+            shell_menu_closed_at: None,
         }
+    }
+
+    fn toggle_shell_menu(&mut self, project_id: &str, cx: &mut Context<Self>) {
+        if self.shell_menu.is_some() {
+            return self.close_shell_menu(cx);
+        }
+        if self
+            .shell_menu_closed_at
+            .is_none_or(|t| t.elapsed().as_millis() > REOPEN_GUARD_MS)
+        {
+            self.shell_menu = Some(ShellMenu {
+                project_id: project_id.to_string(),
+                shells: shells::detect(),
+            });
+            cx.notify();
+        }
+    }
+
+    /// Select the project and show the sessions page, where a new terminal appears.
+    fn show_project(&mut self, project_id: &str, cx: &mut Context<Self>) {
+        self.stores
+            .projects
+            .update(cx, |p, cx| p.select(project_id, cx));
+        cx.emit(Navigate(Route::Sessions));
+    }
+
+    fn close_shell_menu(&mut self, cx: &mut Context<Self>) {
+        if self.shell_menu.take().is_some() {
+            self.shell_menu_closed_at = Some(Instant::now());
+            cx.notify();
+        }
+    }
+
+    /// Shells to open in the project folder, then the agent worktrees to open the default one in.
+    fn shell_menu_popup(&self, menu: &ShellMenu, cx: &mut Context<Self>) -> AnyElement {
+        let remembered = self.stores.prefs.read(cx).prefs.last_shell.clone();
+        let default_id = shells::pick(&menu.shells, &remembered).map(|s| s.id);
+        let worktrees: Vec<(String, PathBuf)> = self
+            .stores
+            .sessions
+            .read(cx)
+            .agents(&menu.project_id)
+            .filter_map(|s| s.worktree.as_ref().map(|w| (s.name.clone(), w.path.clone())))
+            .collect();
+        let pid = menu.project_id.clone();
+
+        let item = |id: gpui::SharedString| {
+            div()
+                .id(id)
+                .flex()
+                .items_center()
+                .gap(px(8.0))
+                .h(px(28.0))
+                .px(px(8.0))
+                .rounded(px(5.0))
+                .text_size(px(12.5))
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::hover()))
+        };
+
+        let mut popup = div()
+            .id("shell-menu")
+            .occlude()
+            .absolute()
+            .top(px(26.0))
+            .right_0()
+            .w(px(220.0))
+            .p(px(4.0))
+            .flex()
+            .flex_col()
+            .rounded(px(8.0))
+            .border_1()
+            .border_color(theme::border_subtle())
+            .bg(theme::bg_modal())
+            .text_color(theme::text())
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| this.close_shell_menu(cx)));
+
+        if menu.shells.is_empty() {
+            popup = popup.child(
+                div()
+                    .px(px(8.0))
+                    .py(px(6.0))
+                    .text_size(px(12.5))
+                    .text_color(theme::text_muted())
+                    .child("No shell found"),
+            );
+        }
+        for shell in &menu.shells {
+            let (project_id, shell_id) = (pid.clone(), shell.id);
+            popup = popup.child(
+                item(format!("shell-{pid}-{}", shell.id).into())
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.close_shell_menu(cx);
+                        this.show_project(&project_id, cx);
+                        sessions::begin_shell(&project_id, Some(shell_id), ShellDir::Project, cx);
+                    }))
+                    .child(icon(Icon::Terminal, px(14.0)).text_color(theme::text_muted()))
+                    .child(div().flex_1().truncate().child(shell.label))
+                    .when(default_id == Some(shell.id), |s| {
+                        s.child(
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(theme::text_muted())
+                                .child("default"),
+                        )
+                    }),
+            );
+        }
+        if !worktrees.is_empty() && !menu.shells.is_empty() {
+            popup = popup.child(
+                div()
+                    .px(px(8.0))
+                    .pt(px(6.0))
+                    .pb(px(2.0))
+                    .text_size(px(11.0))
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_color(theme::text_muted())
+                    .child("Open in worktree"),
+            );
+            for (ix, (name, path)) in worktrees.into_iter().enumerate() {
+                let project_id = pid.clone();
+                popup = popup.child(
+                    item(format!("shell-wt-{pid}-{ix}").into())
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.close_shell_menu(cx);
+                            this.show_project(&project_id, cx);
+                            sessions::begin_shell(
+                                &project_id,
+                                None,
+                                ShellDir::Worktree(path.clone()),
+                                cx,
+                            );
+                        }))
+                        .child(icon(Icon::Branch, px(14.0)).text_color(theme::text_muted()))
+                        .child(div().flex_1().truncate().child(name)),
+                );
+            }
+        }
+        deferred(popup).with_priority(1).into_any_element()
     }
 
     fn add_project(&mut self, cx: &mut Context<Self>) {
@@ -133,12 +288,25 @@ impl Sidebar {
             .stores
             .sessions
             .read(cx)
-            .for_project(&project.id)
+            .agents(&project.id)
             .map(|s| (s.id.clone(), s.name.clone(), s.status, s.worktree.is_some()))
             .collect();
+        let terminals: Vec<_> = self
+            .stores
+            .sessions
+            .read(cx)
+            .for_project(&project.id)
+            .filter(|s| s.kind == SessionKind::Shell)
+            .map(|s| (s.id.clone(), s.name.clone()))
+            .collect();
+        let menu_open = self
+            .shell_menu
+            .as_ref()
+            .is_some_and(|m| m.project_id == project.id);
         let active = self.stores.sessions.read(cx).active.clone();
 
-        let (toggle_id, select_id, new_id, remove_id) = (
+        let (toggle_id, select_id, new_id, menu_id, remove_id) = (
+            project.id.clone(),
             project.id.clone(),
             project.id.clone(),
             project.id.clone(),
@@ -216,6 +384,7 @@ impl Sidebar {
                             ),
                     )
                     .child(
+                        div().relative().flex().flex_none().items_center().child(
                         div()
                             .id(gpui::SharedString::from(format!(
                                 "new-session-{}",
@@ -249,7 +418,33 @@ impl Sidebar {
                                     _ => sessions::begin_new(&new_id, cx),
                                 }
                             }))
-                            .child(icon(Icon::Plus, px(15.0)).text_color(theme::text())),
+                            .child(icon(Icon::Plus, px(15.0)).text_color(theme::text()))
+                            ).child(
+                        div()
+                            .id(gpui::SharedString::from(format!(
+                                "new-terminal-{}",
+                                project.id.clone()
+                            )))
+                            .flex_none()
+                            .w(px(16.0))
+                            .h(px(24.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(4.0))
+                            .cursor_pointer()
+                            .hover(|s| s.bg(theme::hover()))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.toggle_shell_menu(&menu_id, cx)
+                            }))
+                            .child(icon(Icon::ChevronDown, px(12.0)).text_color(theme::text_muted()))
+                            )
+                        .children(
+                            self.shell_menu
+                                .as_ref()
+                                .filter(|_| menu_open)
+                                .map(|m| self.shell_menu_popup(m, cx)),
+                        ),
                     )
                     .child(
                         div()
@@ -332,10 +527,76 @@ impl Sidebar {
                                 .rounded(px(4.0))
                                 .cursor_pointer()
                                 .hover(|s| s.bg(theme::hover()))
+                                .on_click(cx.listener(move |_, _, _, cx| {
+                                    sessions::request_close(&close_id, cx);
+                                }))
+                                .child(icon(Icon::Close, px(12.0)).text_color(theme::text_muted())),
+                        )
+                }))
+            })
+            .when(!collapsed && !terminals.is_empty(), |s| {
+                s.child(
+                    div()
+                        .ml(px(26.0))
+                        .px(px(6.0))
+                        .pt(px(6.0))
+                        .pb(px(2.0))
+                        .text_size(px(10.5))
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .text_color(theme::text_muted())
+                        .child("TERMINALS"),
+                )
+                .children(terminals.into_iter().map(|(id, name)| {
+                    let (pick_id, close_id) = (id.clone(), id.clone());
+                    let is_active = active.as_deref() == Some(id.as_str());
+                    div()
+                        .flex()
+                        .items_center()
+                        .h(px(28.0))
+                        .ml(px(26.0))
+                        .px(px(6.0))
+                        .rounded(px(6.0))
+                        .when(is_active, |s| s.bg(theme::accent_soft()))
+                        .child(
+                            div()
+                                .id(gpui::SharedString::from(format!("terminal-{id}")))
+                                .flex()
+                                .flex_1()
+                                .min_w_0()
+                                .items_center()
+                                .gap(px(8.0))
+                                .h_full()
+                                .cursor_pointer()
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.stores
                                         .sessions
-                                        .update(cx, |s, cx| s.close(&close_id, cx));
+                                        .update(cx, |s, cx| s.select(&pick_id, cx));
+                                    cx.emit(Navigate(Route::Sessions));
+                                }))
+                                .child(
+                                    icon(Icon::Terminal, px(13.0)).text_color(theme::text_muted()),
+                                )
+                                .child(
+                                    div()
+                                        .truncate()
+                                        .text_size(px(12.5))
+                                        .text_color(theme::text())
+                                        .child(name),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .id(gpui::SharedString::from(format!("close-terminal-{id}")))
+                                .flex_none()
+                                .size(px(20.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(4.0))
+                                .cursor_pointer()
+                                .hover(|s| s.bg(theme::hover()))
+                                .on_click(cx.listener(move |_, _, _, cx| {
+                                    sessions::request_close(&close_id, cx);
                                 }))
                                 .child(icon(Icon::Close, px(12.0)).text_color(theme::text_muted())),
                         )

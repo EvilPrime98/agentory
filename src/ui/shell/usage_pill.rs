@@ -9,6 +9,7 @@ use gpui::{
 };
 
 use crate::state::Stores;
+use crate::state::sessions::SessionKind;
 use crate::state::usage::{Limit, SessionUsage};
 use crate::ui::theme;
 
@@ -182,6 +183,7 @@ impl UsagePill {
             .read(cx)
             .items
             .iter()
+            .filter(|s| s.kind == SessionKind::Agent)
             .map(|s| session_row(s.name.clone(), usage.sessions.get(&s.id)).into_any_element())
             .collect();
 

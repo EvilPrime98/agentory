@@ -373,6 +373,11 @@ impl Terminal {
         }
     }
 
+    /// Is the shell running a command right now?
+    pub fn is_busy(&self) -> bool {
+        !self.exited && self.pty.as_ref().is_some_and(|p| p.has_children())
+    }
+
     pub fn kill(&mut self) {
         if let Some(p) = &mut self.pty {
             p.kill();

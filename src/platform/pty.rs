@@ -24,6 +24,8 @@ pub trait Pty: Send {
     fn kill(&mut self);
     /// Non-blocking: has the child process ended?
     fn has_exited(&mut self) -> bool;
+    /// Does the child have running child processes of its own (a shell running a command)?
+    fn has_children(&self) -> bool;
 }
 
 pub struct Spawned {
@@ -58,6 +60,19 @@ impl Pty for PortablePty {
 
     fn has_exited(&mut self) -> bool {
         !matches!(self.child.try_wait(), Ok(None))
+    }
+
+    fn has_children(&self) -> bool {
+        use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
+        let Some(pid) = self.child.process_id() else {
+            return false;
+        };
+        let pid = sysinfo::Pid::from_u32(pid);
+        let mut system = System::new_with_specifics(
+            RefreshKind::new().with_processes(ProcessRefreshKind::new()),
+        );
+        system.refresh_processes(ProcessesToUpdate::All);
+        system.processes().values().any(|p| p.parent() == Some(pid))
     }
 }
 
