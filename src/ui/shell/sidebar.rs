@@ -16,6 +16,8 @@ use crate::ui::confirm::{self, ConfirmOptions};
 use crate::ui::icons::{Icon, icon};
 use crate::ui::theme;
 
+const REPO_URL: &str = "https://github.com/EvilPrime98/agentory";
+
 pub struct Sidebar {
     stores: Stores,
     /// Projects whose session list is folded away.
@@ -409,6 +411,26 @@ impl Render for Sidebar {
                                 .child("Add a project folder to start a Claude Code session."),
                         )
                     }),
+            )
+            .child(
+                div()
+                    .id("sidebar-footer")
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .justify_center()
+                    .gap(px(4.0))
+                    .h(px(32.0))
+                    .border_t_1()
+                    .border_color(theme::border_subtle())
+                    .text_size(px(11.0))
+                    .text_color(theme::text_muted())
+                    .cursor_pointer()
+                    .hover(|s| s.text_color(theme::text()))
+                    .on_click(|_, _, cx| cx.open_url(REPO_URL))
+                    .child("Made with")
+                    .child(icon(Icon::Heart, px(11.0)).text_color(gpui::rgb(0xe5484d)))
+                    .child("by EvilPrime98"),
             )
     }
 }

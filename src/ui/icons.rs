@@ -32,6 +32,7 @@ icons! {
     Folder => "folder",
     FolderPlus => "folder-plus",
     Gear => "gear",
+    Heart => "heart",
     Plus => "plus",
     Puzzle => "puzzle",
     Refresh => "refresh",
