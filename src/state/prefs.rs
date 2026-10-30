@@ -13,6 +13,8 @@ pub struct Prefs {
     pub ask_worktree: bool,
     /// Toast (in-app and Windows) when a session needs input or finishes.
     pub notifications: bool,
+    /// Launch agent sessions in Claude Code's fullscreen renderer so the prompt sits at the bottom.
+    pub fullscreen_agents: bool,
     pub terminal_font_size: f32,
     pub sidebar_collapsed: bool,
     pub skills_drawer_open: bool,
@@ -26,6 +28,7 @@ impl Default for Prefs {
             claude_command: String::new(),
             ask_worktree: true,
             notifications: true,
+            fullscreen_agents: true,
             terminal_font_size: 13.0,
             sidebar_collapsed: false,
             skills_drawer_open: false,

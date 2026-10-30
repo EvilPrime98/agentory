@@ -157,6 +157,12 @@ impl Render for SettingsPage {
                                 "Notify when a session needs input or finishes",
                                 prefs.notifications,
                                 set(|p, v| p.notifications = v),
+                            ))
+                            .child(checkbox(
+                                "pref-fullscreen",
+                                "Pin the prompt to the bottom (Claude Code fullscreen mode, applies to new sessions)",
+                                prefs.fullscreen_agents,
+                                set(|p, v| p.fullscreen_agents = v),
                             )),
                     ))
                     .when(!git_projects.is_empty(), |s| {

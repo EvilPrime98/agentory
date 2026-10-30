@@ -169,11 +169,16 @@ impl SessionsStore {
             )
         };
         let (rows, cols) = (30, 100);
+        let mut env = vec![("AGENTORY_SESSION".into(), id.clone())];
+        if prefs.fullscreen_agents {
+            env.push(("CLAUDE_CODE_NO_FLICKER".into(), "1".into()));
+            env.push(("CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT".into(), "1".into()));
+        }
         let spawned = pty::spawn(SpawnSpec {
             program,
             args,
             cwd: cwd.clone(),
-            env: vec![("AGENTORY_SESSION".into(), id.clone())],
+            env,
             rows,
             cols,
         })
