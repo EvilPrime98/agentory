@@ -131,7 +131,10 @@ impl UsageStore {
     /// pass `false`.
     pub fn refresh_limits(&mut self, force: bool, cx: &mut Context<Self>) {
         if self.fetching
-            || (!force && self.last_fetch.is_some_and(|t| t.elapsed() < LIMITS_DEBOUNCE))
+            || (!force
+                && self
+                    .last_fetch
+                    .is_some_and(|t| t.elapsed() < LIMITS_DEBOUNCE))
         {
             return;
         }
@@ -271,7 +274,12 @@ fn project_dir(cwd: &Path) -> Option<PathBuf> {
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect();
-    Some(dirs::home_dir()?.join(".claude").join("projects").join(name))
+    Some(
+        dirs::home_dir()?
+            .join(".claude")
+            .join("projects")
+            .join(name),
+    )
 }
 
 fn scan_all(

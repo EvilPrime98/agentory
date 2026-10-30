@@ -1,8 +1,8 @@
 //! Header: burger, logo → home, drag region, usage pill, skills + settings toggles, window controls.
 
 use gpui::{
-    Context, Entity, InteractiveElement, IntoElement, ParentElement, Rgba, StatefulInteractiveElement,
-    Styled, Window, WindowControlArea, div, px,
+    Context, Entity, InteractiveElement, IntoElement, ParentElement, Rgba,
+    StatefulInteractiveElement, Styled, Window, WindowControlArea, div, px,
 };
 
 use crate::app::AppRoot;

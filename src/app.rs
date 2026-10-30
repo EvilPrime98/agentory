@@ -4,8 +4,9 @@
 use std::time::{Duration, Instant};
 
 use gpui::{
-    Animation, AnimationExt as _, AnyView, App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, ParentElement, Render, Styled, Subscription, Window, actions, div, prelude::*, px,
+    Animation, AnimationExt as _, AnyView, App, AppContext as _, Context, Entity, FocusHandle,
+    Focusable, InteractiveElement, IntoElement, ParentElement, Render, Styled, Subscription,
+    Window, actions, div, prelude::*, px,
 };
 
 use crate::backend::spm;
@@ -69,7 +70,11 @@ struct DrawerAnim {
 
 impl DrawerAnim {
     fn easing(&self) -> fn(f32) -> f32 {
-        if self.to > self.from { ease_out_cubic } else { ease_in_cubic }
+        if self.to > self.from {
+            ease_out_cubic
+        } else {
+            ease_in_cubic
+        }
     }
 
     fn running(&self) -> bool {
@@ -332,7 +337,9 @@ impl AppRoot {
         };
         let to = if was_open { 0.0 } else { 1.0 };
         let full = if was_open { DRAWER_CLOSE } else { DRAWER_OPEN };
-        let duration = full.mul_f32((to - from).abs()).max(Duration::from_millis(1));
+        let duration = full
+            .mul_f32((to - from).abs())
+            .max(Duration::from_millis(1));
         let id = self.drawer_anim.map_or(0, |a| a.id + 1);
         self.drawer_anim = Some(DrawerAnim {
             id,

@@ -419,13 +419,26 @@ mod tests {
 
     #[test]
     fn glyphs_are_stripped() {
-        assert_eq!(clean_title("✳ Fix the login bug").as_deref(), Some("Fix the login bug"));
-        assert_eq!(clean_title("⠂ Refactor parser").as_deref(), Some("Refactor parser"));
+        assert_eq!(
+            clean_title("✳ Fix the login bug").as_deref(),
+            Some("Fix the login bug")
+        );
+        assert_eq!(
+            clean_title("⠂ Refactor parser").as_deref(),
+            Some("Refactor parser")
+        );
     }
 
     #[test]
     fn generic_titles_are_ignored() {
-        for t in ["", "  ", "Claude Code", "✳ Claude Code", "claude", r"C:\bin\claude.exe"] {
+        for t in [
+            "",
+            "  ",
+            "Claude Code",
+            "✳ Claude Code",
+            "claude",
+            r"C:\bin\claude.exe",
+        ] {
             assert_eq!(clean_title(t), None, "{t:?}");
         }
     }

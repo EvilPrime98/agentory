@@ -73,10 +73,7 @@ fn resets_in(resets_at: u64) -> String {
 
 fn limit_row(label: &'static str, limit: Option<Limit>, stale: bool) -> impl IntoElement {
     let (percent, detail) = match limit {
-        Some(l) => (
-            l.percent,
-            l.resets_at.map(resets_in).unwrap_or_default(),
-        ),
+        Some(l) => (l.percent, l.resets_at.map(resets_in).unwrap_or_default()),
         None => (0.0, "no data".into()),
     };
     let color = if stale {
@@ -109,31 +106,33 @@ fn session_row(name: String, usage: Option<&SessionUsage>) -> impl IntoElement {
             .justify_between()
             .gap(px(8.0))
             .child(div().min_w_0().truncate().child(name))
-            .child(
-                div()
-                    .flex_none()
-                    .text_color(theme::text_muted())
-                    .child(usage.map_or("—".to_string(), |u| {
-                        format!("{:.0}% context", u.context_percent())
-                    })),
-            ),
+            .child(div().flex_none().text_color(theme::text_muted()).child(
+                usage.map_or("—".to_string(), |u| {
+                    format!("{:.0}% context", u.context_percent())
+                }),
+            )),
     );
     let Some(u) = usage else {
         return row;
     };
-    row.child(bar(u.context_percent(), 328.0, 4.0, bar_color(u.context_percent())))
-        .child(
-            div()
-                .text_size(px(12.0))
-                .text_color(theme::text_muted())
-                .child(format!(
-                    "in {} · out {} · cache read {} · cache write {}",
-                    tokens(u.input),
-                    tokens(u.output),
-                    tokens(u.cache_read),
-                    tokens(u.cache_write),
-                )),
-        )
+    row.child(bar(
+        u.context_percent(),
+        328.0,
+        4.0,
+        bar_color(u.context_percent()),
+    ))
+    .child(
+        div()
+            .text_size(px(12.0))
+            .text_color(theme::text_muted())
+            .child(format!(
+                "in {} · out {} · cache read {} · cache write {}",
+                tokens(u.input),
+                tokens(u.output),
+                tokens(u.cache_read),
+                tokens(u.cache_write),
+            )),
+    )
 }
 
 impl UsagePill {
