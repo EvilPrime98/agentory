@@ -124,7 +124,11 @@ impl Sidebar {
             .sessions
             .read(cx)
             .agents(&menu.project_id)
-            .filter_map(|s| s.worktree.as_ref().map(|w| (s.name.clone(), w.path.clone())))
+            .filter_map(|s| {
+                s.worktree
+                    .as_ref()
+                    .map(|w| (s.name.clone(), w.path.clone()))
+            })
             .collect();
         let pid = menu.project_id.clone();
 
@@ -384,67 +388,78 @@ impl Sidebar {
                             ),
                     )
                     .child(
-                        div().relative().flex().flex_none().items_center().child(
                         div()
-                            .id(gpui::SharedString::from(format!(
-                                "new-session-{}",
-                                project.id.clone()
-                            )))
-                            .flex_none()
-                            .size(px(24.0))
+                            .relative()
                             .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(4.0))
-                            .cursor_pointer()
-                            .hover(|s| s.bg(theme::hover()))
-                            .on_click(cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
-                                this.stores
-                                    .projects
-                                    .update(cx, |p, cx| p.select(&new_id, cx));
-                                cx.emit(Navigate(Route::Sessions));
-                                // Alt-click: this session only, the other way round from the
-                                // project's remembered choice.
-                                let remembered = this
-                                    .stores
-                                    .projects
-                                    .read(cx)
-                                    .get(&new_id)
-                                    .and_then(|p| p.use_worktree);
-                                match remembered {
-                                    Some(worktree) if event.modifiers().alt => {
-                                        sessions::begin_new_with(&new_id, !worktree, cx)
-                                    }
-                                    _ => sessions::begin_new(&new_id, cx),
-                                }
-                            }))
-                            .child(icon(Icon::Plus, px(15.0)).text_color(theme::text()))
-                            ).child(
-                        div()
-                            .id(gpui::SharedString::from(format!(
-                                "new-terminal-{}",
-                                project.id.clone()
-                            )))
                             .flex_none()
-                            .w(px(16.0))
-                            .h(px(24.0))
-                            .flex()
                             .items_center()
-                            .justify_center()
-                            .rounded(px(4.0))
-                            .cursor_pointer()
-                            .hover(|s| s.bg(theme::hover()))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.toggle_shell_menu(&menu_id, cx)
-                            }))
-                            .child(icon(Icon::ChevronDown, px(12.0)).text_color(theme::text_muted()))
+                            .child(
+                                div()
+                                    .id(gpui::SharedString::from(format!(
+                                        "new-session-{}",
+                                        project.id.clone()
+                                    )))
+                                    .flex_none()
+                                    .size(px(24.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(px(4.0))
+                                    .cursor_pointer()
+                                    .hover(|s| s.bg(theme::hover()))
+                                    .on_click(cx.listener(
+                                        move |this, event: &gpui::ClickEvent, _, cx| {
+                                            this.stores
+                                                .projects
+                                                .update(cx, |p, cx| p.select(&new_id, cx));
+                                            cx.emit(Navigate(Route::Sessions));
+                                            // Alt-click: this session only, the other way round from the
+                                            // project's remembered choice.
+                                            let remembered = this
+                                                .stores
+                                                .projects
+                                                .read(cx)
+                                                .get(&new_id)
+                                                .and_then(|p| p.use_worktree);
+                                            match remembered {
+                                                Some(worktree) if event.modifiers().alt => {
+                                                    sessions::begin_new_with(&new_id, !worktree, cx)
+                                                }
+                                                _ => sessions::begin_new(&new_id, cx),
+                                            }
+                                        },
+                                    ))
+                                    .child(icon(Icon::Plus, px(15.0)).text_color(theme::text())),
                             )
-                        .children(
-                            self.shell_menu
-                                .as_ref()
-                                .filter(|_| menu_open)
-                                .map(|m| self.shell_menu_popup(m, cx)),
-                        ),
+                            .child(
+                                div()
+                                    .id(gpui::SharedString::from(format!(
+                                        "new-terminal-{}",
+                                        project.id.clone()
+                                    )))
+                                    .flex_none()
+                                    .w(px(16.0))
+                                    .h(px(24.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(px(4.0))
+                                    .cursor_pointer()
+                                    .hover(|s| s.bg(theme::hover()))
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.toggle_shell_menu(&menu_id, cx)
+                                    }))
+                                    .child(
+                                        icon(Icon::ChevronDown, px(12.0))
+                                            .text_color(theme::text_muted()),
+                                    ),
+                            )
+                            .children(
+                                self.shell_menu
+                                    .as_ref()
+                                    .filter(|_| menu_open)
+                                    .map(|m| self.shell_menu_popup(m, cx)),
+                            ),
                     )
                     .child(
                         div()

@@ -39,24 +39,37 @@ pub fn detect() -> Vec<Shell> {
         add("wsl", "WSL", resolve_program("wsl"), &[]);
     } else {
         let login = std::env::var_os("SHELL").map(PathBuf::from);
-        add("shell", "Shell", login.or_else(|| resolve_program("sh")), &[]);
+        add(
+            "shell",
+            "Shell",
+            login.or_else(|| resolve_program("sh")),
+            &[],
+        );
     }
     found
 }
 
 /// Git for Windows' own `bash.exe`. `bash` on PATH is often the WSL launcher, so it is not used.
 fn git_bash() -> Option<PathBuf> {
-    ["ProgramFiles", "ProgramW6432", "ProgramFiles(x86)", "LocalAppData"]
-        .iter()
-        .filter_map(|var| std::env::var_os(var))
-        .flat_map(|root| {
-            let root = PathBuf::from(root);
-            [
-                root.join("Git").join("bin").join("bash.exe"),
-                root.join("Programs").join("Git").join("bin").join("bash.exe"),
-            ]
-        })
-        .find(|p| p.is_file())
+    [
+        "ProgramFiles",
+        "ProgramW6432",
+        "ProgramFiles(x86)",
+        "LocalAppData",
+    ]
+    .iter()
+    .filter_map(|var| std::env::var_os(var))
+    .flat_map(|root| {
+        let root = PathBuf::from(root);
+        [
+            root.join("Git").join("bin").join("bash.exe"),
+            root.join("Programs")
+                .join("Git")
+                .join("bin")
+                .join("bash.exe"),
+        ]
+    })
+    .find(|p| p.is_file())
 }
 
 /// The remembered shell if it is still installed, else the first one found.

@@ -27,7 +27,13 @@ use crate::ui::toast::{self, ToastHost};
 
 actions!(
     agentory,
-    [ToggleFullscreen, ToggleSidebar, ToggleSkills, RequestClose, OpenTerminal]
+    [
+        ToggleFullscreen,
+        ToggleSidebar,
+        ToggleSkills,
+        RequestClose,
+        OpenTerminal
+    ]
 );
 
 pub fn bind_keys(cx: &mut App) {
@@ -360,9 +366,9 @@ impl AppRoot {
         let was_open = !self.stores.prefs.read(cx).prefs.sidebar_collapsed;
         let anim = PanelAnim::toggle(self.sidebar_anim, was_open);
         self.sidebar_anim = Some(anim);
-        self.stores.prefs.update(cx, |p, cx| {
-            p.update(cx, |p| p.sidebar_collapsed = was_open)
-        });
+        self.stores
+            .prefs
+            .update(cx, |p, cx| p.update(cx, |p| p.sidebar_collapsed = was_open));
         anim.notify_when_done(cx);
     }
 
