@@ -1,12 +1,13 @@
 //! Sidebar: projects with their sessions nested underneath, each with a status dot.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use gpui::{
-    AnyElement, Context, EventEmitter, InteractiveElement, IntoElement, ParentElement, Render,
-    Rgba, StatefulInteractiveElement, Styled, Window, deferred, div, prelude::*, px,
+    Animation, AnimationExt, AnyElement, Context, EventEmitter, InteractiveElement, IntoElement,
+    ParentElement, Render, Rgba, StatefulInteractiveElement, Styled, Transformation, Window,
+    deferred, div, prelude::*, px, radians,
 };
 
 use crate::model::{Project, SessionStatus};
@@ -23,11 +24,60 @@ const REPO_URL: &str = "https://github.com/EvilPrime98/agentory";
 /// A click on the menu button right after the menu closed itself (mouse-down-out) is the same
 /// click: it must not reopen it.
 const REOPEN_GUARD_MS: u128 = 200;
+const FOLD_DURATION: Duration = Duration::from_millis(180);
+/// Height of every session and terminal row.
+const ROW_H: f32 = 28.0;
+/// Height of the TERMINALS label above the terminal rows.
+const TERMINALS_HEADER_H: f32 = 24.0;
+
+fn ease_out_cubic(t: f32) -> f32 {
+    1.0 - (1.0 - t).powi(3)
+}
+
+/// The fold of one project's list toward `to` (0 = folded, 1 = open) from `from`.
+#[derive(Clone, Copy)]
+struct Fold {
+    id: usize,
+    from: f32,
+    to: f32,
+    started: Instant,
+    duration: Duration,
+}
+
+impl Fold {
+    /// Reverses `prev` from wherever it currently is, so a mid-animation click does not jump.
+    fn toggle(prev: Option<Self>) -> Self {
+        let (from, open) = prev.map_or((1.0, true), |f| (f.progress(), f.open()));
+        let to = if open { 0.0 } else { 1.0 };
+        Self {
+            id: prev.map_or(0, |f| f.id + 1),
+            from,
+            to,
+            started: Instant::now(),
+            duration: FOLD_DURATION
+                .mul_f32((to - from).abs())
+                .max(Duration::from_millis(1)),
+        }
+    }
+
+    fn open(&self) -> bool {
+        self.to > 0.5
+    }
+
+    fn running(&self) -> bool {
+        self.started.elapsed() < self.duration
+    }
+
+    fn progress(&self) -> f32 {
+        let t = (self.started.elapsed().as_secs_f32() / self.duration.as_secs_f32()).min(1.0);
+        self.from + (self.to - self.from) * ease_out_cubic(t)
+    }
+}
 
 pub struct Sidebar {
     stores: Stores,
-    /// Projects whose session list is folded away.
-    collapsed: HashSet<String>,
+    /// Folds started by a chevron click, per project. A project without one is open.
+    folds: HashMap<String, Fold>,
     picker_open: bool,
     shell_menu: Option<ShellMenu>,
     shell_menu_closed_at: Option<Instant>,
@@ -51,16 +101,6 @@ pub fn status_color(status: SessionStatus) -> Rgba {
     }
 }
 
-pub fn status_label(status: SessionStatus) -> &'static str {
-    match status {
-        SessionStatus::Starting => "Starting",
-        SessionStatus::Working => "Working",
-        SessionStatus::NeedsInput => "Needs input",
-        SessionStatus::Idle => "Idle",
-        SessionStatus::Exited => "Exited",
-    }
-}
-
 pub fn status_dot(status: SessionStatus) -> impl IntoElement {
     div()
         .flex_none()
@@ -77,11 +117,24 @@ impl Sidebar {
             .detach();
         Self {
             stores,
-            collapsed: HashSet::new(),
+            folds: HashMap::new(),
             picker_open: false,
             shell_menu: None,
             shell_menu_closed_at: None,
         }
+    }
+
+    fn toggle_fold(&mut self, project_id: &str, cx: &mut Context<Self>) {
+        let fold = Fold::toggle(self.folds.get(project_id).copied());
+        self.folds.insert(project_id.to_string(), fold);
+        // Re-render once it is over so a folded list is unmounted.
+        let wait = fold.duration + Duration::from_millis(16);
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(wait).await;
+            this.update(cx, |_, cx| cx.notify()).ok();
+        })
+        .detach();
+        cx.notify();
     }
 
     fn toggle_shell_menu(&mut self, project_id: &str, cx: &mut Context<Self>) {
@@ -287,7 +340,7 @@ impl Sidebar {
     fn project_block(&self, project: &Project, cx: &mut Context<Self>) -> gpui::AnyElement {
         let projects = self.stores.projects.read(cx);
         let selected = projects.selected.as_deref() == Some(project.id.as_str());
-        let collapsed = self.collapsed.contains(&project.id);
+        let fold = self.folds.get(&project.id).copied();
         let sessions: Vec<_> = self
             .stores
             .sessions
@@ -317,154 +370,103 @@ impl Sidebar {
             project.id.clone(),
         );
 
-        div()
+        let full_h = ROW_H * sessions.len() as f32
+            + if terminals.is_empty() {
+                0.0
+            } else {
+                TERMINALS_HEADER_H + ROW_H * terminals.len() as f32
+            };
+        let chevron = |progress: f32| {
+            icon(Icon::ChevronRight, px(14.0))
+                .text_color(theme::text_muted())
+                .with_transformation(Transformation::rotate(radians(
+                    progress * std::f32::consts::FRAC_PI_2,
+                )))
+        };
+        let animating = fold.filter(|f| f.running());
+        let chevron = match animating {
+            Some(f) => chevron(f.from)
+                .with_animation(
+                    (
+                        gpui::SharedString::from(format!("fold-chevron-{}", project.id)),
+                        f.id,
+                    ),
+                    Animation::new(f.duration).with_easing(ease_out_cubic),
+                    move |_, t| chevron(f.from + (f.to - f.from) * t),
+                )
+                .into_any_element(),
+            None => chevron(if fold.is_none_or(|f| f.open()) {
+                1.0
+            } else {
+                0.0
+            })
+            .into_any_element(),
+        };
+        let show_list = animating.is_some() || fold.is_none_or(|f| f.open());
+
+        let header = div()
             .flex()
-            .flex_col()
+            .items_center()
+            .h(px(32.0))
+            .px(px(6.0))
+            .rounded(px(6.0))
+            .when(selected, |s| s.bg(theme::hover()))
             .child(
                 div()
+                    .id(gpui::SharedString::from(format!(
+                        "chevron-{}",
+                        project.id.clone()
+                    )))
+                    .flex_none()
+                    .size(px(20.0))
                     .flex()
                     .items_center()
-                    .h(px(32.0))
-                    .px(px(6.0))
-                    .rounded(px(6.0))
-                    .when(selected, |s| s.bg(theme::hover()))
+                    .justify_center()
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.toggle_fold(&toggle_id, cx);
+                    }))
+                    .child(chevron),
+            )
+            .child(
+                div()
+                    .id(gpui::SharedString::from(format!(
+                        "project-{}",
+                        project.id.clone()
+                    )))
+                    .flex()
+                    .flex_1()
+                    .min_w_0()
+                    .items_center()
+                    .gap(px(8.0))
+                    .h_full()
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.stores
+                            .projects
+                            .update(cx, |p, cx| p.select(&select_id, cx));
+                        cx.emit(Navigate(Route::Sessions));
+                        let _ = window;
+                    }))
+                    .child(icon(Icon::Folder, px(16.0)).text_color(theme::text_muted()))
+                    .child(
+                        div()
+                            .truncate()
+                            .text_size(px(13.0))
+                            .text_color(theme::text())
+                            .child(project.name.clone()),
+                    ),
+            )
+            .child(
+                div()
+                    .relative()
+                    .flex()
+                    .flex_none()
+                    .items_center()
                     .child(
                         div()
                             .id(gpui::SharedString::from(format!(
-                                "chevron-{}",
-                                project.id.clone()
-                            )))
-                            .flex_none()
-                            .size(px(20.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .cursor_pointer()
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                if !this.collapsed.remove(&toggle_id) {
-                                    this.collapsed.insert(toggle_id.clone());
-                                }
-                                cx.notify();
-                            }))
-                            .child(
-                                icon(
-                                    if collapsed {
-                                        Icon::ChevronRight
-                                    } else {
-                                        Icon::ChevronDown
-                                    },
-                                    px(14.0),
-                                )
-                                .text_color(theme::text_muted()),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .id(gpui::SharedString::from(format!(
-                                "project-{}",
-                                project.id.clone()
-                            )))
-                            .flex()
-                            .flex_1()
-                            .min_w_0()
-                            .items_center()
-                            .gap(px(8.0))
-                            .h_full()
-                            .cursor_pointer()
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.stores
-                                    .projects
-                                    .update(cx, |p, cx| p.select(&select_id, cx));
-                                cx.emit(Navigate(Route::Sessions));
-                                let _ = window;
-                            }))
-                            .child(icon(Icon::Folder, px(16.0)).text_color(theme::text_muted()))
-                            .child(
-                                div()
-                                    .truncate()
-                                    .text_size(px(13.0))
-                                    .text_color(theme::text())
-                                    .child(project.name.clone()),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .relative()
-                            .flex()
-                            .flex_none()
-                            .items_center()
-                            .child(
-                                div()
-                                    .id(gpui::SharedString::from(format!(
-                                        "new-session-{}",
-                                        project.id.clone()
-                                    )))
-                                    .flex_none()
-                                    .size(px(24.0))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .rounded(px(4.0))
-                                    .cursor_pointer()
-                                    .hover(|s| s.bg(theme::hover()))
-                                    .on_click(cx.listener(
-                                        move |this, event: &gpui::ClickEvent, _, cx| {
-                                            this.stores
-                                                .projects
-                                                .update(cx, |p, cx| p.select(&new_id, cx));
-                                            cx.emit(Navigate(Route::Sessions));
-                                            // Alt-click: this session only, the other way round from the
-                                            // project's remembered choice.
-                                            let remembered = this
-                                                .stores
-                                                .projects
-                                                .read(cx)
-                                                .get(&new_id)
-                                                .and_then(|p| p.use_worktree);
-                                            match remembered {
-                                                Some(worktree) if event.modifiers().alt => {
-                                                    sessions::begin_new_with(&new_id, !worktree, cx)
-                                                }
-                                                _ => sessions::begin_new(&new_id, cx),
-                                            }
-                                        },
-                                    ))
-                                    .child(icon(Icon::Plus, px(15.0)).text_color(theme::text())),
-                            )
-                            .child(
-                                div()
-                                    .id(gpui::SharedString::from(format!(
-                                        "new-terminal-{}",
-                                        project.id.clone()
-                                    )))
-                                    .flex_none()
-                                    .w(px(16.0))
-                                    .h(px(24.0))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .rounded(px(4.0))
-                                    .cursor_pointer()
-                                    .hover(|s| s.bg(theme::hover()))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.toggle_shell_menu(&menu_id, cx)
-                                    }))
-                                    .child(
-                                        icon(Icon::ChevronDown, px(12.0))
-                                            .text_color(theme::text_muted()),
-                                    ),
-                            )
-                            .children(
-                                self.shell_menu
-                                    .as_ref()
-                                    .filter(|_| menu_open)
-                                    .map(|m| self.shell_menu_popup(m, cx)),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .id(gpui::SharedString::from(format!(
-                                "remove-project-{}",
+                                "new-session-{}",
                                 project.id.clone()
                             )))
                             .flex_none()
@@ -475,86 +477,156 @@ impl Sidebar {
                             .rounded(px(4.0))
                             .cursor_pointer()
                             .hover(|s| s.bg(theme::hover()))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.remove_project(remove_id.clone(), cx)
+                            .on_click(cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
+                                this.stores
+                                    .projects
+                                    .update(cx, |p, cx| p.select(&new_id, cx));
+                                cx.emit(Navigate(Route::Sessions));
+                                // Alt-click: this session only, the other way round from the
+                                // project's remembered choice.
+                                let remembered = this
+                                    .stores
+                                    .projects
+                                    .read(cx)
+                                    .get(&new_id)
+                                    .and_then(|p| p.use_worktree);
+                                match remembered {
+                                    Some(worktree) if event.modifiers().alt => {
+                                        sessions::begin_new_with(&new_id, !worktree, cx)
+                                    }
+                                    _ => sessions::begin_new(&new_id, cx),
+                                }
                             }))
-                            .child(icon(Icon::Trash, px(14.0)).text_color(theme::text_muted())),
+                            .child(icon(Icon::Plus, px(15.0)).text_color(theme::text())),
+                    )
+                    .child(
+                        div()
+                            .id(gpui::SharedString::from(format!(
+                                "new-terminal-{}",
+                                project.id.clone()
+                            )))
+                            .flex_none()
+                            .w(px(16.0))
+                            .h(px(24.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(4.0))
+                            .cursor_pointer()
+                            .hover(|s| s.bg(theme::hover()))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.toggle_shell_menu(&menu_id, cx)
+                            }))
+                            .child(
+                                icon(Icon::ChevronDown, px(12.0)).text_color(theme::text_muted()),
+                            ),
+                    )
+                    .children(
+                        self.shell_menu
+                            .as_ref()
+                            .filter(|_| menu_open)
+                            .map(|m| self.shell_menu_popup(m, cx)),
                     ),
             )
-            .when(!collapsed, |s| {
-                s.children(sessions.into_iter().map(|(id, name, status, worktree)| {
-                    let (pick_id, close_id) = (id.clone(), id.clone());
-                    let is_active = active.as_deref() == Some(id.as_str());
-                    div()
-                        .flex()
-                        .items_center()
-                        .h(px(28.0))
-                        .ml(px(26.0))
-                        .px(px(6.0))
-                        .rounded(px(6.0))
-                        .when(is_active, |s| s.bg(theme::accent_soft()))
-                        .child(
-                            div()
-                                .id(gpui::SharedString::from(format!("session-{}", id.clone())))
-                                .flex()
-                                .flex_1()
-                                .min_w_0()
-                                .items_center()
-                                .gap(px(8.0))
-                                .h_full()
-                                .cursor_pointer()
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.stores
-                                        .sessions
-                                        .update(cx, |s, cx| s.select(&pick_id, cx));
-                                    cx.emit(Navigate(Route::Sessions));
-                                }))
-                                .child(status_dot(status))
-                                .child(
-                                    div()
-                                        .truncate()
-                                        .text_size(px(12.5))
-                                        .text_color(if status == SessionStatus::Exited {
-                                            theme::text_muted()
-                                        } else {
-                                            theme::text()
-                                        })
-                                        .child(name),
+            .child(
+                div()
+                    .id(gpui::SharedString::from(format!(
+                        "remove-project-{}",
+                        project.id.clone()
+                    )))
+                    .flex_none()
+                    .size(px(24.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(4.0))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme::hover()))
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| {
+                            this.remove_project(remove_id.clone(), cx)
+                        }),
+                    )
+                    .child(icon(Icon::Trash, px(14.0)).text_color(theme::text_muted())),
+            );
+
+        let list = div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .children(sessions.into_iter().map(|(id, name, status, worktree)| {
+                let (pick_id, close_id) = (id.clone(), id.clone());
+                let is_active = active.as_deref() == Some(id.as_str());
+                div()
+                    .flex()
+                    .items_center()
+                    .h(px(ROW_H))
+                    .ml(px(26.0))
+                    .px(px(6.0))
+                    .rounded(px(6.0))
+                    .when(is_active, |s| s.bg(theme::accent_soft()))
+                    .child(
+                        div()
+                            .id(gpui::SharedString::from(format!("session-{}", id.clone())))
+                            .flex()
+                            .flex_1()
+                            .min_w_0()
+                            .items_center()
+                            .gap(px(8.0))
+                            .h_full()
+                            .cursor_pointer()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.stores
+                                    .sessions
+                                    .update(cx, |s, cx| s.select(&pick_id, cx));
+                                cx.emit(Navigate(Route::Sessions));
+                            }))
+                            .child(status_dot(status))
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_size(px(12.5))
+                                    .text_color(if status == SessionStatus::Exited {
+                                        theme::text_muted()
+                                    } else {
+                                        theme::text()
+                                    })
+                                    .child(name),
+                            )
+                            .when(worktree, |s| {
+                                s.child(
+                                    icon(Icon::Branch, px(12.0)).text_color(theme::text_muted()),
                                 )
-                                .when(worktree, |s| {
-                                    s.child(
-                                        icon(Icon::Branch, px(12.0))
-                                            .text_color(theme::text_muted()),
-                                    )
-                                }),
-                        )
-                        .child(
-                            div()
-                                .id(gpui::SharedString::from(format!(
-                                    "close-session-{}",
-                                    id.clone()
-                                )))
-                                .flex_none()
-                                .size(px(20.0))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded(px(4.0))
-                                .cursor_pointer()
-                                .hover(|s| s.bg(theme::hover()))
-                                .on_click(cx.listener(move |_, _, _, cx| {
-                                    sessions::request_close(&close_id, cx);
-                                }))
-                                .child(icon(Icon::Close, px(12.0)).text_color(theme::text_muted())),
-                        )
-                }))
-            })
-            .when(!collapsed && !terminals.is_empty(), |s| {
+                            }),
+                    )
+                    .child(
+                        div()
+                            .id(gpui::SharedString::from(format!(
+                                "close-session-{}",
+                                id.clone()
+                            )))
+                            .flex_none()
+                            .size(px(20.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(4.0))
+                            .cursor_pointer()
+                            .hover(|s| s.bg(theme::hover()))
+                            .on_click(cx.listener(move |_, _, _, cx| {
+                                sessions::request_close(&close_id, cx);
+                            }))
+                            .child(icon(Icon::Close, px(12.0)).text_color(theme::text_muted())),
+                    )
+            }))
+            .when(!terminals.is_empty(), |s| {
                 s.child(
                     div()
+                        .h(px(TERMINALS_HEADER_H))
+                        .flex()
+                        .items_end()
                         .ml(px(26.0))
                         .px(px(6.0))
-                        .pt(px(6.0))
                         .pb(px(2.0))
                         .text_size(px(10.5))
                         .font_weight(gpui::FontWeight::SEMIBOLD)
@@ -567,7 +639,7 @@ impl Sidebar {
                     div()
                         .flex()
                         .items_center()
-                        .h(px(28.0))
+                        .h(px(ROW_H))
                         .ml(px(26.0))
                         .px(px(6.0))
                         .rounded(px(6.0))
@@ -616,6 +688,27 @@ impl Sidebar {
                                 .child(icon(Icon::Close, px(12.0)).text_color(theme::text_muted())),
                         )
                 }))
+            });
+
+        div()
+            .flex()
+            .flex_col()
+            .child(header)
+            .when(show_list, |s| {
+                let clip = div().flex().flex_col().overflow_hidden().child(list);
+                s.child(match animating {
+                    Some(f) => clip
+                        .with_animation(
+                            (
+                                gpui::SharedString::from(format!("fold-{}", project.id)),
+                                f.id,
+                            ),
+                            Animation::new(f.duration).with_easing(ease_out_cubic),
+                            move |el, t| el.h(px(full_h * (f.from + (f.to - f.from) * t))),
+                        )
+                        .into_any_element(),
+                    None => clip.into_any_element(),
+                })
             })
             .into_any_element()
     }

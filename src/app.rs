@@ -32,7 +32,9 @@ actions!(
         ToggleSidebar,
         ToggleSkills,
         RequestClose,
-        OpenTerminal
+        OpenTerminal,
+        NextSession,
+        PrevSession
     ]
 );
 
@@ -43,6 +45,8 @@ pub fn bind_keys(cx: &mut App) {
         gpui::KeyBinding::new("ctrl-alt-b", ToggleSidebar, None),
         gpui::KeyBinding::new("ctrl-alt-s", ToggleSkills, None),
         gpui::KeyBinding::new("ctrl-alt-t", OpenTerminal, None),
+        gpui::KeyBinding::new("ctrl-tab", NextSession, None),
+        gpui::KeyBinding::new("ctrl-shift-tab", PrevSession, None),
         #[cfg(target_os = "macos")]
         gpui::KeyBinding::new("ctrl-cmd-f", ToggleFullscreen, None),
     ]);
@@ -489,6 +493,12 @@ impl Render for AppRoot {
                     this.navigate(Route::Sessions, window, cx);
                     sessions::begin_shell(&id, None, sessions::ShellDir::Project, cx);
                 }
+            }))
+            .on_action(cx.listener(|this, _: &NextSession, _, cx| {
+                this.stores.sessions.update(cx, |s, cx| s.cycle(true, cx));
+            }))
+            .on_action(cx.listener(|this, _: &PrevSession, _, cx| {
+                this.stores.sessions.update(cx, |s, cx| s.cycle(false, cx));
             }))
             // The Linux close button goes through here so it is guarded like the OS close.
             .on_action(cx.listener(|this, _: &RequestClose, window, cx| {

@@ -1,18 +1,16 @@
-//! Sessions page: tab strip over the active session's terminal.
+//! Sessions page: the active session's terminal.
 //!
-//! Tabs are done; split panes are not (one terminal per tab).
+//! Sessions are switched from the sidebar (or Ctrl+Tab); split panes are not done.
 
 use gpui::{
-    Context, EventEmitter, InteractiveElement, IntoElement, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Window, div, prelude::*, px,
+    Context, EventEmitter, IntoElement, ParentElement, Render, Styled, Window, div, prelude::*, px,
 };
 
 use crate::route::{GoBack, Navigate};
 use crate::state::Stores;
-use crate::state::sessions::{self, SessionKind};
+use crate::state::sessions;
 use crate::ui::components::button::{ButtonVariant, button};
 use crate::ui::icons::{Icon, icon};
-use crate::ui::shell::sidebar::{status_dot, status_label};
 use crate::ui::theme;
 
 pub struct SessionsPage {
@@ -58,14 +56,7 @@ impl Render for SessionsPage {
         let store = self.stores.sessions.read(cx);
         let active = store.active_session();
 
-        let active_id = store.active.clone();
-        let tabs: Vec<_> = store
-            .items
-            .iter()
-            .map(|s| (s.id.clone(), s.name.clone(), s.status, s.kind))
-            .collect();
         let terminal = active.map(|s| s.terminal.clone());
-        let status = active.map(|s| (s.kind, s.status, s.cwd.display().to_string()));
         let selected_project = self.stores.projects.read(cx).selected.clone();
         let has_projects = !self.stores.projects.read(cx).items.is_empty();
 
@@ -75,106 +66,6 @@ impl Render for SessionsPage {
             .flex_1()
             .min_w_0()
             .min_h_0()
-            .child(
-                div()
-                    .id("tab-strip")
-                    .flex()
-                    .flex_none()
-                    .items_end()
-                    .h(px(36.0))
-                    .px(px(6.0))
-                    .gap(px(2.0))
-                    .bg(theme::bg_chrome())
-                    .border_b_1()
-                    .border_color(theme::border_subtle())
-                    .overflow_x_scroll()
-                    .children(tabs.into_iter().map(|(id, name, st, kind)| {
-                        let (pick, close) = (id.clone(), id.clone());
-                        let is_active = active_id.as_deref() == Some(id.as_str());
-                        div()
-                            .flex()
-                            .flex_none()
-                            .items_center()
-                            .gap(px(8.0))
-                            .h(px(30.0))
-                            .pl(px(10.0))
-                            .pr(px(4.0))
-                            .rounded_t(px(6.0))
-                            .bg(if is_active {
-                                theme::bg_terminal()
-                            } else {
-                                gpui::rgba(0x00000000)
-                            })
-                            .child(
-                                div()
-                                    .id(gpui::SharedString::from(format!("tab-{}", id.clone())))
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(8.0))
-                                    .h_full()
-                                    .cursor_pointer()
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.stores
-                                            .sessions
-                                            .update(cx, |s, cx| s.select(&pick, cx));
-                                        // Re-focus even when the tab was already selected.
-                                        this.focused = None;
-                                        cx.notify();
-                                    }))
-                                    .child(match kind {
-                                        SessionKind::Agent => status_dot(st).into_any_element(),
-                                        SessionKind::Shell => icon(Icon::Terminal, px(13.0))
-                                            .text_color(theme::text_muted())
-                                            .into_any_element(),
-                                    })
-                                    .child(
-                                        div()
-                                            .text_size(px(12.5))
-                                            .text_color(if is_active {
-                                                theme::text()
-                                            } else {
-                                                theme::text_muted()
-                                            })
-                                            .child(name),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .id(gpui::SharedString::from(format!("tab-close-{}", id)))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .size(px(20.0))
-                                    .rounded(px(4.0))
-                                    .cursor_pointer()
-                                    .hover(|s| s.bg(theme::hover()))
-                                    .on_click(cx.listener(move |_, _, _, cx| {
-                                        sessions::request_close(&close, cx);
-                                    }))
-                                    .child(
-                                        icon(Icon::Close, px(12.0)).text_color(theme::text_muted()),
-                                    ),
-                            )
-                    }))
-                    .when_some(selected_project.clone(), |s, project_id| {
-                        s.child(
-                            div()
-                                .id("tab-new")
-                                .flex()
-                                .flex_none()
-                                .items_center()
-                                .justify_center()
-                                .size(px(30.0))
-                                .rounded(px(6.0))
-                                .cursor_pointer()
-                                .hover(|s| s.bg(theme::hover()))
-                                .on_click(cx.listener(move |_, _, _, cx| {
-                                    sessions::begin_new(&project_id, cx);
-                                }))
-                                .child(icon(Icon::Plus, px(15.0)).text_color(theme::text())),
-                        )
-                    }),
-            )
             .child(match terminal {
                 Some(t) => div()
                     .flex()
@@ -182,26 +73,6 @@ impl Render for SessionsPage {
                     .flex_1()
                     .min_h_0()
                     .child(t)
-                    .when_some(status, |s, (kind, st, cwd)| {
-                        s.child(
-                            div()
-                                .flex()
-                                .flex_none()
-                                .items_center()
-                                .gap(px(8.0))
-                                .h(px(24.0))
-                                .px(px(10.0))
-                                .bg(theme::bg_chrome())
-                                .border_t_1()
-                                .border_color(theme::border_subtle())
-                                .text_size(px(11.0))
-                                .text_color(theme::text_muted())
-                                .when(kind == SessionKind::Agent, |s| {
-                                    s.child(status_dot(st)).child(status_label(st))
-                                })
-                                .child(div().truncate().child(cwd)),
-                        )
-                    })
                     .into_any_element(),
                 None => div()
                     .flex()

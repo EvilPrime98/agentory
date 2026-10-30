@@ -136,6 +136,26 @@ impl SessionsStore {
         }
     }
 
+    /// Select the next (or previous) session, wrapping around.
+    pub fn cycle(&mut self, forward: bool, cx: &mut Context<Self>) {
+        let n = self.items.len();
+        if n < 2 {
+            return;
+        }
+        let at = self
+            .active
+            .as_deref()
+            .and_then(|id| self.items.iter().position(|s| s.id == id))
+            .unwrap_or(0);
+        let next = if forward {
+            (at + 1) % n
+        } else {
+            (at + n - 1) % n
+        };
+        let id = self.items[next].id.clone();
+        self.select(&id, cx);
+    }
+
     /// Start a session. `id` is shared with the worktree (if any) so both are easy to correlate.
     pub fn start(
         &mut self,
