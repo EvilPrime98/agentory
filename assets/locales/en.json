@@ -75,5 +75,13 @@
   "skill_editor.nothing_to_preview": "Nothing to preview",
   "skill_editor.saved": "Saved {name}",
   "skill_editor.save_failed": "Could not save {name}: {error}",
-  "skill_editor.read_failed": "Could not read {path}: {error}"
+  "skill_editor.read_failed": "Could not read {path}: {error}",
+  "common.delete": "Delete",
+  "docs.title": "Docs",
+  "docs.card.files": "Markdown files",
+  "docs.no_folder": "No docs/ folder in this project",
+  "docs.no_files": "No markdown files in docs/",
+  "docs.delete.title": "Delete doc",
+  "docs.delete.body": "Move docs/{rel} to the recycle bin?",
+  "docs.delete.failed": "Could not delete {rel}: {error}"
 }

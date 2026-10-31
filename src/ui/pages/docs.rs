@@ -8,6 +8,7 @@ use gpui::{
 };
 
 use super::skills::{card, icon_button, muted_note, row_base};
+use crate::i18n::{t, t_args};
 use crate::route::{GoBack, Navigate, Route};
 use crate::state::Stores;
 use crate::state::sessions;
@@ -142,8 +143,11 @@ impl DocsPage {
         };
         let path = docs_dir(&root).join(&rel);
         let options =
-            ConfirmOptions::new("Delete doc", format!("Move docs/{rel} to the recycle bin?"))
-                .labels("Delete", "Cancel");
+            ConfirmOptions::new(
+            t("docs.delete.title"),
+            t_args("docs.delete.body", &[("rel", &rel)]),
+        )
+        .labels(t("common.delete"), t("common.cancel"));
         let page = cx.entity();
         confirm::ask(cx, options, move |answer, _, cx| {
             if answer != Some(true) {
@@ -151,7 +155,7 @@ impl DocsPage {
             }
             if let Err(e) = trash::delete(&path) {
                 tracing::error!("could not trash {}: {e}", path.display());
-                toast::error(cx, format!("Could not delete {rel}: {e}"));
+                toast::error(cx, t_args("docs.delete.failed", &[("rel", &rel), ("error", &e.to_string())]));
             }
             page.update(cx, |this, cx| this.rescan(cx));
         });
@@ -163,11 +167,11 @@ impl Render for DocsPage {
         let (count, body): (Option<usize>, Vec<AnyElement>) = match &self.scan {
             Scan::NoFolder => (
                 None,
-                vec![muted_note("No docs/ folder in this project".into()).into_any_element()],
+                vec![muted_note(t("docs.no_folder").into()).into_any_element()],
             ),
             Scan::Docs(docs) if docs.is_empty() => (
                 Some(0),
-                vec![muted_note("No markdown files in docs/".into()).into_any_element()],
+                vec![muted_note(t("docs.no_files").into()).into_any_element()],
             ),
             Scan::Docs(docs) => (
                 Some(docs.len()),
@@ -245,7 +249,7 @@ impl Render for DocsPage {
                                 div()
                                     .text_size(px(20.0))
                                     .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .child("Docs"),
+                                    .child(t("docs.title")),
                             )
                             .child(
                                 div()
@@ -264,7 +268,7 @@ impl Render for DocsPage {
                     .child(
                         div()
                             .flex()
-                            .child(card("Markdown files", count, None, body)),
+                            .child(card(&t("docs.card.files"), count, None, body)),
                     ),
             )
     }

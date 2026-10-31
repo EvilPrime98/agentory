@@ -75,5 +75,13 @@
   "skill_editor.nothing_to_preview": "Nada que previsualizar",
   "skill_editor.saved": "{name} guardada",
   "skill_editor.save_failed": "No se pudo guardar {name}: {error}",
-  "skill_editor.read_failed": "No se pudo leer {path}: {error}"
+  "skill_editor.read_failed": "No se pudo leer {path}: {error}",
+  "common.delete": "Eliminar",
+  "docs.title": "Docs",
+  "docs.card.files": "Archivos Markdown",
+  "docs.no_folder": "Este proyecto no tiene carpeta docs/",
+  "docs.no_files": "No hay archivos markdown en docs/",
+  "docs.delete.title": "Eliminar doc",
+  "docs.delete.body": "¿Mover docs/{rel} a la papelera de reciclaje?",
+  "docs.delete.failed": "No se pudo eliminar {rel}: {error}"
 }
