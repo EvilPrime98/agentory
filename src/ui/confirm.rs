@@ -37,7 +37,7 @@ impl ConfirmOptions {
     }
 
     /// Show a checkbox with a custom label and initial state.
-    pub fn checkbox(mut self, label: &'static str, checked: bool) -> Self {
+    pub fn checkbox(mut self, label: impl Into<SharedString>, checked: bool) -> Self {
         self.dont_ask_again = true;
         self.checkbox_label = label.into();
         self.checkbox_checked = checked;

@@ -9,6 +9,7 @@ use gpui::{
 use crate::route::{GoBack, Navigate};
 use crate::state::Stores;
 use crate::state::sessions;
+use crate::i18n::t;
 use crate::ui::components::button::{ButtonVariant, button};
 use crate::ui::icons::{Icon, icon};
 use crate::ui::theme;
@@ -86,22 +87,22 @@ impl Render for SessionsPage {
                         div()
                             .text_size(px(15.0))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .child("No session open"),
+                            .child(t("sessions.empty.title")),
                     )
                     .child(
                         div()
                             .text_size(px(13.0))
                             .text_color(theme::text_muted())
                             .child(if has_projects {
-                                "Start Claude Code in the selected project."
+                                t("sessions.empty.start")
                             } else {
-                                "Add a project folder from the sidebar first."
+                                t("sessions.empty.add_project")
                             }),
                     )
                     .when_some(selected_project, |s, project_id| {
                         s.child(button(
                             "empty-new-session",
-                            "New session",
+                            t("sessions.new"),
                             ButtonVariant::Classic,
                             cx.listener(move |_, _, _, cx| sessions::begin_new(&project_id, cx)),
                         ))

@@ -83,5 +83,21 @@
   "docs.no_files": "No markdown files in docs/",
   "docs.delete.title": "Delete doc",
   "docs.delete.body": "Move docs/{rel} to the recycle bin?",
-  "docs.delete.failed": "Could not delete {rel}: {error}"
+  "docs.delete.failed": "Could not delete {rel}: {error}",
+  "common.close": "Close",
+  "sessions.new": "New session",
+  "sessions.empty.title": "No session open",
+  "sessions.empty.start": "Start Claude Code in the selected project.",
+  "sessions.empty.add_project": "Add a project folder from the sidebar first.",
+  "sessions.notify.needs_input": "{name} needs your input",
+  "sessions.notify.finished": "{name} finished",
+  "sessions.ask_worktree.body": "Run a session for \"{project}\" in an isolated git worktree (new branch), or directly in the project folder?",
+  "sessions.ask_worktree.worktree": "Worktree",
+  "sessions.ask_worktree.folder": "Project folder",
+  "sessions.ask_worktree.remember": "Remember for this project",
+  "sessions.no_shell": "No shell was found on this machine.",
+  "sessions.close_terminal.title": "Close terminal",
+  "sessions.close_terminal.body": "A command is still running in this terminal and will be terminated.",
+  "sessions.worktree.creating": "Creating the worktree…",
+  "sessions.worktree.failed": "Could not create the worktree: {error}"
 }

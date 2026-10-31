@@ -10,6 +10,7 @@ use crate::app::AppRoot;
 use crate::backend::git::{self, Worktree};
 use crate::backend::spm;
 use crate::model::{Project, SessionStatus, new_id};
+use crate::i18n::{t, t_args};
 use crate::platform::pty::{self, SpawnSpec};
 use crate::platform::shells::{self, Shell};
 use crate::platform::{notify, status};
@@ -380,8 +381,8 @@ impl SessionsStore {
         cx: &mut Context<Self>,
     ) {
         let message = match (old, new) {
-            (_, SessionStatus::NeedsInput) => "needs your input",
-            (SessionStatus::Working, SessionStatus::Idle) => "finished",
+            (_, SessionStatus::NeedsInput) => "sessions.notify.needs_input",
+            (SessionStatus::Working, SessionStatus::Idle) => "sessions.notify.finished",
             _ => return,
         };
         let enabled = cx
@@ -392,11 +393,12 @@ impl SessionsStore {
             return;
         }
         let session_id = id.to_string();
-        toast::success_with(cx, format!("{name} {message}"), move |window, cx| {
+        let message = t_args(message, &[("name", name)]);
+        toast::success_with(cx, message.clone(), move |window, cx| {
             reveal(&session_id, window, cx)
         });
         if !self.app_active {
-            let (title, body) = ("Agentory".to_string(), format!("{name} {message}"));
+            let (title, body) = ("Agentory".to_string(), message);
             cx.spawn(async move |_, _| runtime::run(notify::toast(title, body)).await)
                 .detach();
         }
@@ -455,14 +457,11 @@ pub fn begin_new_input(project_id: &str, input: Option<String>, cx: &mut App) {
         return;
     }
     let options = ConfirmOptions::new(
-        "New session",
-        format!(
-            "Run a session for \"{}\" in an isolated git worktree (new branch), or directly in the project folder?",
-            project.name
-        ),
+        t("sessions.new"),
+        t_args("sessions.ask_worktree.body", &[("project", &project.name)]),
     )
-    .labels("Worktree", "Project folder")
-    .checkbox("Remember for this project", true);
+    .labels(t("sessions.ask_worktree.worktree"), t("sessions.ask_worktree.folder"))
+    .checkbox(t("sessions.ask_worktree.remember"), true);
     confirm::ask(cx, options, move |answer, remember, cx| {
         let Some(worktree) = answer else { return };
         if remember {
@@ -499,7 +498,7 @@ pub fn begin_shell(project_id: &str, shell: Option<&str>, dir: ShellDir, cx: &mu
     let prefs = stores.prefs.read(cx).prefs.clone();
     let shells = shells::detect();
     let Some(shell) = shells::pick(&shells, shell.unwrap_or(&prefs.last_shell)) else {
-        toast::error(cx, "No shell was found on this machine.");
+        toast::error(cx, t("sessions.no_shell"));
         return;
     };
     let cwd = match dir {
@@ -536,10 +535,10 @@ pub fn request_close(id: &str, cx: &mut App) {
         return;
     }
     let options = ConfirmOptions::new(
-        "Close terminal",
-        "A command is still running in this terminal and will be terminated.",
+        t("sessions.close_terminal.title"),
+        t("sessions.close_terminal.body"),
     )
-    .labels("Close", "Cancel");
+    .labels(t("common.close"), t("common.cancel"));
     confirm::ask(cx, options, move |answer, _, cx| {
         if answer == Some(true) {
             stores.sessions.update(cx, |s, cx| s.close(&id, cx));
@@ -553,7 +552,7 @@ fn launch(stores: Stores, project: Project, worktree: bool, input: Option<String
         spawn_session(&stores, &project, id, None, input, cx);
         return;
     }
-    toast::success(cx, "Creating the worktree…");
+    toast::success(cx, t("sessions.worktree.creating"));
     cx.spawn(async move |cx| {
         let (p, sid) = (project.clone(), id.clone());
         let result = runtime::run(async move {
@@ -569,7 +568,7 @@ fn launch(stores: Stores, project: Project, worktree: bool, input: Option<String
         .await;
         cx.update(|cx| match result {
             Ok(wt) => spawn_session(&stores, &project, id, Some(wt), input, cx),
-            Err(e) => toast::error(cx, format!("Could not create the worktree: {e}")),
+            Err(e) => toast::error(cx, t_args("sessions.worktree.failed", &[("error", &e.to_string())])),
         });
     })
     .detach();
