@@ -10,6 +10,7 @@ use gpui::{
 };
 
 use crate::backend::spm;
+use crate::i18n::{t, t_n};
 use crate::platform::pty;
 use crate::route::{GoBack, History, Navigate, Route, window_title};
 use crate::runtime;
@@ -154,6 +155,8 @@ pub struct AppRoot {
     close_confirmed: bool,
     close_check_pending: bool,
     sidebar_anim: Option<PanelAnim>,
+    /// Last title given to the OS window, so a language switch can refresh it.
+    window_title: String,
 }
 
 impl AppRoot {
@@ -214,6 +217,7 @@ impl AppRoot {
             close_confirmed: false,
             close_check_pending: false,
             sidebar_anim: None,
+            window_title: String::new(),
         };
         // Closing with running sessions asks first (`on_window_should_close` is synchronous, so the
         // answer arrives later and the window closes itself).
@@ -221,7 +225,7 @@ impl AppRoot {
         window.on_window_should_close(cx, move |window, cx| {
             root.update(cx, |root, cx| root.guard_close(window, cx))
         });
-        window.set_window_title(&window_title(this.history.current()));
+        this.sync_window_title(window);
         this.build_page(window, cx);
         this.sync_skills_project(cx);
         this.begin_startup(cx);
@@ -263,7 +267,7 @@ impl AppRoot {
                         tracing::warn!("claude was not found on PATH");
                         toast::error(
                             cx,
-                            "Claude Code was not found on PATH. Set the command in Settings.",
+                            t("app.claude_missing"),
                         );
                     }
                 }
@@ -271,7 +275,7 @@ impl AppRoot {
                     tracing::warn!("spm was not found on PATH");
                     toast::error(
                         cx,
-                        "spm was not found on PATH: the skills panel is read-only.",
+                        t("app.spm_missing"),
                     );
                 }
                 // Dev aid: start a session in the selected project right away.
@@ -304,10 +308,10 @@ impl AppRoot {
         let root = cx.entity();
         let handle = window.window_handle();
         let options = ConfirmOptions::new(
-            "Close Agentory",
-            format!("{running} running session(s) will be terminated."),
+            t("app.close.title"),
+            t_n("app.close.body", running),
         )
-        .labels("Close", "Cancel");
+        .labels(t("common.close"), t("common.cancel"));
         confirm::ask(cx, options, move |answer, _, cx| {
             let close = answer == Some(true);
             root.update(cx, |root, _| {
@@ -351,10 +355,10 @@ impl AppRoot {
         let root = cx.entity();
         let handle = window.window_handle();
         let options = ConfirmOptions::new(
-            "Unsaved changes",
-            "This skill has edits that were not saved. Leave and discard them?",
+            t("app.unsaved.title"),
+            t("app.unsaved.body"),
         )
-        .labels("Discard", "Keep editing");
+        .labels(t("app.unsaved.discard"), t("app.unsaved.keep"));
         confirm::ask(cx, options, move |answer, _, cx| {
             if answer == Some(true) {
                 handle
@@ -366,8 +370,17 @@ impl AppRoot {
         });
     }
 
+    /// Set the OS window title when it differs (route or language changed).
+    fn sync_window_title(&mut self, window: &mut Window) {
+        let title = window_title(self.history.current());
+        if title != self.window_title {
+            window.set_window_title(&title);
+            self.window_title = title;
+        }
+    }
+
     fn route_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        window.set_window_title(&window_title(self.history.current()));
+        self.sync_window_title(window);
         let route = self.history.current().clone();
         self.sidebar.update(cx, |s, cx| s.set_route(route, cx));
         self.build_page(window, cx);
@@ -512,6 +525,7 @@ impl Focusable for AppRoot {
 
 impl Render for AppRoot {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_window_title(window);
         if !self.loading {
             if let Some(route) = self.pending_route.take() {
                 self.navigate(route, window, cx);
@@ -585,7 +599,7 @@ impl Render for AppRoot {
             )
             .child(self.toasts.clone())
             .child(self.confirm.clone())
-            .when(self.loading, |s| s.child(app_loader("Checking tools…")))
+            .when(self.loading, |s| s.child(app_loader(t("app.checking_tools"))))
     }
 }
 

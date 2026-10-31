@@ -110,5 +110,16 @@
   "usage.stale": "Usage unavailable — showing last known values",
   "usage.limit_5h": "5-hour limit",
   "usage.limit_weekly": "Weekly limit",
-  "usage.no_sessions": "No sessions running"
+  "usage.no_sessions": "No sessions running",
+  "route.sessions": "Sessions",
+  "app.claude_missing": "Claude Code was not found on PATH. Set the command in Settings.",
+  "app.spm_missing": "spm was not found on PATH: the skills panel is read-only.",
+  "app.close.title": "Close Agentory",
+  "app.close.body_one": "{n} running session will be terminated.",
+  "app.close.body_other": "{n} running sessions will be terminated.",
+  "app.unsaved.title": "Unsaved changes",
+  "app.unsaved.body": "This skill has edits that were not saved. Leave and discard them?",
+  "app.unsaved.discard": "Discard",
+  "app.unsaved.keep": "Keep editing",
+  "app.checking_tools": "Checking tools…"
 }

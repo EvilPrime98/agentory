@@ -110,5 +110,16 @@
   "usage.stale": "Uso no disponible — se muestran los últimos valores conocidos",
   "usage.limit_5h": "Límite de 5 horas",
   "usage.limit_weekly": "Límite semanal",
-  "usage.no_sessions": "No hay sesiones en ejecución"
+  "usage.no_sessions": "No hay sesiones en ejecución",
+  "route.sessions": "Sesiones",
+  "app.claude_missing": "No se encontró Claude Code en el PATH. Indica el comando en Ajustes.",
+  "app.spm_missing": "No se encontró spm en el PATH: el panel de skills es de solo lectura.",
+  "app.close.title": "Cerrar Agentory",
+  "app.close.body_one": "Se cerrará {n} sesión en ejecución.",
+  "app.close.body_other": "Se cerrarán {n} sesiones en ejecución.",
+  "app.unsaved.title": "Cambios sin guardar",
+  "app.unsaved.body": "Esta skill tiene cambios sin guardar. ¿Salir y descartarlos?",
+  "app.unsaved.discard": "Descartar",
+  "app.unsaved.keep": "Seguir editando",
+  "app.checking_tools": "Comprobando herramientas…"
 }

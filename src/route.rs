@@ -1,5 +1,7 @@
 //! Routing. GPUI has no router: an `enum Route` plus a back/forward stack.
 
+use crate::i18n::t;
+
 /// App pages. `Skills` and `Docs` carry the id of the project it manages; `SkillEditor` the project id and
 /// the name of the installed skill being edited.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,14 +19,14 @@ impl Route {
     }
 
     /// Page name for the window title (`"<page> · Agentory"`).
-    pub fn title(&self) -> &'static str {
-        match self {
-            Self::Sessions => "Sessions",
-            Self::Settings => "Settings",
-            Self::Skills(_) => "Skills",
-            Self::Docs(_) => "Docs",
-            Self::SkillEditor(..) => "Editing Skill",
-        }
+    pub fn title(&self) -> String {
+        t(match self {
+            Self::Sessions => "route.sessions",
+            Self::Settings => "settings.title",
+            Self::Skills(_) => "skills.title",
+            Self::Docs(_) => "docs.title",
+            Self::SkillEditor(..) => "skill_editor.title",
+        })
     }
 }
 
