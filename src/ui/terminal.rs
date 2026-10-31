@@ -179,10 +179,10 @@ fn feed(p: &mut vt100::Parser, scrolled: &AtomicU64, data: &[u8]) {
     p.process(data);
     let after_len = history_len(p);
     let mut delta = after_len.saturating_sub(before_len);
-    if after_len >= SCROLLBACK_LINES {
-        if let Some(shift) = before.and_then(|b| scroll_distance(&b, &live_hashes(p))) {
-            delta = delta.max(shift);
-        }
+    if after_len >= SCROLLBACK_LINES
+        && let Some(shift) = before.and_then(|b| scroll_distance(&b, &live_hashes(p)))
+    {
+        delta = delta.max(shift);
     }
     if delta > 0 {
         scrolled.fetch_add(delta as u64, Ordering::Relaxed);
@@ -407,10 +407,10 @@ impl Terminal {
         if bytes.is_empty() {
             return;
         }
-        if let Some(p) = &mut self.pty {
-            if let Err(e) = p.write(bytes) {
-                tracing::warn!("pty write failed: {e}");
-            }
+        if let Some(p) = &mut self.pty
+            && let Err(e) = p.write(bytes)
+        {
+            tracing::warn!("pty write failed: {e}");
         }
     }
 
@@ -768,11 +768,11 @@ impl Terminal {
             Some(Drag::Report(button)) if button == ev.button => {
                 self.drag = None;
                 let (mode, _) = self.mouse_protocol();
-                if mode != vt100::MouseProtocolMode::None && mode != vt100::MouseProtocolMode::Press
+                if mode != vt100::MouseProtocolMode::None
+                    && mode != vt100::MouseProtocolMode::Press
+                    && let Some(code) = mouse_button_code(button)
                 {
-                    if let Some(code) = mouse_button_code(button) {
-                        self.report_mouse(code, ev.position, &ev.modifiers, true);
-                    }
+                    self.report_mouse(code, ev.position, &ev.modifiers, true);
                 }
             }
             Some(Drag::Select { .. } | Drag::Scrollbar { .. })
@@ -967,12 +967,14 @@ pub fn key_bytes(ks: &Keystroke, application_cursor: bool) -> Option<Vec<u8>> {
 
     // Windows reports AltGr as Ctrl+Alt. When the layout produced a different printable
     // character (AltGr+2 -> `@`), send it as-is instead of a control code or ESC prefix.
-    if m.control && m.alt {
-        if let Some(text) = ks.key_char.as_deref() {
-            if text != key && text.chars().all(|c| !c.is_control()) && !text.is_empty() {
-                return Some(text.as_bytes().to_vec());
-            }
-        }
+    if m.control
+        && m.alt
+        && let Some(text) = ks.key_char.as_deref()
+        && text != key
+        && text.chars().all(|c| !c.is_control())
+        && !text.is_empty()
+    {
+        return Some(text.as_bytes().to_vec());
     }
 
     if m.control {

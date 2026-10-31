@@ -135,10 +135,10 @@ pub fn read_name(dir: &Path) -> Option<String> {
 /// The folder name plus the `name:` field of its `SKILL.md`.
 pub fn skill_names(dir: &Path, folder: &str) -> Vec<String> {
     let mut names = vec![folder.to_string()];
-    if let Some(n) = read_name(&dir.join(folder)) {
-        if !names.contains(&n) {
-            names.push(n);
-        }
+    if let Some(n) = read_name(&dir.join(folder))
+        && !names.contains(&n)
+    {
+        names.push(n);
     }
     names
 }

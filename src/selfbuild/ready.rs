@@ -26,10 +26,10 @@ pub fn on_frame() {
     if DONE.swap(true, Ordering::Relaxed) {
         return;
     }
-    if let Some(path) = marker_path() {
-        if let Err(e) = write(&path, std::process::id(), BUILD_ID) {
-            tracing::warn!("could not write the ready marker: {e}");
-        }
+    if let Some(path) = marker_path()
+        && let Err(e) = write(&path, std::process::id(), BUILD_ID)
+    {
+        tracing::warn!("could not write the ready marker: {e}");
     }
 }
 

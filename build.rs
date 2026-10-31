@@ -20,10 +20,10 @@ fn emit_build_id() {
     if let Some(head) = git(&["rev-parse", "--git-path", "HEAD"]) {
         println!("cargo:rerun-if-changed={head}");
     }
-    if let Some(r) = git(&["symbolic-ref", "-q", "HEAD"]) {
-        if let Some(path) = git(&["rev-parse", "--git-path", &r]) {
-            println!("cargo:rerun-if-changed={path}");
-        }
+    if let Some(r) = git(&["symbolic-ref", "-q", "HEAD"])
+        && let Some(path) = git(&["rev-parse", "--git-path", &r])
+    {
+        println!("cargo:rerun-if-changed={path}");
     }
 }
 

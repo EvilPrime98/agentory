@@ -49,12 +49,10 @@ fn first_heading(text: &str) -> Option<String> {
         let line = line.trim_end();
         if line.trim_start().starts_with("```") || line.trim_start().starts_with("~~~") {
             fenced = !fenced;
-        } else if !fenced {
-            if let Some(h) = line.strip_prefix("# ") {
-                let h = h.trim();
-                if !h.is_empty() {
-                    return Some(h.to_string());
-                }
+        } else if !fenced && let Some(h) = line.strip_prefix("# ") {
+            let h = h.trim();
+            if !h.is_empty() {
+                return Some(h.to_string());
             }
         }
     }

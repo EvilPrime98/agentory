@@ -282,7 +282,7 @@ fn install_sync(project: &Path, names: &[String]) -> Result<String, String> {
             continue;
         };
         if wanted.is_none() {
-            log.extend(also_in(name, candidates, &found));
+            log.extend(also_in(name, candidates, found));
         }
         let current = cfg.manifest.skills.get(name).cloned();
         if spm_repo_set() {
@@ -339,7 +339,7 @@ pub async fn install_global(project: &Path, skills: &[String]) -> Result<String,
                 ));
                 continue;
             };
-            log.extend(also_in(name, candidates, &found));
+            log.extend(also_in(name, candidates, found));
             let dest = dir.join(name);
             if dest.exists() {
                 log.push(format!("• {name}: already installed"));
@@ -492,10 +492,8 @@ pub async fn prepare_update_latest(project: &Path, skill: &str) -> Result<Prepar
             .map_err(io)?;
         let moved = pinned.as_deref() != Some(found.sha.as_str());
         if local_hash.as_deref() == Some(repo_hash.as_str()) {
-            if moved {
-                if let Some(Value::Object(o)) = cfg.manifest.skills.get_mut(&skill) {
-                    o.insert("ref".into(), Value::String(found.sha.clone()));
-                }
+            if moved && let Some(Value::Object(o)) = cfg.manifest.skills.get_mut(&skill) {
+                o.insert("ref".into(), Value::String(found.sha.clone()));
             }
             cfg.state
                 .insert(skill.clone(), store::state_entry(&repo_hash, &found.sha));
@@ -508,7 +506,7 @@ pub async fn prepare_update_latest(project: &Path, skill: &str) -> Result<Prepar
             )));
         }
         Ok(Prepared::Review(Box::new(build_review(
-            &skill, &found, &market, pinned, false,
+            &skill, found, &market, pinned, false,
         )?)))
     })
     .await
