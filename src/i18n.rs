@@ -120,19 +120,16 @@ pub fn t(key: &str) -> String {
 }
 
 /// Like [`t`], replacing each `{name}` with its value from `args`.
-#[allow(dead_code)] // used once pages are extracted
 pub fn t_args(key: &str, args: &[(&str, &str)]) -> String {
     substitute(lookup(current(), key).unwrap_or(key), args)
 }
 
 /// Plural lookup: `key_one` when `n == 1`, `key_other` otherwise. `{n}` is filled in.
-#[allow(dead_code)] // used once pages are extracted
 pub fn t_n(key: &str, n: usize) -> String {
     let suffix = if n == 1 { "one" } else { "other" };
     t_args(&format!("{key}_{suffix}"), &[("n", &n.to_string())])
 }
 
-#[allow(dead_code)]
 fn substitute(text: &str, args: &[(&str, &str)]) -> String {
     let mut out = text.to_string();
     for (name, value) in args {

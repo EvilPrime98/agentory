@@ -10,6 +10,7 @@ use gpui::{
     deferred, div, prelude::*, px, radians,
 };
 
+use crate::i18n::{t, t_n};
 use crate::model::{Project, SessionStatus};
 use crate::platform::shells::{self, Shell};
 use crate::route::{Navigate, Route};
@@ -233,7 +234,7 @@ impl Sidebar {
                     .py(px(6.0))
                     .text_size(px(12.5))
                     .text_color(theme::text_muted())
-                    .child("No shell found"),
+                    .child(t("sidebar.no_shell")),
             );
         }
         for shell in &menu.shells {
@@ -252,7 +253,7 @@ impl Sidebar {
                             div()
                                 .text_size(px(11.0))
                                 .text_color(theme::text_muted())
-                                .child("default"),
+                                .child(t("sidebar.default_shell")),
                         )
                     }),
             );
@@ -266,7 +267,7 @@ impl Sidebar {
                     .text_size(px(11.0))
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .text_color(theme::text_muted())
-                    .child("Open in worktree"),
+                    .child(t("sidebar.open_in_worktree")),
             );
             for (ix, (name, path)) in worktrees.into_iter().enumerate() {
                 let project_id = pid.clone();
@@ -298,7 +299,7 @@ impl Sidebar {
         cx.spawn(async move |this, cx| {
             let picked = runtime::run(async {
                 rfd::AsyncFileDialog::new()
-                    .set_title("Add a project folder")
+                    .set_title(t("sidebar.add_project"))
                     .pick_folder()
                     .await
                     .map(|h| h.path().to_path_buf())
@@ -336,10 +337,10 @@ impl Sidebar {
             return;
         }
         let options = ConfirmOptions::new(
-            "Remove project",
-            format!("{running} running session(s) of this project will be terminated."),
+            t("sidebar.remove_project.title"),
+            t_n("sidebar.remove_project.body", running),
         )
-        .labels("Remove", "Cancel");
+        .labels(t("common.remove"), t("common.cancel"));
         confirm::ask(cx, options, move |answer, _, cx| {
             if answer == Some(true) {
                 remove(cx);
@@ -594,7 +595,7 @@ impl Sidebar {
                         div()
                             .text_size(px(12.5))
                             .text_color(theme::text())
-                            .child("Skills"),
+                            .child(t("sidebar.skills")),
                     ),
             )
             .child(
@@ -620,7 +621,7 @@ impl Sidebar {
                         div()
                             .text_size(px(12.5))
                             .text_color(theme::text())
-                            .child("Docs"),
+                            .child(t("sidebar.docs")),
                     ),
             )
             .children(sessions.into_iter().map(|(id, name, status, worktree)| {
@@ -700,7 +701,7 @@ impl Sidebar {
                         .text_size(px(10.5))
                         .font_weight(gpui::FontWeight::SEMIBOLD)
                         .text_color(theme::text_muted())
-                        .child("TERMINALS"),
+                        .child(t("sidebar.terminals")),
                 )
                 .children(terminals.into_iter().map(|(id, name)| {
                     let (pick_id, close_id) = (id.clone(), id.clone());
@@ -811,7 +812,7 @@ impl Render for Sidebar {
                             .text_size(px(11.0))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .text_color(theme::text_muted())
-                            .child("PROJECTS"),
+                            .child(t("sidebar.projects")),
                     )
                     .child(
                         div()
@@ -846,7 +847,7 @@ impl Render for Sidebar {
                                 .py(px(12.0))
                                 .text_size(px(12.5))
                                 .text_color(theme::text_muted())
-                                .child("Add a project folder to start a Claude Code session."),
+                                .child(t("sidebar.empty_hint")),
                         )
                     }),
             )
@@ -866,9 +867,9 @@ impl Render for Sidebar {
                     .cursor_pointer()
                     .hover(|s| s.text_color(theme::text()))
                     .on_click(|_, _, cx| cx.open_url(REPO_URL))
-                    .child("Made with")
+                    .child(t("sidebar.made_with"))
                     .child(icon(Icon::Heart, px(11.0)).text_color(gpui::rgb(0xe5484d)))
-                    .child("by EvilPrime98"),
+                    .child(t("sidebar.made_by")),
             )
     }
 }

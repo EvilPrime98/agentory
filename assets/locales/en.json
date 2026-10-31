@@ -3,5 +3,21 @@
   "settings.language.hint": "Language of the interface. System follows your operating system.",
   "settings.language.system": "System",
   "settings.language.english": "English",
-  "settings.language.spanish": "Español"
+  "settings.language.spanish": "Español",
+  "common.remove": "Remove",
+  "common.cancel": "Cancel",
+  "sidebar.no_shell": "No shell found",
+  "sidebar.default_shell": "default",
+  "sidebar.open_in_worktree": "Open in worktree",
+  "sidebar.add_project": "Add a project folder",
+  "sidebar.remove_project.title": "Remove project",
+  "sidebar.remove_project.body_one": "{n} running session of this project will be terminated.",
+  "sidebar.remove_project.body_other": "{n} running sessions of this project will be terminated.",
+  "sidebar.skills": "Skills",
+  "sidebar.docs": "Docs",
+  "sidebar.terminals": "TERMINALS",
+  "sidebar.projects": "PROJECTS",
+  "sidebar.empty_hint": "Add a project folder to start a Claude Code session.",
+  "sidebar.made_with": "Made with",
+  "sidebar.made_by": "by EvilPrime98"
 }

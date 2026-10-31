@@ -3,5 +3,21 @@
   "settings.language.hint": "Idioma de la interfaz. Sistema sigue el idioma de tu sistema operativo.",
   "settings.language.system": "Sistema",
   "settings.language.english": "English",
-  "settings.language.spanish": "Español"
+  "settings.language.spanish": "Español",
+  "common.remove": "Quitar",
+  "common.cancel": "Cancelar",
+  "sidebar.no_shell": "No se encontró ninguna shell",
+  "sidebar.default_shell": "predeterminada",
+  "sidebar.open_in_worktree": "Abrir en worktree",
+  "sidebar.add_project": "Añade una carpeta de proyecto",
+  "sidebar.remove_project.title": "Quitar proyecto",
+  "sidebar.remove_project.body_one": "Se cerrará {n} sesión en ejecución de este proyecto.",
+  "sidebar.remove_project.body_other": "Se cerrarán {n} sesiones en ejecución de este proyecto.",
+  "sidebar.skills": "Skills",
+  "sidebar.docs": "Docs",
+  "sidebar.terminals": "TERMINALES",
+  "sidebar.projects": "PROYECTOS",
+  "sidebar.empty_hint": "Añade una carpeta de proyecto para iniciar una sesión de Claude Code.",
+  "sidebar.made_with": "Hecho con",
+  "sidebar.made_by": "por EvilPrime98"
 }
