@@ -28,6 +28,7 @@
   "settings.sessions.worktree": "Offer an isolated git worktree for new sessions in git projects",
   "settings.sessions.notify": "Notify when a session needs input or finishes",
   "settings.sessions.fullscreen": "Pin the prompt to the bottom (Claude Code fullscreen mode, applies to new sessions)",
+  "settings.sessions.send_doc": "Send the prompt automatically when running a doc from the Docs page",
   "settings.projects.title": "Projects",
   "settings.projects.hint": "Where new sessions start. Click to cycle: Ask, Worktree, Project folder. Alt-click on + in the sidebar starts one session the other way.",
   "settings.projects.ask": "Ask",

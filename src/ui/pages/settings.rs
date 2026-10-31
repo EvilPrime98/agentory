@@ -179,6 +179,12 @@ impl Render for SettingsPage {
                                 set(|p, v| p.ask_worktree = v),
                             ))
                             .child(checkbox(
+                                "pref-send-doc",
+                                t("settings.sessions.send_doc"),
+                                prefs.send_doc_prompt,
+                                set(|p, v| p.send_doc_prompt = v),
+                            ))
+                            .child(checkbox(
                                 "pref-notify",
                                 t("settings.sessions.notify"),
                                 prefs.notifications,

@@ -28,6 +28,7 @@
   "settings.sessions.worktree": "Ofrecer un worktree de git aislado para las sesiones nuevas en proyectos git",
   "settings.sessions.notify": "Avisar cuando una sesión necesite entrada o termine",
   "settings.sessions.fullscreen": "Fijar el prompt abajo (modo pantalla completa de Claude Code, se aplica a las sesiones nuevas)",
+  "settings.sessions.send_doc": "Enviar el prompt automáticamente al ejecutar un doc desde la página Docs",
   "settings.projects.title": "Proyectos",
   "settings.projects.hint": "Dónde empiezan las sesiones nuevas. Haz clic para alternar: Preguntar, Worktree, Carpeta del proyecto. Alt+clic en + en la barra lateral inicia una sesión del otro modo.",
   "settings.projects.ask": "Preguntar",

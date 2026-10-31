@@ -13,6 +13,8 @@ pub struct Prefs {
     pub claude_command: String,
     /// Offer a git worktree when starting a session in a git project.
     pub ask_worktree: bool,
+    /// Submit the prompt (not just type it) when running a doc from the Docs page.
+    pub send_doc_prompt: bool,
     /// Toast (in-app and Windows) when a session needs input or finishes.
     pub notifications: bool,
     /// Launch agent sessions in Claude Code's fullscreen renderer so the prompt sits at the bottom.
@@ -30,6 +32,7 @@ impl Default for Prefs {
         Self {
             claude_command: String::new(),
             ask_worktree: true,
+            send_doc_prompt: false,
             notifications: true,
             fullscreen_agents: true,
             terminal_font_size: 13.0,
@@ -111,6 +114,7 @@ mod tests {
         let p: Prefs = serde_json::from_str(r#"{"notifications":false}"#).unwrap();
         assert!(!p.notifications);
         assert!(p.ask_worktree);
+        assert!(!p.send_doc_prompt);
         assert_eq!(p.terminal_font_size, 13.0);
         assert_eq!(p.program(), "claude");
     }
