@@ -7,6 +7,7 @@ use gpui::{
     Render, StatefulInteractiveElement, Styled, Subscription, Window, div, prelude::*, px,
 };
 
+use crate::i18n::{t, t_args};
 use crate::route::{GoBack, Navigate, Route};
 use crate::state::Stores;
 use crate::ui::components::button::small_button;
@@ -46,7 +47,7 @@ fn field(input: &Entity<TextInput>) -> impl IntoElement {
 
 /// Bordered section: header (title, optional count badge, optional right-side action) then body.
 pub(super) fn card(
-    title: &'static str,
+    title: &str,
     count: Option<usize>,
     action: Option<AnyElement>,
     body: Vec<AnyElement>,
@@ -77,7 +78,7 @@ pub(super) fn card(
                             div()
                                 .text_size(px(12.0))
                                 .font_weight(gpui::FontWeight::SEMIBOLD)
-                                .child(title),
+                                .child(title.to_string()),
                         )
                         .when_some(count, |s, n| {
                             s.child(
@@ -140,10 +141,10 @@ impl EventEmitter<GoBack> for SkillsPage {}
 
 impl SkillsPage {
     pub fn new(stores: Stores, cx: &mut Context<Self>) -> Self {
-        let install_input = cx.new(|cx| TextInput::new("skill or market:skill", cx));
+        let install_input = cx.new(|cx| TextInput::new(t("skills.install_placeholder"), cx));
         let repo_input = cx.new(|cx| TextInput::new("owner/repo", cx));
-        let init_repo_input = cx.new(|cx| TextInput::new("owner/repo (optional)", cx));
-        let filter_input = cx.new(|cx| TextInput::new("filter available skills", cx));
+        let init_repo_input = cx.new(|cx| TextInput::new(t("skills.init_placeholder"), cx));
+        let filter_input = cx.new(|cx| TextInput::new(t("skills.filter_placeholder"), cx));
         let subs = vec![
             cx.observe(&stores.skills, |_, _, cx| cx.notify()),
             cx.observe(&stores.projects, |_, _, cx| cx.notify()),
@@ -214,6 +215,14 @@ impl SkillsPage {
 
 impl Render for SkillsPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Hints are cached by the inputs, so refresh them on every render to follow the language.
+        for (input, key) in [
+            (&self.install_input, "skills.install_placeholder"),
+            (&self.init_repo_input, "skills.init_placeholder"),
+            (&self.filter_input, "skills.filter_placeholder"),
+        ] {
+            input.update(cx, |i, _| i.set_placeholder(t(key)));
+        }
         let skills = self.stores.skills.read(cx);
         let has_project = skills.project.is_some();
         let busy = skills.busy.clone();
@@ -279,7 +288,7 @@ impl Render for SkillsPage {
                                     .child(if on_disk {
                                         name.clone()
                                     } else {
-                                        format!("{name} (not installed)")
+                                        t_args("skills.not_installed", &[("name", &name)])
                                     }),
                             )
                             .when_some(source, |s, src| {
@@ -301,7 +310,7 @@ impl Render for SkillsPage {
                                 .bg(theme::hover())
                                 .text_size(px(11.0))
                                 .text_color(theme::text_muted())
-                                .child(format!("{tokens} tok")),
+                                .child(t_args("skills.tokens_short", &[("n", &tokens.to_string())])),
                         )
                     })
                     .when_some(edit_route, |s, route| {
@@ -441,7 +450,7 @@ impl Render for SkillsPage {
                                 div()
                                     .text_size(px(20.0))
                                     .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .child("Skills"),
+                                    .child(t("skills.title")),
                             )
                             .child(
                                 div()
@@ -456,7 +465,7 @@ impl Render for SkillsPage {
                                                 .when(is_busy, |d| d.opacity(0.5))
                                                 .child(checkbox(
                                                     "skills-isolate",
-                                                    "Isolate from global skills",
+                                                    t("skills.isolate"),
                                                     isolate,
                                                     move |on, _, cx| {
                                                         if !is_busy {
@@ -507,7 +516,7 @@ impl Render for SkillsPage {
                                         .text_size(px(12.5))
                                         .text_color(theme::text_muted())
                                         .child(
-                                            "This project has no spm.json. Initializing creates it and hides global skills in this project.",
+                                            t("skills.no_manifest"),
                                         ),
                                 )
                                 .child(
@@ -519,7 +528,7 @@ impl Render for SkillsPage {
                                         .child(field(&self.init_repo_input))
                                         .child(small_button(
                                             "init-skills",
-                                            "Initialize skills",
+                                            t("skills.initialize"),
                                             cx.listener(|this, _, _, cx| this.submit_init(cx)),
                                         )),
                                 ),
@@ -532,21 +541,21 @@ impl Render for SkillsPage {
                             .gap(px(6.0))
                             .child(small_button(
                                 "run-doctor",
-                                "Measure",
+                                t("skills.measure"),
                                 cx.listener(|this, _, _, cx| {
                                     this.stores.skills.update(cx, |s, cx| s.run_doctor(cx));
                                 }),
                             ))
                             .child(small_button(
                                 "update-skills",
-                                "Update all",
+                                t("skills.update_all"),
                                 cx.listener(|this, _, _, cx| {
                                     this.stores.skills.update(cx, |s, cx| s.update_all(cx));
                                 }),
                             ))
                             .into_any_element();
                         let cost_body: Vec<AnyElement> = total
-                            .map(|t| {
+                            .map(|tokens| {
                                 div()
                                     .flex()
                                     .items_baseline()
@@ -555,13 +564,13 @@ impl Render for SkillsPage {
                                         div()
                                             .text_size(px(24.0))
                                             .font_weight(gpui::FontWeight::SEMIBOLD)
-                                            .child(t.to_string()),
+                                            .child(tokens.to_string()),
                                     )
                                     .child(
                                         div()
                                             .text_size(px(12.0))
                                             .text_color(theme::text_muted())
-                                            .child("tokens in descriptions"),
+                                            .child(t("skills.tokens_in_descriptions")),
                                     )
                                     .into_any_element()
                             })
@@ -577,7 +586,7 @@ impl Render for SkillsPage {
                                 .child(field(&self.install_input))
                                 .child(small_button(
                                     "install-skill",
-                                    "Install",
+                                    t("skills.install"),
                                     cx.listener(|this, _, _, cx| this.submit_install(cx)),
                                 ))
                                 .into_any_element(),
@@ -603,10 +612,10 @@ impl Render for SkillsPage {
                             available_body.push(muted_note(e).into_any_element());
                         }
                         if nothing_new && !has_available_error {
-                            available_body.push(muted_note("Nothing to install".into()).into_any_element());
+                            available_body.push(muted_note(t("skills.nothing_to_install").into()).into_any_element());
                         }
                         if no_match {
-                            available_body.push(muted_note("No skills match".into()).into_any_element());
+                            available_body.push(muted_note(t("skills.no_match").into()).into_any_element());
                         }
                         available_body.push(
                             self.available_scroll
@@ -631,7 +640,7 @@ impl Render for SkillsPage {
                                 .child(field(&self.repo_input))
                                 .child(small_button(
                                     "add-repo",
-                                    "Add",
+                                    t("skills.add_repo"),
                                     cx.listener(|this, _, _, cx| this.submit_repo(cx)),
                                 ))
                                 .into_any_element(),
@@ -643,13 +652,13 @@ impl Render for SkillsPage {
                         let row = || div().flex().flex_wrap().items_start().gap(px(12.0));
                         s.child(
                             row()
-                                .child(card("Context cost", None, Some(cost_actions), cost_body))
-                                .child(card("Repos", Some(repo_count), None, repo_body)),
+                                .child(card(&t("skills.card.cost"), None, Some(cost_actions), cost_body))
+                                .child(card(&t("skills.card.repos"), Some(repo_count), None, repo_body)),
                         )
                         .child(
                             row()
-                                .child(card("Installed", Some(installed_count), None, installed_body))
-                                .child(card("Available", Some(available_count), None, available_body)),
+                                .child(card(&t("skills.card.installed"), Some(installed_count), None, installed_body))
+                                .child(card(&t("skills.card.available"), Some(available_count), None, available_body)),
                         )
                     }),
             )

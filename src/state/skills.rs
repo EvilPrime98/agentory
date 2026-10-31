@@ -8,6 +8,7 @@ use gpui::{Context, SharedString};
 use crate::backend::spm::{self, AvailableSkill, Snapshot};
 use crate::model::DoctorReport;
 use crate::runtime;
+use crate::i18n::{t, t_args};
 use crate::ui::toast;
 
 #[derive(Default)]
@@ -142,7 +143,7 @@ impl SkillsStore {
                 tracing::warn!("spm ({label}) failed: {e}");
                 cx.update(|cx| toast::error(cx, e));
             } else if current {
-                cx.update(|cx| toast::success(cx, format!("{label}: done")));
+                cx.update(|cx| toast::success(cx, t_args("skills.done", &[("label", &label)])));
             }
         })
         .detach();
@@ -150,7 +151,7 @@ impl SkillsStore {
 
     pub fn init(&mut self, repo: Option<String>, cx: &mut Context<Self>) {
         self.mutate(
-            "Initializing skills".into(),
+            t("skills.busy.init"),
             true,
             cx,
             move |dir| async move { spm::init(&dir, repo.as_deref(), true).await },
@@ -160,11 +161,11 @@ impl SkillsStore {
     /// Turn isolation from global skills on or off by re-running `spm init`.
     pub fn set_isolate(&mut self, isolate: bool, cx: &mut Context<Self>) {
         let label = if isolate {
-            "Isolating from global skills"
+            t("skills.busy.isolate")
         } else {
-            "Allowing global skills"
+            t("skills.busy.allow_global")
         };
-        self.mutate(label.into(), false, cx, move |dir| async move {
+        self.mutate(label, false, cx, move |dir| async move {
             spm::init(&dir, None, isolate).await
         });
     }
@@ -173,34 +174,34 @@ impl SkillsStore {
         if names.is_empty() {
             return;
         }
-        let label = format!("Install {}", names.join(", "));
+        let label = t_args("skills.busy.install", &[("names", &names.join(", "))]);
         self.mutate(label, false, cx, move |dir| async move {
             spm::install(&dir, &names).await
         });
     }
 
     pub fn uninstall(&mut self, name: String, cx: &mut Context<Self>) {
-        let label = format!("Uninstall {name}");
+        let label = t_args("skills.busy.uninstall", &[("name", &name)]);
         self.mutate(label, false, cx, move |dir| async move {
             spm::uninstall(&dir, &name).await
         });
     }
 
     pub fn update_all(&mut self, cx: &mut Context<Self>) {
-        self.mutate("Updating skills".into(), false, cx, |dir| async move {
+        self.mutate(t("skills.busy.update"), false, cx, |dir| async move {
             spm::update(&dir).await
         });
     }
 
     pub fn add_repo(&mut self, repo: String, cx: &mut Context<Self>) {
-        let label = format!("Add repo {repo}");
+        let label = t_args("skills.busy.add_repo", &[("repo", &repo)]);
         self.mutate(label, true, cx, move |dir| async move {
             spm::repo_add(&dir, &repo).await
         });
     }
 
     pub fn remove_repo(&mut self, repo: String, cx: &mut Context<Self>) {
-        let label = format!("Remove repo {repo}");
+        let label = t_args("skills.busy.remove_repo", &[("repo", &repo)]);
         self.mutate(label, true, cx, move |dir| async move {
             spm::repo_rm(&dir, &repo).await
         });
@@ -214,7 +215,7 @@ impl SkillsStore {
         if self.busy.is_some() {
             return;
         }
-        self.busy = Some("Measuring context cost…".into());
+        self.busy = Some(t("skills.busy.measure").into());
         cx.notify();
         let generation = self.generation;
         cx.spawn(async move |this, cx| {

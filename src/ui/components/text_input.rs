@@ -40,6 +40,11 @@ impl TextInput {
         }
     }
 
+    /// Replace the hint shown while empty. Does not notify: call it from the owner's `render`.
+    pub fn set_placeholder(&mut self, placeholder: impl Into<SharedString>) {
+        self.placeholder = placeholder.into();
+    }
+
     pub fn with_value(mut self, value: impl Into<String>) -> Self {
         self.value = value.into();
         self.caret = self.len();
