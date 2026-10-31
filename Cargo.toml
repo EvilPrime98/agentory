@@ -5,6 +5,9 @@ edition = "2024"
 description = "Multi-session Claude Code host with skill management"
 license = "GPL-3.0-or-later"
 
+[workspace]
+members = [".", "agentory-helper"]
+
 [dependencies]
 gpui-ce = "0.2.2"
 gpui_ce_platform = "0.1.0"

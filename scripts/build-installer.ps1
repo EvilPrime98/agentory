@@ -63,6 +63,8 @@ if (-not $SkipBuild) {
     try {
         cargo build --release --locked
         if ($LASTEXITCODE -ne 0) { throw "cargo build failed ($LASTEXITCODE)" }
+        cargo build --release --locked -p agentory-helper
+        if ($LASTEXITCODE -ne 0) { throw "helper build failed ($LASTEXITCODE)" }
     } finally { Pop-Location }
 }
 
@@ -73,6 +75,9 @@ Write-Host "==> staging $Stage"
 if (Test-Path $Stage) { Remove-Item $Stage -Recurse -Force }
 New-Item -ItemType Directory -Path $Stage | Out-Null
 Copy-Item $exe $Stage
+$helper = Join-Path $Root 'target\release\agentory-helper.exe'
+if (-not (Test-Path $helper)) { throw "$helper not found; run without -SkipBuild" }
+Copy-Item $helper $Stage
 Copy-Item (Join-Path $Root 'packaging\NOTICE.txt') (Join-Path $Stage 'NOTICE.txt')
 $license = Join-Path $Root 'LICENSE'
 if (Test-Path $license) { Copy-Item $license $Stage }

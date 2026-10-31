@@ -33,15 +33,29 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 
 [Files]
 Source: "..\..\dist\Agentory\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+; Exe layout the helper manages (see docs/self_built_phase1_helper.md). A reinstall resets `active`
+; to the shipped build, except when self-build is enabled (marker file): then `active` stays the
+; user's last good self-build and upstream changes only arrive through the in-app merge flow.
+; `fallback` is the last resort and always follows the official release.
+Source: "..\..\dist\Agentory\agentory.exe"; DestDir: "{userappdata}\Agentory\bin"; DestName: "active.exe"; Flags: ignoreversion; Check: ShouldReplaceActive
+Source: "..\..\dist\Agentory\agentory.exe"; DestDir: "{userappdata}\Agentory\bin"; DestName: "fallback.exe"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\Agentory"; Filename: "{app}\agentory.exe"
-Name: "{autodesktop}\Agentory"; Filename: "{app}\agentory.exe"; Tasks: desktopicon
+Name: "{group}\Agentory"; Filename: "{app}\agentory-helper.exe"; Parameters: "launch"; IconFilename: "{app}\agentory.exe"
+Name: "{autodesktop}\Agentory"; Filename: "{app}\agentory-helper.exe"; Parameters: "launch"; IconFilename: "{app}\agentory.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\agentory.exe"; Description: "Launch Agentory"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\agentory-helper.exe"; Parameters: "launch"; Description: "Launch Agentory"; Flags: nowait postinstall skipifsilent
 
 [Code]
+// Keep the user's self-built exe: only replace `active.exe` when self-build is off (no marker, see
+// `Paths::selfbuild_marker`) or when there is no active exe to keep.
+function ShouldReplaceActive: Boolean;
+begin
+  Result := not FileExists(ExpandConstant('{userappdata}\Agentory\selfbuild'))
+    or not FileExists(ExpandConstant('{userappdata}\Agentory\bin\active.exe'));
+end;
+
 // Offer to delete the app data (project list, settings, logs, session worktrees). Project folders
 // are never touched. Skipped for silent uninstalls and for updates.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

@@ -1,0 +1,9 @@
+[package]
+name = "agentory-helper"
+version = "0.1.0"
+edition = "2024"
+description = "Launches Agentory, swaps in a new exe and reverts it if the smoke check fails"
+license = "GPL-3.0-or-later"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading"] }
