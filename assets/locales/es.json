@@ -15,6 +15,7 @@
   "sidebar.remove_project.body_other": "Se cerrarán {n} sesiones en ejecución de este proyecto.",
   "sidebar.skills": "Skills",
   "sidebar.docs": "Docs",
+  "sidebar.agents": "AGENTES",
   "sidebar.terminals": "TERMINALES",
   "sidebar.projects": "PROYECTOS",
   "sidebar.empty_hint": "Añade una carpeta de proyecto para iniciar una sesión de Claude Code.",

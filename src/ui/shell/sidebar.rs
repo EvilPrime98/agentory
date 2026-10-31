@@ -28,8 +28,23 @@ const REOPEN_GUARD_MS: u128 = 200;
 const FOLD_DURATION: Duration = Duration::from_millis(180);
 /// Height of every session and terminal row.
 const ROW_H: f32 = 28.0;
-/// Height of the TERMINALS label above the terminal rows.
-const TERMINALS_HEADER_H: f32 = 24.0;
+/// Height of the AGENTS / TERMINALS label above their rows.
+const SECTION_HEADER_H: f32 = 24.0;
+
+/// The small caps label above a group of rows in a project's list.
+fn section_header(label: String) -> gpui::Div {
+    div()
+        .h(px(SECTION_HEADER_H))
+        .flex()
+        .items_end()
+        .ml(px(26.0))
+        .px(px(6.0))
+        .pb(px(2.0))
+        .text_size(px(10.5))
+        .font_weight(gpui::FontWeight::SEMIBOLD)
+        .text_color(theme::text_muted())
+        .child(label)
+}
 
 fn ease_out_cubic(t: f32) -> f32 {
     1.0 - (1.0 - t).powi(3)
@@ -388,11 +403,15 @@ impl Sidebar {
         let docs_id = project.id.clone();
 
         let full_h = ROW_H * 2.0
-            + ROW_H * sessions.len() as f32
+            + if sessions.is_empty() {
+                0.0
+            } else {
+                SECTION_HEADER_H + ROW_H * sessions.len() as f32
+            }
             + if terminals.is_empty() {
                 0.0
             } else {
-                TERMINALS_HEADER_H + ROW_H * terminals.len() as f32
+                SECTION_HEADER_H + ROW_H * terminals.len() as f32
             };
         let chevron = |progress: f32| {
             icon(Icon::ChevronRight, px(14.0))
@@ -624,6 +643,9 @@ impl Sidebar {
                             .child(t("sidebar.docs")),
                     ),
             )
+            .when(!sessions.is_empty(), |s| {
+                s.child(section_header(t("sidebar.agents")))
+            })
             .children(sessions.into_iter().map(|(id, name, status, worktree)| {
                 let (pick_id, close_id) = (id.clone(), id.clone());
                 let is_active = on_sessions && active.as_deref() == Some(id.as_str());
@@ -690,19 +712,7 @@ impl Sidebar {
                     )
             }))
             .when(!terminals.is_empty(), |s| {
-                s.child(
-                    div()
-                        .h(px(TERMINALS_HEADER_H))
-                        .flex()
-                        .items_end()
-                        .ml(px(26.0))
-                        .px(px(6.0))
-                        .pb(px(2.0))
-                        .text_size(px(10.5))
-                        .font_weight(gpui::FontWeight::SEMIBOLD)
-                        .text_color(theme::text_muted())
-                        .child(t("sidebar.terminals")),
-                )
+                s.child(section_header(t("sidebar.terminals")))
                 .children(terminals.into_iter().map(|(id, name)| {
                     let (pick_id, close_id) = (id.clone(), id.clone());
                     let is_active = on_sessions && active.as_deref() == Some(id.as_str());
