@@ -6,6 +6,9 @@ use gpui::{
     WindowControlArea, div, px,
 };
 
+#[cfg(not(target_os = "windows"))]
+use gpui::StatefulInteractiveElement as _;
+
 use crate::app::RequestClose;
 use crate::ui::icons::{Icon, icon};
 use crate::ui::theme;
