@@ -58,7 +58,7 @@ fn git_bash() -> Option<PathBuf> {
         "LocalAppData",
     ]
     .iter()
-    .filter_map(|var| std::env::var_os(var))
+    .filter_map(std::env::var_os)
     .flat_map(|root| {
         let root = PathBuf::from(root);
         [

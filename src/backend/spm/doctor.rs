@@ -194,12 +194,10 @@ pub fn usage_counts(
                     for b in content.and_then(Value::as_array).into_iter().flatten() {
                         if b.get("type").and_then(Value::as_str) == Some("tool_use")
                             && b.get("name").and_then(Value::as_str) == Some("Skill")
+                            && let Some(s) = b.pointer("/input/skill").and_then(Value::as_str)
+                            && !s.is_empty()
                         {
-                            if let Some(s) = b.pointer("/input/skill").and_then(Value::as_str) {
-                                if !s.is_empty() {
-                                    bump(s);
-                                }
-                            }
+                            bump(s);
                         }
                     }
                 }

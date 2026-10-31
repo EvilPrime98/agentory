@@ -46,12 +46,14 @@ pub fn parse_repo(spec: &str) -> Result<RepoSpec, String> {
         base = repo;
         r#ref = r#ref.or(Some(tree_ref));
         subdir = dir;
-    } else if let Some(c) = re(&SHORT, r"^([\w.-]+/[\w.-]+)/([\w./-]+?)/?$").captures(&base) {
-        if !Path::new(&base).is_absolute() && !base.starts_with('.') && !Path::new(&base).exists() {
-            let (repo, dir) = (c[1].to_string(), c[2].to_string());
-            base = repo;
-            subdir = Some(dir);
-        }
+    } else if let Some(c) = re(&SHORT, r"^([\w.-]+/[\w.-]+)/([\w./-]+?)/?$").captures(&base)
+        && !Path::new(&base).is_absolute()
+        && !base.starts_with('.')
+        && !Path::new(&base).exists()
+    {
+        let (repo, dir) = (c[1].to_string(), c[2].to_string());
+        base = repo;
+        subdir = Some(dir);
     }
 
     if subdir
@@ -312,9 +314,12 @@ pub struct Candidate {
 /// Skill name to where it is found, in repo order.
 pub type Pool = BTreeMap<String, Vec<Candidate>>;
 
+/// One fetched repo: its skills as `(name, path)` and the checkout's identifier.
+type RepoIndex = Result<(Vec<(String, PathBuf)>, String), String>;
+
 /// Fetch every repo (in parallel) and index their skills by name.
 pub fn load_pool(specs: &[String]) -> Result<Pool, String> {
-    let indexed: Vec<Result<(Vec<(String, PathBuf)>, String), String>> = std::thread::scope(|s| {
+    let indexed: Vec<RepoIndex> = std::thread::scope(|s| {
         let handles: Vec<_> = specs
             .iter()
             .map(|spec| {

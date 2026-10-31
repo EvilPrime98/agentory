@@ -92,10 +92,10 @@ fn query(term: &str, limit: u32) -> Result<Value, String> {
         let mut req = client
             .get(ENDPOINT)
             .query(&[("q", term), ("limit", limit.to_string().as_str())]);
-        if let Ok(key) = std::env::var("SKILLSMP_API_KEY") {
-            if !key.is_empty() {
-                req = req.bearer_auth(key);
-            }
+        if let Ok(key) = std::env::var("SKILLSMP_API_KEY")
+            && !key.is_empty()
+        {
+            req = req.bearer_auth(key);
         }
         req.send().map_err(|e| format!("skillsmp: {e}"))
     };

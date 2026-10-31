@@ -182,11 +182,11 @@ impl AppRoot {
             // has nothing left to show.
             cx.observe_in(&stores.projects, window, |this, _, window, cx| {
                 this.sync_skills_project(cx);
-                if let Route::Skills(id) | Route::Docs(id) = this.history.current() {
-                    if this.stores.projects.read(cx).get(id).is_none() {
-                        this.history.back_or_home();
-                        this.route_changed(window, cx);
-                    }
+                if let Route::Skills(id) | Route::Docs(id) = this.history.current()
+                    && this.stores.projects.read(cx).get(id).is_none()
+                {
+                    this.history.back_or_home();
+                    this.route_changed(window, cx);
                 }
             }),
             cx.observe_window_activation(window, |this, window, cx| {
@@ -522,10 +522,10 @@ impl Render for AppRoot {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_window_title(window);
         crate::selfbuild::ready::on_frame();
-        if !self.loading {
-            if let Some(route) = self.pending_route.take() {
-                self.navigate(route, window, cx);
-            }
+        if !self.loading
+            && let Some(route) = self.pending_route.take()
+        {
+            self.navigate(route, window, cx);
         }
         let prefs = self.stores.prefs.read(cx).prefs.clone();
         let route = self.history.current().clone();

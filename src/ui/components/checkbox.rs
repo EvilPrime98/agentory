@@ -24,7 +24,7 @@ pub fn checkbox(
         .border_color(if checked {
             theme::accent()
         } else {
-            gpui::rgba(0xffffff4d).into()
+            gpui::rgba(0xffffff4d)
         });
     if checked {
         tick = tick
