@@ -48,7 +48,7 @@ one is waiting on you. Agentory puts them in one place and tells you.
 
 ## Install
 
-**Installer (recommended).** Download the latest `Agentory-Setup-<version>.exe` from the
+**Installer (recommended).** Download the latest installer from the
 [Releases page](https://github.com/EvilPrime98/agentory/releases) and run it.
 
 **From source.**
