@@ -23,8 +23,12 @@ pub struct SkillsPage {
     repo_input: Entity<TextInput>,
     init_repo_input: Entity<TextInput>,
     filter_input: Entity<TextInput>,
+    market_input: Entity<TextInput>,
+    /// Install pool skills into the global skills folder instead of the project.
+    install_global: bool,
     installed_scroll: SmoothScroll,
     available_scroll: SmoothScroll,
+    market_scroll: SmoothScroll,
     _subs: Vec<Subscription>,
 }
 
@@ -145,12 +149,18 @@ impl SkillsPage {
         let repo_input = cx.new(|cx| TextInput::new("owner/repo", cx));
         let init_repo_input = cx.new(|cx| TextInput::new(t("skills.init_placeholder"), cx));
         let filter_input = cx.new(|cx| TextInput::new(t("skills.filter_placeholder"), cx));
+        let market_input = cx.new(|cx| TextInput::new(t("skills.market.placeholder"), cx));
         let subs = vec![
             cx.observe(&stores.skills, |_, _, cx| cx.notify()),
             cx.observe(&stores.projects, |_, _, cx| cx.notify()),
             cx.subscribe(&install_input, |this, _, ev: &TextInputEvent, cx| {
                 if matches!(ev, TextInputEvent::Submit) {
                     this.submit_install(cx);
+                }
+            }),
+            cx.subscribe(&market_input, |this, _, ev: &TextInputEvent, cx| {
+                if matches!(ev, TextInputEvent::Submit) {
+                    this.submit_search(cx);
                 }
             }),
             cx.subscribe(&filter_input, |_, _, ev: &TextInputEvent, cx| {
@@ -175,8 +185,11 @@ impl SkillsPage {
             repo_input,
             init_repo_input,
             filter_input,
+            market_input,
+            install_global: false,
             installed_scroll: SmoothScroll::new(),
             available_scroll: SmoothScroll::new(),
+            market_scroll: SmoothScroll::new(),
             _subs: subs,
         }
     }
@@ -193,7 +206,13 @@ impl SkillsPage {
             return;
         }
         self.install_input.update(cx, |i, cx| i.set_value("", cx));
-        self.stores.skills.update(cx, |s, cx| s.install(names, cx));
+        let global = self.install_global;
+        self.stores.skills.update(cx, |s, cx| s.install(names, global, cx));
+    }
+
+    fn submit_search(&mut self, cx: &mut Context<Self>) {
+        let term = self.market_input.read(cx).value().trim().to_string();
+        self.stores.skills.update(cx, |s, cx| s.search_market(term, cx));
     }
 
     fn submit_init(&mut self, cx: &mut Context<Self>) {
@@ -220,6 +239,7 @@ impl Render for SkillsPage {
             (&self.install_input, "skills.install_placeholder"),
             (&self.init_repo_input, "skills.init_placeholder"),
             (&self.filter_input, "skills.filter_placeholder"),
+            (&self.market_input, "skills.market.placeholder"),
         ] {
             input.update(cx, |i, _| i.set_placeholder(t(key)));
         }
@@ -249,6 +269,11 @@ impl Render for SkillsPage {
                         .map(|s| s.description_tokens)
                 });
                 let remove_name = name.clone();
+                let latest_name = name.clone();
+                let is_market = manifest
+                    .as_ref()
+                    .and_then(|m| m.skills.get(&name))
+                    .is_some_and(serde_json::Value::is_object);
                 let edit_route = project_id
                     .clone()
                     .filter(|_| on_disk)
@@ -312,6 +337,16 @@ impl Render for SkillsPage {
                                 .text_color(theme::text_muted())
                                 .child(t_args("skills.tokens_short", &[("n", &tokens.to_string())])),
                         )
+                    })
+                    .when(is_market, |s| {
+                        s.child(small_button(
+                            gpui::SharedString::from(format!("latest-skill-{name}")),
+                            t("skills.update_latest"),
+                            cx.listener(move |this, _, _, cx| {
+                                let n = latest_name.clone();
+                                this.stores.skills.update(cx, |s, cx| s.update_latest(n, cx));
+                            }),
+                        ))
                     })
                     .when_some(edit_route, |s, route| {
                         s.child(icon_button(
@@ -384,9 +419,69 @@ impl Render for SkillsPage {
                         Icon::Plus,
                         cx.listener(move |this, _, _, cx| {
                             let n = install_name.clone();
+                            let global = this.install_global;
                             this.stores
                                 .skills
-                                .update(cx, |s, cx| s.install(vec![n], cx));
+                                .update(cx, |s, cx| s.install(vec![n], global, cx));
+                        }),
+                    ))
+                    .into_any_element()
+            })
+            .collect();
+        let market_hits = skills.hits.clone();
+        let search_error = skills.search_error.clone();
+        let searching = skills.searching;
+        let hit_rows: Vec<AnyElement> = market_hits
+            .into_iter()
+            .enumerate()
+            .map(|(i, h)| {
+                let id = h.id();
+                let install_id = id.clone();
+                let meta = if h.stars > 0 {
+                    format!("{}  ★ {}", id, h.stars)
+                } else {
+                    id.clone()
+                };
+                row_base(i)
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_size(px(13.0))
+                                    .text_color(theme::text())
+                                    .child(h.name.clone()),
+                            )
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_size(px(11.0))
+                                    .text_color(theme::text_muted())
+                                    .child(meta),
+                            )
+                            .when(!h.description.is_empty(), |s| {
+                                s.child(
+                                    div()
+                                        .truncate()
+                                        .text_size(px(11.0))
+                                        .text_color(theme::text_muted())
+                                        .child(h.description.clone()),
+                                )
+                            }),
+                    )
+                    .child(icon_button(
+                        gpui::SharedString::from(format!("add-hit-{id}")),
+                        Icon::Plus,
+                        cx.listener(move |this, _, _, cx| {
+                            let id = install_id.clone();
+                            let global = this.install_global;
+                            this.stores.skills.update(cx, |s, cx| {
+                                s.review_install("skillsmp".into(), id, global, cx)
+                            });
                         }),
                     ))
                     .into_any_element()
@@ -421,6 +516,7 @@ impl Render for SkillsPage {
                     .into_any_element()
             })
             .collect();
+        let install_global = self.install_global;
         let total = doctor.as_ref().map(|d| d.description_tokens());
         let no_manifest = has_project && manifest.is_none();
 
@@ -589,6 +685,21 @@ impl Render for SkillsPage {
                                     t("skills.install"),
                                     cx.listener(|this, _, _, cx| this.submit_install(cx)),
                                 ))
+                                .child(checkbox(
+                                    "skills-install-global",
+                                    t("skills.global"),
+                                    install_global,
+                                    {
+                                        let page = cx.entity().downgrade();
+                                        move |on, _, cx| {
+                                            page.update(cx, |p, cx| {
+                                                p.install_global = on;
+                                                cx.notify();
+                                            })
+                                            .ok();
+                                        }
+                                    },
+                                ))
                                 .into_any_element(),
                         ];
                         installed_body.push(
@@ -631,6 +742,40 @@ impl Render for SkillsPage {
                                 .into_any_element(),
                         );
 
+                        let hit_count = hit_rows.len();
+                        let mut market_body: Vec<AnyElement> = vec![
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(6.0))
+                                .child(field(&self.market_input))
+                                .child(small_button(
+                                    "search-market",
+                                    t("skills.market.search"),
+                                    cx.listener(|this, _, _, cx| this.submit_search(cx)),
+                                ))
+                                .into_any_element(),
+                        ];
+                        if searching {
+                            market_body.push(muted_note(t("skills.market.searching").into()).into_any_element());
+                        }
+                        if let Some(e) = search_error {
+                            market_body.push(muted_note(e).into_any_element());
+                        }
+                        market_body.push(
+                            self.market_scroll
+                                .attach(
+                                    div()
+                                        .id("skills-market")
+                                        .flex()
+                                        .flex_col()
+                                        .max_h(px(360.0))
+                                        .children(hit_rows),
+                                    window,
+                                )
+                                .into_any_element(),
+                        );
+
                         let repo_count = repos.len();
                         let mut repo_body: Vec<AnyElement> = vec![
                             div()
@@ -660,6 +805,7 @@ impl Render for SkillsPage {
                                 .child(card(&t("skills.card.installed"), Some(installed_count), None, installed_body))
                                 .child(card(&t("skills.card.available"), Some(available_count), None, available_body)),
                         )
+                        .child(row().child(card(&t("skills.card.market"), Some(hit_count), None, market_body)))
                     }),
             )
     }

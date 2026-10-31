@@ -2,13 +2,18 @@
 //! `.claude/.spm-state.json`, same `~/.cache/spm` clones, same `SPM_CACHE_DIR`, `SPM_REPO` and
 //! `SPM_GLOBAL_DIR`, same isolation through `skillOverrides`. A project works with either tool.
 //!
-//! Not ported: market search and pinned market installs, `--latest`, `-g` global installs.
-//! Market entries already in `spm.json` are kept and reinstalled at their pinned commit.
+//! Market search, pinned market installs, `update --latest` and `-g` global installs are all
+//! here. Market installs and `--latest` are two-phase: `prepare_*` fetches the skill and returns a
+//! [`Review`] (or finishes when there is nothing to review), and [`confirm`] copies it once the
+//! user has approved. Market entries in `spm.json` are reinstalled at their pinned commit.
 //!
-//! The work is blocking (filesystem and `git`), so every public function runs on the blocking pool.
+//! The work is blocking (filesystem, `git`, HTTP), so every public function runs on the blocking
+//! pool.
 
 mod doctor;
+mod market;
 mod repo;
+mod review;
 mod store;
 
 use std::path::{Path, PathBuf};
@@ -16,7 +21,9 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use crate::model::{DoctorReport, SpmManifest};
+pub use market::{Hit, parse_ref as parse_market_ref};
 use repo::{Candidate, Pool, entry_spec, load_pool, pick_candidate, repo_key, repo_specs};
+pub use review::Review;
 use store::{Manifest, State};
 
 /// What is on disk for a project.
@@ -220,6 +227,13 @@ pub async fn install(project: &Path, skills: &[String]) -> Result<String, String
     blocking(move || install_sync(&project, &names)).await
 }
 
+/// The note for a skill that several repos of the pool provide: the first one is used.
+fn also_in(name: &str, candidates: Option<&Vec<Candidate>>, used: &Candidate) -> Option<String> {
+    let others = candidates?.get(1..).filter(|o| !o.is_empty())?;
+    let repos: Vec<&str> = others.iter().map(|c| c.repo.as_str()).collect();
+    Some(format!("! {name}: also in {}; using {}", repos.join(", "), used.repo))
+}
+
 fn install_sync(project: &Path, names: &[String]) -> Result<String, String> {
     let p = Paths::of(project);
     let mut cfg = load(&p)?;
@@ -259,9 +273,8 @@ fn install_sync(project: &Path, names: &[String]) -> Result<String, String> {
             ));
             continue;
         };
-        if wanted.is_none() && candidates.is_some_and(|c| c.len() > 1) {
-            let others: Vec<&str> = candidates.unwrap()[1..].iter().map(|c| c.repo.as_str()).collect();
-            log.push(format!("! {name}: also in {}; using {}", others.join(", "), found.repo));
+        if wanted.is_none() {
+            log.extend(also_in(name, candidates, &found));
         }
         let current = cfg.manifest.skills.get(name).cloned();
         if spm_repo_set() {
@@ -285,6 +298,223 @@ fn install_sync(project: &Path, names: &[String]) -> Result<String, String> {
     }
     save(&p, &cfg)?;
     finish(log, failed)
+}
+
+/// `spm install -g <skills…>`: copy them from the pool into the global skills folder. Nothing is
+/// recorded; the project manifest is only read, for its pool.
+pub async fn install_global(project: &Path, skills: &[String]) -> Result<String, String> {
+    let (project, names) = (project.to_path_buf(), skills.to_vec());
+    blocking(move || {
+        if names.is_empty() {
+            return Err("usage: install -g <skill...>".into());
+        }
+        let cfg = load(&Paths::of(&project))?;
+        let specs = repo_specs(&cfg.manifest.repos)?;
+        let pool = load_pool(&specs)?;
+        let available: Vec<&String> = pool.keys().collect();
+        let dir = global_skills_dir();
+        std::fs::create_dir_all(&dir).map_err(io)?;
+        let (mut log, mut failed) = (Vec::new(), Vec::new());
+        for name in &names {
+            let candidates = pool.get(name);
+            let Some(found) = pick_candidate(candidates, None) else {
+                failed.push(format!(
+                    "✗ {name}: not found in {}{}",
+                    specs.join(", "),
+                    suggest(name, &available)
+                ));
+                continue;
+            };
+            log.extend(also_in(name, candidates, &found));
+            let dest = dir.join(name);
+            if dest.exists() {
+                log.push(format!("• {name}: already installed"));
+                continue;
+            }
+            store::copy_skill(&found.src, &dest).map_err(io)?;
+            log.push(format!("✓ {name} (global)"));
+        }
+        finish(log, failed)
+    })
+    .await
+}
+
+// ---- markets ------------------------------------------------------------------------------
+
+/// Search the skill markets by keyword.
+pub async fn search_market(term: &str) -> Result<Vec<Hit>, String> {
+    let term = term.trim().to_string();
+    blocking(move || {
+        if term.is_empty() {
+            return Ok(Vec::new());
+        }
+        market::search(&term)
+    })
+    .await
+}
+
+/// Where a prepare step ended up.
+#[derive(Debug, Clone)]
+pub enum Prepared {
+    /// Nothing to approve; the text says what happened.
+    Done(String),
+    /// Show the review, then call [`confirm`] if the user approves.
+    Review(Box<Review>),
+}
+
+/// The skill and where it was found, for a market repo: the one named `want`, or the only one.
+fn market_entry(pool: &Pool, want: &str, repo: &str) -> Result<(String, Candidate), String> {
+    let (name, cands) = match pool.get_key_value(want) {
+        Some(kv) => kv,
+        None if pool.len() == 1 => pool.iter().next().unwrap(),
+        None => return Err(format!("{want} not found in {repo}")),
+    };
+    Ok((name.clone(), cands[0].clone()))
+}
+
+fn build_review(
+    name: &str,
+    found: &Candidate,
+    market: &str,
+    from: Option<String>,
+    global: bool,
+) -> Result<Review, String> {
+    if name.is_empty() || name.contains(['/', '\\']) || name == ".." || name == "." {
+        return Err(format!("✗ {name}: not a valid skill name"));
+    }
+    let report = review::inspect_skill(&found.src).map_err(io)?;
+    if !report.symlinks.is_empty() {
+        return Err(format!(
+            "✗ {name}: contains symlinks ({}), not installing",
+            report.symlinks.join(", ")
+        ));
+    }
+    Ok(Review {
+        name: name.to_string(),
+        repo: found.repo.clone(),
+        sha: found.sha.clone(),
+        hash: store::hash_dir(&found.src).map_err(io)?,
+        market: market.to_string(),
+        from,
+        global,
+        report,
+        src: found.src.clone(),
+    })
+}
+
+/// First phase of `install <market>:<id>`: resolve it on the market, fetch the repo at its
+/// current commit and inspect the skill.
+pub async fn prepare_install(project: &Path, market: &str, id: &str, global: bool) -> Result<Prepared, String> {
+    let (project, market, id) = (project.to_path_buf(), market.to_string(), id.to_string());
+    blocking(move || {
+        if market != market::SKILLSMP {
+            return Err(format!("unknown market \"{market}\" (available: {})", market::SKILLSMP));
+        }
+        let hit = market::resolve(&id)?;
+        prepare_install_hit(&project, &hit, &market, global)
+    })
+    .await
+}
+
+fn prepare_install_hit(project: &Path, hit: &Hit, market: &str, global: bool) -> Result<Prepared, String> {
+    let pool = load_pool(std::slice::from_ref(&hit.repo))?;
+    let (name, found) = market_entry(&pool, &hit.name, &hit.repo)?;
+    let skills_dir = if global { global_skills_dir() } else { Paths::of(project).skills };
+    if skills_dir.join(&name).exists() {
+        return Ok(Prepared::Done(format!("• {name}: already installed")));
+    }
+    Ok(Prepared::Review(Box::new(build_review(&name, &found, market, None, global)?)))
+}
+
+/// First phase of `update --latest` for one market skill: fetch the newest commit of its repo.
+/// When the content is unchanged only the recorded commit moves and nothing is asked.
+pub async fn prepare_update_latest(project: &Path, skill: &str) -> Result<Prepared, String> {
+    let (project, skill) = (project.to_path_buf(), skill.to_string());
+    blocking(move || {
+        let p = Paths::of(&project);
+        let mut cfg = load(&p)?;
+        let (repo, pinned, market) = match cfg.manifest.skills.get(&skill) {
+            Some(Value::Object(o)) => (
+                o.get("repo").and_then(Value::as_str).map(str::to_string),
+                o.get("ref").and_then(Value::as_str).map(str::to_string),
+                o.get("market").and_then(Value::as_str).unwrap_or(market::SKILLSMP).to_string(),
+            ),
+            Some(_) => return Err(format!("✗ {skill}: not installed from a market")),
+            None => return Err(format!("✗ {skill}: not installed")),
+        };
+        let repo = repo.ok_or_else(|| format!("✗ {skill}: no repo recorded in spm.json"))?;
+        let pool = load_pool(std::slice::from_ref(&repo))?;
+        let Some(found) = pick_candidate(pool.get(&skill), Some(&repo)) else {
+            return Err(format!("✗ {skill}: no longer in the repo ({repo})"));
+        };
+        let dest = p.skills.join(&skill);
+        let repo_hash = store::hash_dir(&found.src).map_err(io)?;
+        let local_hash = dest.exists().then(|| store::hash_dir(&dest)).transpose().map_err(io)?;
+        let moved = pinned.as_deref() != Some(found.sha.as_str());
+        if local_hash.as_deref() == Some(repo_hash.as_str()) {
+            if moved {
+                if let Some(Value::Object(o)) = cfg.manifest.skills.get_mut(&skill) {
+                    o.insert("ref".into(), Value::String(found.sha.clone()));
+                }
+            }
+            cfg.state.insert(skill.clone(), store::state_entry(&repo_hash, &found.sha));
+            save(&p, &cfg)?;
+            return Ok(Prepared::Done(format!("• {skill}: up to date")));
+        }
+        if !moved {
+            return Ok(Prepared::Done(format!(
+                "• {skill}: already at the latest commit (use Update all to restore local edits)"
+            )));
+        }
+        Ok(Prepared::Review(Box::new(build_review(&skill, &found, &market, pinned, false)?)))
+    })
+    .await
+}
+
+/// Second phase: copy a reviewed skill. A global install records nothing; a project install pins
+/// the manifest entry to the reviewed commit.
+pub async fn confirm(project: &Path, review: Review) -> Result<String, String> {
+    let project = project.to_path_buf();
+    blocking(move || {
+        let name = &review.name;
+        // The clone is shared; make sure what is copied is what was shown.
+        if store::hash_dir(&review.src).map_err(io)? != review.hash {
+            return Err(format!("✗ {name}: changed since it was reviewed, not installing"));
+        }
+        if review.global {
+            let dir = global_skills_dir();
+            std::fs::create_dir_all(&dir).map_err(io)?;
+            store::copy_skill(&review.src, &dir.join(name)).map_err(io)?;
+            return Ok(format!("✓ {name} (global)"));
+        }
+        let p = Paths::of(&project);
+        let mut cfg = load(&p)?;
+        let dest = p.skills.join(name);
+        let edited = review.from.is_some()
+            && dest.exists()
+            && Some(store::hash_dir(&dest).map_err(io)?) != store::state_hash(&cfg.state, name);
+        std::fs::create_dir_all(&p.skills).map_err(io)?;
+        store::copy_skill(&review.src, &dest).map_err(io)?;
+        match cfg.manifest.skills.get_mut(name) {
+            Some(Value::Object(o)) if review.from.is_some() => {
+                o.insert("ref".into(), Value::String(review.sha.clone()));
+            }
+            _ => {
+                cfg.manifest.skills.insert(
+                    name.clone(),
+                    serde_json::json!({ "repo": review.repo, "ref": review.sha, "market": review.market }),
+                );
+            }
+        }
+        cfg.state.insert(name.clone(), store::state_entry(&review.hash, &review.sha));
+        save(&p, &cfg)?;
+        Ok(if review.from.is_some() {
+            format!("✓ {name}: updated{}", if edited { " (local edits overwritten)" } else { "" })
+        } else {
+            format!("✓ {name}")
+        })
+    })
+    .await
 }
 
 /// A skill in the repo pool, as `spm available` lists it.
@@ -477,8 +707,116 @@ mod tests {
         assert!(s.installed.is_empty());
     }
 
+    /// Both tests below point the process-wide env vars at their own folders.
+    static ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn market_install_update_latest_and_global() {
+        let _env = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let root = scratch("market");
+        let (cache, global) = (root.join("cache"), root.join("global"));
+        unsafe {
+            std::env::set_var("SPM_CACHE_DIR", &cache);
+            std::env::set_var("SPM_GLOBAL_DIR", &global);
+            std::env::remove_var("SPM_REPO");
+        }
+        let upstream = root.join("upstream");
+        fs::create_dir_all(&upstream).unwrap();
+        git(&upstream, &["init", "-q"]);
+        write_skill(&upstream, "alpha", "Does a thing");
+        fs::write(upstream.join("skills/alpha/run.sh"), "echo hi").unwrap();
+        git(&upstream, &["add", "."]);
+        git(&upstream, &["commit", "-q", "-m", "one"]);
+        let spec = upstream.to_string_lossy().replace('\\', "/");
+        let hit = Hit {
+            name: "alpha".into(),
+            author: "me".into(),
+            description: String::new(),
+            repo: spec.clone(),
+            stars: 0,
+        };
+
+        let project = root.join("project");
+        fs::create_dir_all(&project).unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            // Review first: nothing is copied until it is confirmed.
+            let Prepared::Review(review) = prepare_install_hit(&project, &hit, "skillsmp", false).unwrap()
+            else {
+                panic!("expected a review");
+            };
+            assert!(!project.join(".claude/skills/alpha").exists());
+            assert!(review.text().contains("script or binary: run.sh"), "{}", review.text());
+            let first_sha = review.sha.clone();
+            confirm(&project, (*review).clone()).await.unwrap();
+            assert!(project.join(".claude/skills/alpha/run.sh").is_file());
+            let manifest: Value =
+                serde_json::from_str(&fs::read_to_string(project.join("spm.json")).unwrap()).unwrap();
+            assert_eq!(
+                manifest["skills"]["alpha"],
+                serde_json::json!({"repo": spec, "ref": first_sha, "market": "skillsmp"})
+            );
+            let state: Value = serde_json::from_str(
+                &fs::read_to_string(project.join(".claude/.spm-state.json")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(state["skills"]["alpha"]["hash"], review.hash.as_str());
+            assert!(matches!(
+                prepare_install_hit(&project, &hit, "skillsmp", false).unwrap(),
+                Prepared::Done(_)
+            ));
+
+            // Nothing new upstream.
+            let Prepared::Done(msg) = prepare_update_latest(&project, "alpha").await.unwrap() else {
+                panic!("expected up to date");
+            };
+            assert!(msg.contains("up to date"), "{msg}");
+
+            // A new upstream commit asks for a review, and only confirming moves the pin.
+            fs::write(upstream.join("skills/alpha/extra.md"), "more").unwrap();
+            git(&upstream, &["add", "."]);
+            git(&upstream, &["commit", "-q", "-m", "two"]);
+            let Prepared::Review(next) = prepare_update_latest(&project, "alpha").await.unwrap() else {
+                panic!("expected a review");
+            };
+            assert_eq!(next.from.as_deref(), Some(first_sha.as_str()));
+            assert_ne!(next.sha, first_sha);
+            assert!(!project.join(".claude/skills/alpha/extra.md").exists());
+            let out = confirm(&project, *next.clone()).await.unwrap();
+            assert!(out.contains("alpha: updated"), "{out}");
+            assert!(project.join(".claude/skills/alpha/extra.md").is_file());
+            let manifest: Value =
+                serde_json::from_str(&fs::read_to_string(project.join("spm.json")).unwrap()).unwrap();
+            assert_eq!(manifest["skills"]["alpha"]["ref"], next.sha.as_str());
+
+            // A plain update stays on the pinned commit; a pool skill is not a market skill.
+            assert!(update(&project).await.unwrap().contains("alpha: up to date"));
+            let err = prepare_update_latest(&project, "nope").await.unwrap_err();
+            assert!(err.contains("not installed"), "{err}");
+
+            // Global installs: reviewed market ones and pool ones, nothing recorded.
+            let Prepared::Review(g) = prepare_install_hit(&project, &hit, "skillsmp", true).unwrap()
+            else {
+                panic!("expected a review");
+            };
+            confirm(&project, *g).await.unwrap();
+            assert!(global.join("alpha/SKILL.md").is_file());
+            init(&project, Some(&spec), false).await.unwrap();
+            fs::remove_dir_all(global.join("alpha")).unwrap();
+            let out = install_global(&project, &["alpha".into()]).await.unwrap();
+            assert!(out.contains("alpha (global)"), "{out}");
+            assert!(global.join("alpha/SKILL.md").is_file());
+            assert!(install_global(&project, &["zzz".into()]).await.unwrap_err().contains("not found"));
+            let manifest: Value =
+                serde_json::from_str(&fs::read_to_string(project.join("spm.json")).unwrap()).unwrap();
+            assert!(manifest["skills"]["alpha"].is_object(), "global installs record nothing");
+        });
+        let _ = fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn full_lifecycle_against_a_local_repo() {
+        let _env = ENV.lock().unwrap_or_else(|e| e.into_inner());
         let root = scratch("lifecycle");
         let (cache, global) = (root.join("cache"), root.join("global"));
         // SAFETY of parallel tests: only this test depends on these variables.

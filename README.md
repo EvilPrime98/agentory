@@ -35,7 +35,9 @@ one is waiting on you. Agentory puts them in one place and tells you.
 - **Skills, managed per project.** A built-in skills page reads `spm.json` and `.claude/skills`,
   installs, updates and removes skills with a built-in `spm` (same `spm.json` and cache as the
   [`spm`](https://github.com/EvilPrime98/claude-spm) CLI, which keeps working on the same projects),
-  and shows each skill's context cost, usage and overlaps.
+  searches the SkillsMP market (set `SKILLSMP_API_KEY` for a higher quota), installs market skills pinned to
+  the commit you reviewed, updates them to the latest commit after a new review, installs into the global
+  skills folder, and shows each skill's context cost, usage and overlaps.
 - **Touches nothing of yours.** Status comes from hooks injected with
   `claude --settings <generated file>`. Your project and global Claude settings are never edited, and
   sessions started outside Agentory are unaffected.
