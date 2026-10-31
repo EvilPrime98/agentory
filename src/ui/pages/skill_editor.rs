@@ -7,6 +7,7 @@ use gpui::{
     SharedString, Styled, Subscription, Window, div, prelude::*, px,
 };
 
+use crate::i18n::{t, t_args};
 use crate::route::GoBack;
 use crate::state::Stores;
 use crate::ui::components::button::small_button;
@@ -23,7 +24,7 @@ pub struct SkillEditorPage {
     preview_scroll: SmoothScroll,
     /// What is on disk, to tell whether the editor is dirty.
     saved: String,
-    /// Why `SKILL.md` could not be read; the editor stays read-only-empty and saving is disabled.
+    /// The I/O error from reading `SKILL.md` (shown translated at render time); the editor stays read-only-empty and saving is disabled.
     load_error: Option<SharedString>,
     _subs: Vec<Subscription>,
 }
@@ -42,7 +43,7 @@ impl SkillEditorPage {
             Ok(text) => (text, None),
             Err(e) => (
                 String::new(),
-                Some(format!("Could not read {}: {e}", path.display()).into()),
+                Some(e.to_string().into()),
             ),
         };
         let area = cx.new(|cx| {
@@ -78,9 +79,9 @@ impl SkillEditorPage {
         match std::fs::write(&self.path, &text) {
             Ok(()) => {
                 self.saved = text;
-                toast::success(cx, format!("Saved {}", self.name));
+                toast::success(cx, t_args("skill_editor.saved", &[("name", &self.name)]));
             }
-            Err(e) => toast::error(cx, format!("Could not save {}: {e}", self.name)),
+            Err(e) => toast::error(cx, t_args("skill_editor.save_failed", &[("name", &self.name), ("error", &e.to_string())])),
         }
         cx.notify();
     }
@@ -94,7 +95,7 @@ impl Render for SkillEditorPage {
             div()
                 .text_size(px(12.0))
                 .text_color(theme::text_muted())
-                .child("Nothing to preview")
+                .child(t("skill_editor.nothing_to_preview"))
         } else {
             markdown(&text)
         };
@@ -122,7 +123,7 @@ impl Render for SkillEditorPage {
                                 div()
                                     .text_size(px(20.0))
                                     .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .child("Editing Skill"),
+                                    .child(t("skill_editor.title")),
                             )
                             .child(
                                 div()
@@ -137,7 +138,7 @@ impl Render for SkillEditorPage {
                                         .flex_none()
                                         .text_size(px(12.0))
                                         .text_color(theme::warning())
-                                        .child("● Unsaved changes"),
+                                        .child(t("skill_editor.unsaved")),
                                 )
                             }),
                     )
@@ -148,12 +149,12 @@ impl Render for SkillEditorPage {
                             .gap(px(6.0))
                             .child(small_button(
                                 "skill-editor-back",
-                                "Back",
+                                t("common.back"),
                                 cx.listener(|_, _, _, cx| cx.emit(GoBack)),
                             ))
                             .child(small_button(
                                 "skill-editor-save",
-                                "Save",
+                                t("common.save"),
                                 cx.listener(|this, _, _, cx| this.save(cx)),
                             )),
                     ),
@@ -162,14 +163,17 @@ impl Render for SkillEditorPage {
                 div()
                     .text_size(px(12.0))
                     .text_color(theme::text_muted())
-                    .child("Updating skills with spm may overwrite local changes."),
+                    .child(t("skill_editor.overwrite_warning")),
             )
             .when_some(self.load_error.clone(), |s, e| {
                 s.child(
                     div()
                         .text_size(px(12.0))
                         .text_color(theme::error())
-                        .child(e),
+                        .child(t_args(
+                            "skill_editor.read_failed",
+                            &[("path", &self.path.display().to_string()), ("error", &e)],
+                        )),
                 )
             })
             .child(

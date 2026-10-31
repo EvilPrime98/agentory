@@ -66,5 +66,14 @@
   "skills.busy.update": "Actualizando skills",
   "skills.busy.add_repo": "Añadir repo {repo}",
   "skills.busy.remove_repo": "Quitar repo {repo}",
-  "skills.busy.measure": "Midiendo el coste de contexto"
+  "skills.busy.measure": "Midiendo el coste de contexto",
+  "common.back": "Volver",
+  "common.save": "Guardar",
+  "skill_editor.title": "Editando skill",
+  "skill_editor.unsaved": "● Cambios sin guardar",
+  "skill_editor.overwrite_warning": "Actualizar skills con spm puede sobrescribir los cambios locales.",
+  "skill_editor.nothing_to_preview": "Nada que previsualizar",
+  "skill_editor.saved": "{name} guardada",
+  "skill_editor.save_failed": "No se pudo guardar {name}: {error}",
+  "skill_editor.read_failed": "No se pudo leer {path}: {error}"
 }
