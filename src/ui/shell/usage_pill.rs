@@ -8,6 +8,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Subscription, Window, deferred, div, prelude::*, px,
 };
 
+use crate::i18n::{t, t_args};
 use crate::state::Stores;
 use crate::state::sessions::SessionKind;
 use crate::state::usage::{Limit, SessionUsage};
@@ -65,17 +66,26 @@ fn resets_in(resets_at: u64) -> String {
         .map_or(0, |d| d.as_secs());
     let mins = resets_at.saturating_sub(now) / 60;
     match mins {
-        0 => "resets now".into(),
-        1..60 => format!("resets in {mins}m"),
-        60..1440 => format!("resets in {}h {}m", mins / 60, mins % 60),
-        _ => format!("resets in {}d {}h", mins / 1440, mins % 1440 / 60),
+        0 => t("usage.resets_now"),
+        1..60 => t_args("usage.resets_in_m", &[("m", &mins.to_string())]),
+        60..1440 => t_args(
+            "usage.resets_in_hm",
+            &[("h", &(mins / 60).to_string()), ("m", &(mins % 60).to_string())],
+        ),
+        _ => t_args(
+            "usage.resets_in_dh",
+            &[
+                ("d", &(mins / 1440).to_string()),
+                ("h", &(mins % 1440 / 60).to_string()),
+            ],
+        ),
     }
 }
 
-fn limit_row(label: &'static str, limit: Option<Limit>, stale: bool) -> impl IntoElement {
+fn limit_row(label: String, limit: Option<Limit>, stale: bool) -> impl IntoElement {
     let (percent, detail) = match limit {
         Some(l) => (l.percent, l.resets_at.map(resets_in).unwrap_or_default()),
-        None => (0.0, "no data".into()),
+        None => (0.0, t("usage.no_data")),
     };
     let color = if stale {
         theme::text_muted()
@@ -109,7 +119,7 @@ fn session_row(name: String, usage: Option<&SessionUsage>) -> impl IntoElement {
             .child(div().min_w_0().truncate().child(name))
             .child(div().flex_none().text_color(theme::text_muted()).child(
                 usage.map_or("—".to_string(), |u| {
-                    format!("{:.0}% context", u.context_percent())
+                    t_args("usage.context", &[("percent", &format!("{:.0}", u.context_percent()))])
                 }),
             )),
     );
@@ -126,12 +136,14 @@ fn session_row(name: String, usage: Option<&SessionUsage>) -> impl IntoElement {
         div()
             .text_size(px(12.0))
             .text_color(theme::text_muted())
-            .child(format!(
-                "in {} · out {} · cache read {} · cache write {}",
-                tokens(u.input),
-                tokens(u.output),
-                tokens(u.cache_read),
-                tokens(u.cache_write),
+            .child(t_args(
+                "usage.token_breakdown",
+                &[
+                    ("input", &tokens(u.input)),
+                    ("output", &tokens(u.output)),
+                    ("cache_read", &tokens(u.cache_read)),
+                    ("cache_write", &tokens(u.cache_write)),
+                ],
             )),
     )
 }
@@ -210,11 +222,11 @@ impl UsagePill {
                     s.child(
                         div()
                             .text_color(theme::warning())
-                            .child("Usage unavailable — showing last known values"),
+                            .child(t("usage.stale")),
                     )
                 })
-                .child(limit_row("5-hour limit", plan.five_hour, stale))
-                .child(limit_row("Weekly limit", plan.weekly, stale))
+                .child(limit_row(t("usage.limit_5h"), plan.five_hour, stale))
+                .child(limit_row(t("usage.limit_weekly"), plan.weekly, stale))
                 .child(div().h(px(1.0)).bg(theme::border_subtle()))
                 .child(
                     div()
@@ -228,7 +240,7 @@ impl UsagePill {
                             s.child(
                                 div()
                                     .text_color(theme::text_muted())
-                                    .child("No sessions running"),
+                                    .child(t("usage.no_sessions")),
                             )
                         })
                         .children(rows),

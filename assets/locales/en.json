@@ -99,5 +99,16 @@
   "sessions.close_terminal.title": "Close terminal",
   "sessions.close_terminal.body": "A command is still running in this terminal and will be terminated.",
   "sessions.worktree.creating": "Creating the worktree…",
-  "sessions.worktree.failed": "Could not create the worktree: {error}"
+  "sessions.worktree.failed": "Could not create the worktree: {error}",
+  "usage.resets_now": "resets now",
+  "usage.resets_in_m": "resets in {m}m",
+  "usage.resets_in_hm": "resets in {h}h {m}m",
+  "usage.resets_in_dh": "resets in {d}d {h}h",
+  "usage.no_data": "no data",
+  "usage.context": "{percent}% context",
+  "usage.token_breakdown": "in {input} · out {output} · cache read {cache_read} · cache write {cache_write}",
+  "usage.stale": "Usage unavailable — showing last known values",
+  "usage.limit_5h": "5-hour limit",
+  "usage.limit_weekly": "Weekly limit",
+  "usage.no_sessions": "No sessions running"
 }
