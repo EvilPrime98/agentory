@@ -150,7 +150,9 @@ impl TextArea {
         let (from, to) = self.selection()?;
         if from.0 == to.0 {
             let l = &self.lines[from.0];
-            return Some(l[self.byte_index(from.0, from.1)..self.byte_index(to.0, to.1)].to_string());
+            return Some(
+                l[self.byte_index(from.0, from.1)..self.byte_index(to.0, to.1)].to_string(),
+            );
         }
         let mut out = self.lines[from.0][self.byte_index(from.0, from.1)..].to_string();
         for l in &self.lines[from.0 + 1..to.0] {
@@ -257,9 +259,13 @@ impl TextArea {
         for line in 0..self.lines.len() {
             let n = self.rows_of(line);
             if left < n {
-                return (line, (left * cols).saturating_add(x).min(self.line_len(line)).min(
-                    (left * cols).saturating_add(cols - 1).max(left * cols),
-                ));
+                return (
+                    line,
+                    (left * cols)
+                        .saturating_add(x)
+                        .min(self.line_len(line))
+                        .min((left * cols).saturating_add(cols - 1).max(left * cols)),
+                );
             }
             left -= n;
         }
@@ -380,10 +386,7 @@ impl TextArea {
                 let cols = self.cols();
                 let goal = *self.goal_col.get_or_insert(col % cols);
                 let row = self.row_index(self.caret);
-                let end = (
-                    self.lines.len() - 1,
-                    self.line_len(self.lines.len() - 1),
-                );
+                let end = (self.lines.len() - 1, self.line_len(self.lines.len() - 1));
                 let last_row = self.row_index(end);
                 let to = if ks.key == "up" {
                     if row == 0 {
@@ -520,7 +523,13 @@ impl TextArea {
         }
         if has_sel && sel_to > len && last {
             // Newline cell, so a multi-line selection reads as continuous.
-            row = row.child(div().flex_none().w(px(6.0)).h_full().bg(theme::accent_soft()));
+            row = row.child(
+                div()
+                    .flex_none()
+                    .w(px(6.0))
+                    .h_full()
+                    .bg(theme::accent_soft()),
+            );
         }
         if let Some(col) = caret_col {
             row = row.child(
@@ -591,7 +600,10 @@ impl Render for TextArea {
             .key_context("TextArea")
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, e, _, cx| this.on_key(e, cx)))
-            .on_mouse_down(MouseButton::Left, cx.listener(|this, e, w, cx| this.on_mouse_down(e, w, cx)))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, e, w, cx| this.on_mouse_down(e, w, cx)),
+            )
             .on_mouse_move(cx.listener(|this, e, _, cx| this.on_mouse_move(e, cx)))
             .on_mouse_up(
                 MouseButton::Left,

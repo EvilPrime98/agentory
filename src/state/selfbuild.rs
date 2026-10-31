@@ -91,14 +91,17 @@ impl SelfBuildStore {
 
     /// Fetch new release tags and compare them with the user's base. Ignored while a step runs.
     pub fn check_upstream(&mut self, cx: &mut Context<Self>) {
-        let Some(paths) = self.paths.clone() else { return };
+        let Some(paths) = self.paths.clone() else {
+            return;
+        };
         if self.busy() || self.upstream == UpstreamState::Checking {
             return;
         }
         self.upstream = UpstreamState::Checking;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = runtime::run(async move { upstream::check(&paths.clone_dir()).await }).await;
+            let result =
+                runtime::run(async move { upstream::check(&paths.clone_dir()).await }).await;
             this.update(cx, |this, cx| {
                 this.upstream = match result {
                     Ok(status) => UpstreamState::Checked(status),
@@ -148,7 +151,9 @@ impl SelfBuildStore {
             let (list, bytes) = runtime::run(async move {
                 let list = preflight::check(&agent).await;
                 let bytes = match paths {
-                    Some(p) => tokio::task::spawn_blocking(move || cache::target_size(&p)).await.ok(),
+                    Some(p) => tokio::task::spawn_blocking(move || cache::target_size(&p))
+                        .await
+                        .ok(),
                     None => None,
                 };
                 (list, bytes)
@@ -173,8 +178,9 @@ impl SelfBuildStore {
         let args = tool.install_args();
         self.drive(
             move |mut log| async move {
-                let winget = preflight::which("winget")
-                    .ok_or("winget was not found; install the App Installer from the Microsoft Store")?;
+                let winget = preflight::which("winget").ok_or(
+                    "winget was not found; install the App Installer from the Microsoft Store",
+                )?;
                 let args: Vec<&str> = args.iter().map(String::as_str).collect();
                 let exit = stream(
                     &winget.to_string_lossy(),
@@ -207,7 +213,9 @@ impl SelfBuildStore {
     /// Clone the source (if needed) and run the first build. The caller has already warned about
     /// the disk use.
     pub fn enable(&mut self, cx: &mut Context<Self>) {
-        let Some(paths) = self.paths.clone() else { return };
+        let Some(paths) = self.paths.clone() else {
+            return;
+        };
         if !self.can_enable() {
             return;
         }
@@ -216,7 +224,8 @@ impl SelfBuildStore {
             move |mut log| async move { clone::enable(&paths, &mut log).await },
             |this, result, cx| match result {
                 Ok(()) => {
-                    this.prefs.update(cx, |s, cx| s.update(cx, |p| p.self_build_enabled = true));
+                    this.prefs
+                        .update(cx, |s, cx| s.update(cx, |p| p.self_build_enabled = true));
                     this.phase = Phase::Idle;
                     let agent = this.agent_command.clone();
                     this.refresh(&agent, cx);
@@ -229,7 +238,9 @@ impl SelfBuildStore {
 
     /// Delete the shared target dir.
     pub fn clean_cache(&mut self, cx: &mut Context<Self>) {
-        let Some(paths) = self.paths.clone() else { return };
+        let Some(paths) = self.paths.clone() else {
+            return;
+        };
         if self.busy() {
             return;
         }

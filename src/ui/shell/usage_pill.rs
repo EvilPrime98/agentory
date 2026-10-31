@@ -69,7 +69,10 @@ fn resets_in(resets_at: u64) -> String {
         1..60 => t_args("usage.resets_in_m", &[("m", &mins.to_string())]),
         60..1440 => t_args(
             "usage.resets_in_hm",
-            &[("h", &(mins / 60).to_string()), ("m", &(mins % 60).to_string())],
+            &[
+                ("h", &(mins / 60).to_string()),
+                ("m", &(mins % 60).to_string()),
+            ],
         ),
         _ => t_args(
             "usage.resets_in_dh",
@@ -116,11 +119,17 @@ fn session_row(name: String, usage: Option<&SessionUsage>) -> impl IntoElement {
             .justify_between()
             .gap(px(8.0))
             .child(div().min_w_0().truncate().child(name))
-            .child(div().flex_none().text_color(theme::text_muted()).child(
-                usage.map_or("—".to_string(), |u| {
-                    t_args("usage.context", &[("percent", &format!("{:.0}", u.context_percent()))])
-                }),
-            )),
+            .child(
+                div()
+                    .flex_none()
+                    .text_color(theme::text_muted())
+                    .child(usage.map_or("—".to_string(), |u| {
+                        t_args(
+                            "usage.context",
+                            &[("percent", &format!("{:.0}", u.context_percent()))],
+                        )
+                    })),
+            ),
     );
     let Some(u) = usage else {
         return row;
@@ -218,11 +227,7 @@ impl UsagePill {
                 .text_color(theme::text())
                 .on_mouse_down_out(cx.listener(|this, _, _, cx| this.close(cx)))
                 .when(stale, |s| {
-                    s.child(
-                        div()
-                            .text_color(theme::warning())
-                            .child(t("usage.stale")),
-                    )
+                    s.child(div().text_color(theme::warning()).child(t("usage.stale")))
                 })
                 .child(limit_row(t("usage.limit_5h"), plan.five_hour, stale))
                 .child(limit_row(t("usage.limit_weekly"), plan.weekly, stale))

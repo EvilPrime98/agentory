@@ -8,8 +8,8 @@ use crate::selfbuild::cache::format_bytes;
 use crate::selfbuild::clone::version_tag;
 use crate::selfbuild::preflight::{State, Tool};
 use crate::state::Stores;
-use crate::state::sessions::begin_upstream_update;
 use crate::state::selfbuild::{Phase, UpstreamState, Work};
+use crate::state::sessions::begin_upstream_update;
 use crate::ui::components::button::{ButtonVariant, button, small_button};
 use crate::ui::confirm::{self, ConfirmOptions};
 use crate::ui::theme;
@@ -18,13 +18,17 @@ fn status_text(phase: &Phase) -> (String, gpui::Rgba) {
     match phase {
         Phase::Idle => (t("selfbuild.status.idle"), theme::text_muted()),
         Phase::Ready => (t("selfbuild.status.ready"), theme::success()),
-        Phase::Failed(e) => (t_args("selfbuild.status.failed", &[("error", e)]), theme::error()),
+        Phase::Failed(e) => (
+            t_args("selfbuild.status.failed", &[("error", e)]),
+            theme::error(),
+        ),
         Phase::Working(w) => {
             let text = match w {
                 Work::Checking => t("selfbuild.status.checking"),
-                Work::Installing(tool) => {
-                    t_args("selfbuild.status.installing", &[("tool", &t(tool.label_key()))])
-                }
+                Work::Installing(tool) => t_args(
+                    "selfbuild.status.installing",
+                    &[("tool", &t(tool.label_key()))],
+                ),
                 Work::Cloning => t("selfbuild.status.cloning"),
                 Work::Building => t("selfbuild.status.building"),
                 Work::Cleaning => t("selfbuild.status.cleaning"),
@@ -43,7 +47,10 @@ pub fn recheck(stores: &Stores, cx: &mut App) {
 fn ask_install(stores: &Stores, tool: Tool, cx: &mut App) {
     let options = ConfirmOptions::new(
         t_args("selfbuild.install.title", &[("tool", &t(tool.label_key()))]),
-        t_args("selfbuild.install.message", &[("command", &tool.install_command())]),
+        t_args(
+            "selfbuild.install.message",
+            &[("command", &tool.install_command())],
+        ),
     )
     .labels(t("selfbuild.install"), t("common.cancel"));
     let store = stores.selfbuild.clone();
@@ -63,7 +70,10 @@ fn ask_enable(stores: &Stores, cx: &mut App) {
         .unwrap_or_default();
     let options = ConfirmOptions::new(
         t("selfbuild.enable.title"),
-        t_args("selfbuild.enable.message", &[("tag", &version_tag()), ("dir", &dir)]),
+        t_args(
+            "selfbuild.enable.message",
+            &[("tag", &version_tag()), ("dir", &dir)],
+        ),
     )
     .labels(t("selfbuild.enable.confirm"), t("common.cancel"));
     let store = stores.selfbuild.clone();
@@ -120,9 +130,15 @@ fn upstream_block(stores: &Stores, cx: &App) -> AnyElement {
     let (line, color) = match &store.upstream {
         UpstreamState::Unknown => (String::new(), theme::text_muted()),
         UpstreamState::Checking => (t("selfbuild.upstream.checking"), theme::text_muted()),
-        UpstreamState::Failed(e) => (t_args("selfbuild.upstream.error", &[("error", e)]), theme::warning()),
+        UpstreamState::Failed(e) => (
+            t_args("selfbuild.upstream.error", &[("error", e)]),
+            theme::warning(),
+        ),
         UpstreamState::Checked(s) => match &s.available {
-            Some(tag) => (t_args("selfbuild.upstream.available", &[("tag", tag)]), theme::warning()),
+            Some(tag) => (
+                t_args("selfbuild.upstream.available", &[("tag", tag)]),
+                theme::warning(),
+            ),
             None => (t("selfbuild.upstream.current"), theme::success()),
         },
     };
@@ -141,7 +157,9 @@ fn upstream_block(stores: &Stores, cx: &App) -> AnyElement {
         .flex_col()
         .gap(px(6.0))
         .when_some(base, |s, b| s.child(div().text_size(px(12.5)).child(b)))
-        .when(!line.is_empty(), |s| s.child(div().text_size(px(12.5)).text_color(color).child(line)))
+        .when(!line.is_empty(), |s| {
+            s.child(div().text_size(px(12.5)).text_color(color).child(line))
+        })
         .child(
             div()
                 .flex()
@@ -158,7 +176,11 @@ fn upstream_block(stores: &Stores, cx: &App) -> AnyElement {
                     row.child(small_button(
                         "selfbuild-upstream-check",
                         t("selfbuild.upstream.check"),
-                        move |_, _, cx| check_stores.selfbuild.update(cx, |s, cx| s.check_upstream(cx)),
+                        move |_, _, cx| {
+                            check_stores
+                                .selfbuild
+                                .update(cx, |s, cx| s.check_upstream(cx))
+                        },
                     ))
                 }),
         )
@@ -223,7 +245,8 @@ pub fn body(stores: &Stores, cx: &App) -> AnyElement {
         .map(|&tool| tool_row(stores, tool, store.checklist.state(tool), installable))
         .collect();
 
-    let (recheck_stores, enable_stores, clean_stores) = (stores.clone(), stores.clone(), stores.clone());
+    let (recheck_stores, enable_stores, clean_stores) =
+        (stores.clone(), stores.clone(), stores.clone());
     div()
         .flex()
         .flex_col()
@@ -243,7 +266,12 @@ pub fn body(stores: &Stores, cx: &App) -> AnyElement {
                     .child(t("selfbuild.no_winget")),
             )
         })
-        .child(div().text_size(px(12.5)).text_color(status_color).child(status))
+        .child(
+            div()
+                .text_size(px(12.5))
+                .text_color(status_color)
+                .child(status),
+        )
         .when(ready, |s| s.child(upstream_block(stores, cx)))
         .when(!tail.is_empty(), |s| {
             s.child(
@@ -269,7 +297,11 @@ pub fn body(stores: &Stores, cx: &App) -> AnyElement {
                         button(
                             "selfbuild-enable",
                             t("selfbuild.enable"),
-                            if can_enable { ButtonVariant::Classic } else { ButtonVariant::Secondary },
+                            if can_enable {
+                                ButtonVariant::Classic
+                            } else {
+                                ButtonVariant::Secondary
+                            },
                             move |_, _, cx| {
                                 if enable_stores.selfbuild.read(cx).can_enable() {
                                     ask_enable(&enable_stores, cx);

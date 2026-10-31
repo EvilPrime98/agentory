@@ -8,7 +8,9 @@ fn run() -> Result<(), String> {
     let layout = Layout::default_location().map_err(|e| e.to_string())?;
     let mut args = std::env::args().skip(1);
     match args.next().as_deref() {
-        Some("launch") => launch(&layout).map(|_| ()).map_err(|e| format!("launch failed: {e}")),
+        Some("launch") => launch(&layout)
+            .map(|_| ())
+            .map_err(|e| format!("launch failed: {e}")),
         Some("swap") => {
             let (mut pid, mut new, mut build) = (None, None, None);
             while let Some(flag) = args.next() {
@@ -29,7 +31,9 @@ fn run() -> Result<(), String> {
                 .map(|_| ())
                 .map_err(|e| format!("swap failed: {e}"))
         }
-        _ => Err("usage: agentory-helper launch | swap --pid <pid> --new <path> --build-id <id>".into()),
+        _ => Err(
+            "usage: agentory-helper launch | swap --pid <pid> --new <path> --build-id <id>".into(),
+        ),
     }
 }
 

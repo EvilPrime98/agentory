@@ -12,8 +12,8 @@ use crate::state::Stores;
 use crate::state::prefs::{MAX_FONT, MIN_FONT};
 use crate::ui::components::button::{ButtonVariant, button, small_button};
 use crate::ui::components::checkbox::checkbox;
-use crate::ui::pages::selfbuild_section;
 use crate::ui::components::text_input::{TextInput, TextInputEvent};
+use crate::ui::pages::selfbuild_section;
 use crate::ui::theme;
 
 pub struct SettingsPage {
@@ -132,187 +132,213 @@ impl Render for SettingsPage {
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .child(t("settings.title")),
                     )
-                    .child(row().child(section(
-                        &t("settings.language.title"),
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .gap(px(10.0))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .text_size(px(12.5))
-                                    .text_color(theme::text_muted())
-                                    .child(t("settings.language.hint")),
-                            )
-                            .child(small_button(
-                                "pref-language",
-                                t(language.label_key()),
-                                move |_, _, cx| {
-                                    language_stores.prefs.update(cx, |p, cx| {
-                                        p.update(cx, |p| p.language = p.language.next())
-                                    });
-                                },
-                            )),
-                    ))
-                    .child(section(
-                        &t("settings.claude.title"),
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(8.0))
-                            .child(
-                                div()
-                                    .text_size(px(12.5))
-                                    .text_color(theme::text_muted())
-                                    .child(t("settings.claude.hint")),
-                            )
-                            .child(
+                    .child(
+                        row()
+                            .child(section(
+                                &t("settings.language.title"),
                                 div()
                                     .flex()
-                                    .h(px(32.0))
-                                    .px(px(10.0))
-                                    .rounded(px(6.0))
-                                    .border_1()
-                                    .border_color(theme::border_subtle())
-                                    .bg(theme::bg_app())
-                                    .child(self.claude_input.clone()),
-                            ),
-                    )))
-                    .child(row().child(section(
-                        &t("settings.sessions.title"),
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(10.0))
-                            .child(checkbox(
-                                "pref-worktree",
-                                t("settings.sessions.worktree"),
-                                prefs.ask_worktree,
-                                set(|p, v| p.ask_worktree = v),
+                                    .items_center()
+                                    .justify_between()
+                                    .gap(px(10.0))
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .text_size(px(12.5))
+                                            .text_color(theme::text_muted())
+                                            .child(t("settings.language.hint")),
+                                    )
+                                    .child(small_button(
+                                        "pref-language",
+                                        t(language.label_key()),
+                                        move |_, _, cx| {
+                                            language_stores.prefs.update(cx, |p, cx| {
+                                                p.update(cx, |p| p.language = p.language.next())
+                                            });
+                                        },
+                                    )),
                             ))
-                            .child(checkbox(
-                                "pref-send-doc",
-                                t("settings.sessions.send_doc"),
-                                prefs.send_doc_prompt,
-                                set(|p, v| p.send_doc_prompt = v),
-                            ))
-                            .child(checkbox(
-                                "pref-notify",
-                                t("settings.sessions.notify"),
-                                prefs.notifications,
-                                set(|p, v| p.notifications = v),
-                            ))
-                            .child(checkbox(
-                                "pref-fullscreen",
-                                t("settings.sessions.fullscreen"),
-                                prefs.fullscreen_agents,
-                                set(|p, v| p.fullscreen_agents = v),
+                            .child(section(
+                                &t("settings.claude.title"),
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(8.0))
+                                    .child(
+                                        div()
+                                            .text_size(px(12.5))
+                                            .text_color(theme::text_muted())
+                                            .child(t("settings.claude.hint")),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .h(px(32.0))
+                                            .px(px(10.0))
+                                            .rounded(px(6.0))
+                                            .border_1()
+                                            .border_color(theme::border_subtle())
+                                            .bg(theme::bg_app())
+                                            .child(self.claude_input.clone()),
+                                    ),
                             )),
-                    ))
-                    .when(!git_projects.is_empty(), |s| {
-                        s.child(section(
-                            &t("settings.projects.title"),
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap(px(8.0))
-                                .child(
-                                    div()
-                                        .text_size(px(12.5))
-                                        .text_color(theme::text_muted())
-                                        .child(t("settings.projects.hint")),
-                                )
-                                .children(git_projects.into_iter().map(|(id, name, choice)| {
-                                    let store = projects_store.clone();
-                                    let (label, next) = match choice {
-                                        None => (t("settings.projects.ask"), Some(true)),
-                                        Some(true) => (t("settings.projects.worktree"), Some(false)),
-                                        Some(false) => (t("settings.projects.folder"), None),
-                                    };
+                    )
+                    .child(
+                        row()
+                            .child(section(
+                                &t("settings.sessions.title"),
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(10.0))
+                                    .child(checkbox(
+                                        "pref-worktree",
+                                        t("settings.sessions.worktree"),
+                                        prefs.ask_worktree,
+                                        set(|p, v| p.ask_worktree = v),
+                                    ))
+                                    .child(checkbox(
+                                        "pref-send-doc",
+                                        t("settings.sessions.send_doc"),
+                                        prefs.send_doc_prompt,
+                                        set(|p, v| p.send_doc_prompt = v),
+                                    ))
+                                    .child(checkbox(
+                                        "pref-notify",
+                                        t("settings.sessions.notify"),
+                                        prefs.notifications,
+                                        set(|p, v| p.notifications = v),
+                                    ))
+                                    .child(checkbox(
+                                        "pref-fullscreen",
+                                        t("settings.sessions.fullscreen"),
+                                        prefs.fullscreen_agents,
+                                        set(|p, v| p.fullscreen_agents = v),
+                                    )),
+                            ))
+                            .when(!git_projects.is_empty(), |s| {
+                                s.child(section(
+                                    &t("settings.projects.title"),
                                     div()
                                         .flex()
-                                        .items_center()
-                                        .justify_between()
-                                        .gap(px(10.0))
+                                        .flex_col()
+                                        .gap(px(8.0))
                                         .child(
                                             div()
-                                                .flex_1()
-                                                .min_w_0()
-                                                .truncate()
-                                                .text_size(px(13.0))
-                                                .child(name),
+                                                .text_size(px(12.5))
+                                                .text_color(theme::text_muted())
+                                                .child(t("settings.projects.hint")),
                                         )
-                                        .child(small_button(
-                                            gpui::SharedString::from(format!("wt-{id}")),
-                                            label,
-                                            move |_, _, cx| {
-                                                store.update(cx, |p, cx| {
-                                                    p.set_use_worktree(&id, next, cx)
-                                                });
+                                        .children(git_projects.into_iter().map(
+                                            |(id, name, choice)| {
+                                                let store = projects_store.clone();
+                                                let (label, next) = match choice {
+                                                    None => {
+                                                        (t("settings.projects.ask"), Some(true))
+                                                    }
+                                                    Some(true) => (
+                                                        t("settings.projects.worktree"),
+                                                        Some(false),
+                                                    ),
+                                                    Some(false) => {
+                                                        (t("settings.projects.folder"), None)
+                                                    }
+                                                };
+                                                div()
+                                                    .flex()
+                                                    .items_center()
+                                                    .justify_between()
+                                                    .gap(px(10.0))
+                                                    .child(
+                                                        div()
+                                                            .flex_1()
+                                                            .min_w_0()
+                                                            .truncate()
+                                                            .text_size(px(13.0))
+                                                            .child(name),
+                                                    )
+                                                    .child(small_button(
+                                                        gpui::SharedString::from(format!(
+                                                            "wt-{id}"
+                                                        )),
+                                                        label,
+                                                        move |_, _, cx| {
+                                                            store.update(cx, |p, cx| {
+                                                                p.set_use_worktree(&id, next, cx)
+                                                            });
+                                                        },
+                                                    ))
                                             },
-                                        ))
-                                })),
-                        ))
-                    }))
-                    .child(row().child(section(
-                        &t("settings.terminal.title"),
-                        div()
-                            .flex()
-                            .flex_wrap()
-                            .items_center()
-                            .gap(px(10.0))
-                            .child(div().text_size(px(13.0)).child(t("settings.terminal.font_size")))
-                            .child(small_button("font-down", "−", move |_, _, cx| {
-                                font_stores.prefs.update(cx, |p, cx| {
-                                    p.update(cx, |p| {
-                                        p.terminal_font_size = (p.terminal_font_size - 1.0).max(MIN_FONT)
-                                    })
-                                });
-                            }))
-                            .child(
+                                        )),
+                                ))
+                            }),
+                    )
+                    .child(
+                        row()
+                            .child(section(
+                                &t("settings.terminal.title"),
                                 div()
-                                    .w(px(36.0))
                                     .flex()
-                                    .justify_center()
-                                    .text_size(px(13.0))
-                                    .child(format!("{font:.0}")),
-                            )
-                            .child(small_button("font-up", "+", move |_, _, cx| {
-                                font_stores_up.prefs.update(cx, |p, cx| {
-                                    p.update(cx, |p| {
-                                        p.terminal_font_size = (p.terminal_font_size + 1.0).min(MAX_FONT)
-                                    })
-                                });
-                            })),
-                    ))
-                    .child(section(
-                        &t("settings.data.title"),
-                        div()
-                            .flex()
-                            .flex_wrap()
-                            .gap(px(8.0))
-                            .child(button(
-                                "open-logs",
-                                t("settings.data.open_logs"),
-                                ButtonVariant::Secondary,
-                                |_, _, _| {
-                                    let _ = open::that(logging::log_dir());
-                                },
+                                    .flex_wrap()
+                                    .items_center()
+                                    .gap(px(10.0))
+                                    .child(
+                                        div()
+                                            .text_size(px(13.0))
+                                            .child(t("settings.terminal.font_size")),
+                                    )
+                                    .child(small_button("font-down", "−", move |_, _, cx| {
+                                        font_stores.prefs.update(cx, |p, cx| {
+                                            p.update(cx, |p| {
+                                                p.terminal_font_size =
+                                                    (p.terminal_font_size - 1.0).max(MIN_FONT)
+                                            })
+                                        });
+                                    }))
+                                    .child(
+                                        div()
+                                            .w(px(36.0))
+                                            .flex()
+                                            .justify_center()
+                                            .text_size(px(13.0))
+                                            .child(format!("{font:.0}")),
+                                    )
+                                    .child(small_button("font-up", "+", move |_, _, cx| {
+                                        font_stores_up.prefs.update(cx, |p, cx| {
+                                            p.update(cx, |p| {
+                                                p.terminal_font_size =
+                                                    (p.terminal_font_size + 1.0).min(MAX_FONT)
+                                            })
+                                        });
+                                    })),
                             ))
-                            .child(button(
-                                "open-config",
-                                t("settings.data.open_config"),
-                                ButtonVariant::Secondary,
-                                |_, _, _| {
-                                    if let Some(dir) = dirs::config_dir() {
-                                        let _ = open::that(dir.join("Agentory"));
-                                    }
-                                },
+                            .child(section(
+                                &t("settings.data.title"),
+                                div()
+                                    .flex()
+                                    .flex_wrap()
+                                    .gap(px(8.0))
+                                    .child(button(
+                                        "open-logs",
+                                        t("settings.data.open_logs"),
+                                        ButtonVariant::Secondary,
+                                        |_, _, _| {
+                                            let _ = open::that(logging::log_dir());
+                                        },
+                                    ))
+                                    .child(button(
+                                        "open-config",
+                                        t("settings.data.open_config"),
+                                        ButtonVariant::Secondary,
+                                        |_, _, _| {
+                                            if let Some(dir) = dirs::config_dir() {
+                                                let _ = open::that(dir.join("Agentory"));
+                                            }
+                                        },
+                                    )),
                             )),
-                    )))
+                    )
                     .child(row().child(section(
                         &t("selfbuild.title"),
                         selfbuild_section::body(&self.stores, cx),

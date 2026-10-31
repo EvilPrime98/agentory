@@ -45,7 +45,11 @@ impl ConfirmOptions {
         self
     }
 
-    pub fn labels(mut self, confirm: impl Into<SharedString>, cancel: impl Into<SharedString>) -> Self {
+    pub fn labels(
+        mut self,
+        confirm: impl Into<SharedString>,
+        cancel: impl Into<SharedString>,
+    ) -> Self {
         self.confirm_label = confirm.into();
         self.cancel_label = cancel.into();
         self

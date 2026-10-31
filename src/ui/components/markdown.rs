@@ -18,7 +18,12 @@ use crate::ui::theme;
 /// Render `source` (a whole markdown file, frontmatter included).
 pub fn markdown(source: &str) -> Div {
     let (meta, body) = split_frontmatter(source);
-    let mut root = div().flex().flex_col().flex_none().gap(px(10.0)).text_size(px(13.0));
+    let mut root = div()
+        .flex()
+        .flex_col()
+        .flex_none()
+        .gap(px(10.0))
+        .text_size(px(13.0));
     if let Some(meta) = meta {
         root = root.child(meta_card(&meta));
     }
@@ -59,7 +64,10 @@ fn split_frontmatter(src: &str) -> (Option<Vec<(String, String)>>, &str) {
                 v.push_str(t.trim());
             }
         } else if let Some((k, v)) = t.split_once(':') {
-            pairs.push((k.trim().to_string(), v.trim().trim_matches(['"', '\'']).to_string()));
+            pairs.push((
+                k.trim().to_string(),
+                v.trim().trim_matches(['"', '\'']).to_string(),
+            ));
         }
     }
     (None, src)
@@ -81,7 +89,13 @@ fn meta_card(pairs: &[(String, String)]) -> Div {
                 .flex()
                 .gap(px(8.0))
                 .text_size(px(12.0))
-                .child(div().flex_none().w(px(110.0)).text_color(theme::text_muted()).child(k.clone()))
+                .child(
+                    div()
+                        .flex_none()
+                        .w(px(110.0))
+                        .text_color(theme::text_muted())
+                        .child(k.clone()),
+                )
                 .child(div().flex_1().min_w_0().child(v.clone())),
         );
     }
@@ -206,9 +220,13 @@ fn inline_event(inline: &mut Inline, ev: &Event) -> bool {
         }
         // Images render as their alt text.
         Event::Start(Tag::Image { .. }) => inline.open(|_| {}),
-        Event::End(TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough | TagEnd::Link | TagEnd::Image) => {
-            inline.close()
-        }
+        Event::End(
+            TagEnd::Emphasis
+            | TagEnd::Strong
+            | TagEnd::Strikethrough
+            | TagEnd::Link
+            | TagEnd::Image,
+        ) => inline.close(),
         _ => return false,
     }
     true
@@ -310,7 +328,12 @@ fn blocks<'a>(events: Events<'a, '_>, end: Option<TagEnd>, ids: &mut usize) -> V
             }
             Event::Rule => {
                 flush(&mut inline, &mut out, ids);
-                out.push(div().h(px(1.0)).bg(theme::border_subtle()).into_any_element());
+                out.push(
+                    div()
+                        .h(px(1.0))
+                        .bg(theme::border_subtle())
+                        .into_any_element(),
+                );
             }
             // Any other container (footnote definitions, HTML blocks, ...): render its content.
             Event::Start(_) => flush(&mut inline, &mut out, ids),
@@ -354,7 +377,12 @@ fn list<'a>(events: Events<'a, '_>, first: Option<u64>, ids: &mut usize) -> AnyE
                     div()
                         .flex()
                         .gap(px(8.0))
-                        .child(div().flex_none().text_color(theme::text_muted()).child(marker))
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_color(theme::text_muted())
+                                .child(marker),
+                        )
                         .child(
                             div()
                                 .flex()
@@ -385,7 +413,9 @@ fn table<'a>(events: Events<'a, '_>, ids: &mut usize) -> AnyElement {
                 head = false;
             }
             Event::End(TagEnd::TableRow) => rows.push((head, std::mem::take(&mut cells))),
-            Event::Start(Tag::TableCell) => cells.push(inline_until(events, TagEnd::TableCell, ids)),
+            Event::Start(Tag::TableCell) => {
+                cells.push(inline_until(events, TagEnd::TableCell, ids))
+            }
             Event::End(TagEnd::Table) => break,
             _ => {}
         }
@@ -402,11 +432,17 @@ fn table<'a>(events: Events<'a, '_>, ids: &mut usize) -> AnyElement {
         t = t.child(
             div()
                 .flex()
-                .when(is_head, |r| r.bg(theme::bg_panel()).font_weight(FontWeight::BOLD))
-                .when(i != last, |r| r.border_b_1().border_color(theme::border_subtle()))
-                .children(cells.into_iter().map(|c| {
-                    div().flex_1().min_w_0().px(px(8.0)).py(px(5.0)).child(c)
-                })),
+                .when(is_head, |r| {
+                    r.bg(theme::bg_panel()).font_weight(FontWeight::BOLD)
+                })
+                .when(i != last, |r| {
+                    r.border_b_1().border_color(theme::border_subtle())
+                })
+                .children(
+                    cells
+                        .into_iter()
+                        .map(|c| div().flex_1().min_w_0().px(px(8.0)).py(px(5.0)).child(c)),
+                ),
         );
     }
     t.into_any_element()
@@ -418,8 +454,15 @@ mod tests {
 
     #[test]
     fn splits_frontmatter() {
-        let (m, body) = split_frontmatter("---\r\nname: a\r\ndescription: \"b\"\r\n---\r\n# Hi\r\n");
-        assert_eq!(m.unwrap(), vec![("name".into(), "a".into()), ("description".into(), "b".into())]);
+        let (m, body) =
+            split_frontmatter("---\r\nname: a\r\ndescription: \"b\"\r\n---\r\n# Hi\r\n");
+        assert_eq!(
+            m.unwrap(),
+            vec![
+                ("name".into(), "a".into()),
+                ("description".into(), "b".into())
+            ]
+        );
         assert_eq!(body, "# Hi\r\n");
     }
 
