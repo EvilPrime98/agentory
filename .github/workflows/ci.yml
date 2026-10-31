@@ -2,18 +2,27 @@ name: CI
 
 on:
   push:
-    branches: [master, dev, staging]
+    branches: [main]
   pull_request:
-    branches: [master, dev, staging]
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
+  # The git-based tests commit in scratch repos; runners have no git identity.
+  GIT_AUTHOR_NAME: ci
+  GIT_AUTHOR_EMAIL: ci@localhost
+  GIT_COMMITTER_NAME: ci
+  GIT_COMMITTER_EMAIL: ci@localhost
 
 jobs:
   windows:
     name: Build & test (Windows)
     runs-on: windows-latest
     steps:
+      # Checkout must keep LF: a test asserts an embedded prompt has no CR.
+      - name: Keep LF line endings
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable

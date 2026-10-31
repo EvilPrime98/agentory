@@ -53,14 +53,19 @@ pub async fn clone(paths: &Paths, log: &mut Log) -> Result<(), String> {
         log.line(format!("source already cloned at {}", dir.display()));
         return Ok(());
     }
-    if dir.exists() && std::fs::read_dir(&dir).map(|mut d| d.next().is_some()).unwrap_or(true) {
+    if dir.exists()
+        && std::fs::read_dir(&dir)
+            .map(|mut d| d.next().is_some())
+            .unwrap_or(true)
+    {
         return Err(format!(
             "{} exists and is not a git clone; move or delete it and try again",
             dir.display()
         ));
     }
     let parent = dir.parent().ok_or("bad clone path")?;
-    std::fs::create_dir_all(parent).map_err(|e| format!("could not create {}: {e}", parent.display()))?;
+    std::fs::create_dir_all(parent)
+        .map_err(|e| format!("could not create {}: {e}", parent.display()))?;
 
     let tag = version_tag();
     let args = clone_args(REPO_URL, &tag, &dir);
@@ -74,9 +79,20 @@ pub async fn clone(paths: &Paths, log: &mut Log) -> Result<(), String> {
             exit.status
         ));
     }
-    let exit = stream(&git(), &["checkout", "-b", USER_BRANCH], &dir, &[], GIT_TIMEOUT, log).await?;
+    let exit = stream(
+        &git(),
+        &["checkout", "-b", USER_BRANCH],
+        &dir,
+        &[],
+        GIT_TIMEOUT,
+        log,
+    )
+    .await?;
     if !exit.status.success() {
-        return Err(format!("could not create the {USER_BRANCH} branch ({})", exit.status));
+        return Err(format!(
+            "could not create the {USER_BRANCH} branch ({})",
+            exit.status
+        ));
     }
     Ok(())
 }
@@ -85,9 +101,11 @@ pub async fn clone(paths: &Paths, log: &mut Log) -> Result<(), String> {
 pub fn write_marker(paths: &Paths) -> Result<(), String> {
     let marker = paths.selfbuild_marker();
     if let Some(dir) = marker.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("could not create {}: {e}", dir.display()))?;
     }
-    std::fs::write(&marker, "self-build enabled\n").map_err(|e| format!("could not write {}: {e}", marker.display()))
+    std::fs::write(&marker, "self-build enabled\n")
+        .map_err(|e| format!("could not write {}: {e}", marker.display()))
 }
 
 /// Clone (if needed), then the first `cargo build --release` into the shared target dir.
@@ -111,7 +129,10 @@ mod tests {
     #[test]
     fn clone_args_pin_the_tag() {
         let args = clone_args("https://x/y.git", "v1.2.3", Path::new("D"));
-        assert_eq!(args, ["clone", "--branch", "v1.2.3", "https://x/y.git", "D"]);
+        assert_eq!(
+            args,
+            ["clone", "--branch", "v1.2.3", "https://x/y.git", "D"]
+        );
     }
 
     #[test]
