@@ -16,6 +16,7 @@ use crate::runtime;
 use crate::state::{Stores, sessions};
 use crate::ui::app_loader::app_loader;
 use crate::ui::confirm::{self, ConfirmHost, ConfirmOptions};
+use crate::ui::pages::docs::DocsPage;
 use crate::ui::pages::sessions::SessionsPage;
 use crate::ui::pages::settings::SettingsPage;
 use crate::ui::pages::skill_editor::SkillEditorPage;
@@ -58,6 +59,7 @@ enum Page {
     Sessions(Entity<SessionsPage>),
     Settings(Entity<SettingsPage>),
     Skills(Entity<SkillsPage>),
+    Docs(Entity<DocsPage>),
     SkillEditor(Entity<SkillEditorPage>),
 }
 
@@ -176,7 +178,7 @@ impl AppRoot {
             // has nothing left to show.
             cx.observe_in(&stores.projects, window, |this, _, window, cx| {
                 this.sync_skills_project(cx);
-                if let Route::Skills(id) = this.history.current() {
+                if let Route::Skills(id) | Route::Docs(id) = this.history.current() {
                     if this.stores.projects.read(cx).get(id).is_none() {
                         this.history.back_or_home();
                         this.route_changed(window, cx);
@@ -422,6 +424,21 @@ impl AppRoot {
                 ));
                 Page::Skills(page)
             }
+            Route::Docs(id) => {
+                self.stores.projects.update(cx, |p, cx| p.select(&id, cx));
+                let page = cx.new(|cx| DocsPage::new(self.stores.clone(), id, cx));
+                self._page_subs.push(cx.subscribe_in(
+                    &page,
+                    window,
+                    |this, _, ev: &Navigate, window, cx| this.navigate(ev.0.clone(), window, cx),
+                ));
+                self._page_subs.push(cx.subscribe_in(
+                    &page,
+                    window,
+                    |this, _, _: &GoBack, window, cx| this.go_back(window, cx),
+                ));
+                Page::Docs(page)
+            }
             Route::SkillEditor(id, name) => {
                 self.stores.projects.update(cx, |p, cx| p.select(&id, cx));
                 self.sync_skills_project(cx);
@@ -507,6 +524,7 @@ impl Render for AppRoot {
             Page::Sessions(page) => AnyView::from(page.clone()).into_any_element(),
             Page::Settings(page) => AnyView::from(page.clone()).into_any_element(),
             Page::Skills(page) => AnyView::from(page.clone()).into_any_element(),
+            Page::Docs(page) => AnyView::from(page.clone()).into_any_element(),
             Page::SkillEditor(page) => AnyView::from(page.clone()).into_any_element(),
         };
 

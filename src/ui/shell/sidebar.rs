@@ -381,10 +381,12 @@ impl Sidebar {
         );
 
         let skills_active = self.route == Route::Skills(project.id.clone());
+        let docs_active = self.route == Route::Docs(project.id.clone());
         let on_sessions = self.route == Route::Sessions;
         let skills_id = project.id.clone();
+        let docs_id = project.id.clone();
 
-        let full_h = ROW_H
+        let full_h = ROW_H * 2.0
             + ROW_H * sessions.len() as f32
             + if terminals.is_empty() {
                 0.0
@@ -593,6 +595,32 @@ impl Sidebar {
                             .text_size(px(12.5))
                             .text_color(theme::text())
                             .child("Skills"),
+                    ),
+            )
+            .child(
+                div()
+                    .id(gpui::SharedString::from(format!("docs-{}", project.id)))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .h(px(ROW_H))
+                    .ml(px(26.0))
+                    .px(px(6.0))
+                    .rounded(px(6.0))
+                    .cursor_pointer()
+                    .when(docs_active, |s| s.bg(theme::accent_soft()))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.stores
+                            .projects
+                            .update(cx, |p, cx| p.select(&docs_id, cx));
+                        cx.emit(Navigate(Route::Docs(docs_id.clone())));
+                    }))
+                    .child(icon(Icon::File, px(13.0)).text_color(theme::text_muted()))
+                    .child(
+                        div()
+                            .text_size(px(12.5))
+                            .text_color(theme::text())
+                            .child("Docs"),
                     ),
             )
             .children(sessions.into_iter().map(|(id, name, status, worktree)| {

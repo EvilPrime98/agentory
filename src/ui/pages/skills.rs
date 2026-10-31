@@ -45,7 +45,7 @@ fn field(input: &Entity<TextInput>) -> impl IntoElement {
 }
 
 /// Bordered section: header (title, optional count badge, optional right-side action) then body.
-fn card(
+pub(super) fn card(
     title: &'static str,
     count: Option<usize>,
     action: Option<AnyElement>,
@@ -96,7 +96,7 @@ fn card(
         .children(body)
 }
 
-fn icon_button(
+pub(super) fn icon_button(
     id: impl Into<gpui::ElementId>,
     glyph: Icon,
     on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
@@ -116,7 +116,7 @@ fn icon_button(
 }
 
 /// Hairline between list rows: every row but the first gets a top border.
-fn row_base(index: usize) -> gpui::Div {
+pub(super) fn row_base(index: usize) -> gpui::Div {
     div()
         .flex()
         .items_center()
@@ -127,7 +127,7 @@ fn row_base(index: usize) -> gpui::Div {
         })
 }
 
-fn muted_note(text: gpui::SharedString) -> impl IntoElement {
+pub(super) fn muted_note(text: gpui::SharedString) -> impl IntoElement {
     div()
         .mt(px(6.0))
         .text_size(px(12.0))
