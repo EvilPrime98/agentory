@@ -67,10 +67,10 @@ impl Prefs {
         if let Some(dir) = p.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        if let Ok(json) = serde_json::to_string_pretty(self) {
-            if let Err(e) = std::fs::write(&p, json) {
-                tracing::warn!("could not save prefs to {}: {e}", p.display());
-            }
+        if let Ok(json) = serde_json::to_string_pretty(self)
+            && let Err(e) = std::fs::write(&p, json)
+        {
+            tracing::warn!("could not save prefs to {}: {e}", p.display());
         }
     }
 

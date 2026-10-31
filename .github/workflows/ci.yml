@@ -37,7 +37,6 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
-        continue-on-error: true # not verified clean yet: surfaced, not blocking
 
   linux:
     name: Build & test (Linux)

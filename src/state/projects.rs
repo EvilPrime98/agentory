@@ -36,10 +36,10 @@ impl ProjectsStore {
         if let Some(dir) = p.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        if let Ok(json) = serde_json::to_string_pretty(&self.items) {
-            if let Err(e) = std::fs::write(&p, json) {
-                tracing::warn!("could not save projects to {}: {e}", p.display());
-            }
+        if let Ok(json) = serde_json::to_string_pretty(&self.items)
+            && let Err(e) = std::fs::write(&p, json)
+        {
+            tracing::warn!("could not save projects to {}: {e}", p.display());
         }
     }
 

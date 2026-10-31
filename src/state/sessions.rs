@@ -184,6 +184,7 @@ impl SessionsStore {
     }
 
     /// Start a session. `id` is shared with the worktree (if any) so both are easy to correlate.
+    #[allow(clippy::too_many_arguments)]
     pub fn start(
         &mut self,
         project: &Project,
@@ -713,10 +714,10 @@ fn launch(stores: Stores, project: Project, worktree: bool, input: Option<String
         let result = runtime::run(async move {
             let wt = git::add_worktree(&p.path, &p.name, &sid).await?;
             // `.claude/skills` is not carried over by git when it is untracked.
-            if p.path.join("spm.json").exists() {
-                if let Err(e) = spm::install(&wt.path, &[]).await {
-                    tracing::warn!("spm install in the worktree failed: {e}");
-                }
+            if p.path.join("spm.json").exists()
+                && let Err(e) = spm::install(&wt.path, &[]).await
+            {
+                tracing::warn!("spm install in the worktree failed: {e}");
             }
             Ok::<_, String>(wt)
         })
@@ -747,6 +748,26 @@ fn spawn_session(
     if let Err(e) = result {
         tracing::error!("could not start a session: {e}");
         toast::error(cx, e);
+    }
+}
+
+/// Toast click: show the sessions page with `session_id` active. A session closed since is skipped.
+fn reveal(session_id: &str, window: &mut Window, cx: &mut App) {
+    let stores = cx.global::<Stores>().clone();
+    let Some(project_id) = stores
+        .sessions
+        .read(cx)
+        .get(session_id)
+        .map(|s| s.project_id.clone())
+    else {
+        return;
+    };
+    stores
+        .projects
+        .update(cx, |p, cx| p.select(&project_id, cx));
+    stores.sessions.update(cx, |s, cx| s.select(session_id, cx));
+    if let Some(Some(root)) = window.root::<AppRoot>() {
+        root.update(cx, |root, cx| root.navigate(Route::Sessions, window, cx));
     }
 }
 
@@ -818,25 +839,5 @@ mod tests {
         let got = clean_title(&"word ".repeat(30)).unwrap();
         assert!(got.ends_with('…'));
         assert!(got.chars().count() <= MAX_TITLE_CHARS + 1);
-    }
-}
-
-/// Toast click: show the sessions page with `session_id` active. A session closed since is skipped.
-fn reveal(session_id: &str, window: &mut Window, cx: &mut App) {
-    let stores = cx.global::<Stores>().clone();
-    let Some(project_id) = stores
-        .sessions
-        .read(cx)
-        .get(session_id)
-        .map(|s| s.project_id.clone())
-    else {
-        return;
-    };
-    stores
-        .projects
-        .update(cx, |p, cx| p.select(&project_id, cx));
-    stores.sessions.update(cx, |s, cx| s.select(session_id, cx));
-    if let Some(Some(root)) = window.root::<AppRoot>() {
-        root.update(cx, |root, cx| root.navigate(Route::Sessions, window, cx));
     }
 }
