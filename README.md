@@ -16,8 +16,7 @@ per-project skill management built in.
 ![Rust](https://img.shields.io/badge/built%20with-Rust%20%2B%20GPUI-orange)
 [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
-<!-- TODO: replace with a screenshot of several sessions running (status dots visible) -->
-<img src="docs/img/hero.png" alt="Agentory running several Claude Code sessions side by side" width="900">
+<img width="1445" height="946" alt="image" src="https://github.com/user-attachments/assets/c80f2968-6738-4874-9750-01b848f56bce" />
 
 </div>
 
@@ -42,8 +41,7 @@ one is waiting on you. Agentory puts them in one place and tells you.
 - **Small and native.** One Rust binary built on [GPUI](https://github.com/zed-industries/zed), with
   no Electron and no web runtime.
 
-<!-- TODO: screenshot of the skills page -->
-<p align="center"><img src="docs/img/skills.png" alt="Skills page" width="720"></p>
+<img width="1440" height="943" alt="image" src="https://github.com/user-attachments/assets/c7ddc63d-0ee0-4695-920a-c8c652ad58ad" />
 
 ## Install
 
@@ -108,19 +106,7 @@ Self-build is off by default and aimed at developers with Rust, git and an agent
 
 ## Status
 
-Agentory is early (0.1) and Windows-only. Not done yet:
-
-- Split panes
-- Mouse selection in the terminal
-- Session persistence across restarts
-- Worktree cleanup when a session closes
-- Linux and macOS builds (the PTY layer is behind a trait to make this possible)
-
-## Contributing
-
-Issues and pull requests are welcome. Design notes and decisions live in
-[`docs/agentory.md`](docs/agentory.md), the domain vocabulary in [`GLOSSARY.md`](GLOSSARY.md), and
-architecture decisions in [`docs/adr`](docs/adr).
+Agentory is early (0.1) and Windows-only.
 
 ## License
 
