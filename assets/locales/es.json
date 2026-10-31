@@ -121,5 +121,7 @@
   "app.unsaved.body": "Esta skill tiene cambios sin guardar. ¿Salir y descartarlos?",
   "app.unsaved.discard": "Descartar",
   "app.unsaved.keep": "Seguir editando",
-  "app.checking_tools": "Comprobando herramientas…"
+  "app.checking_tools": "Comprobando herramientas…",
+  "common.confirm": "Confirmar",
+  "confirm.dont_ask_again": "No volver a preguntar"
 }

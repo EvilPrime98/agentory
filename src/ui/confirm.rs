@@ -7,6 +7,7 @@ use gpui::{
     Styled, Window, actions, div, px,
 };
 
+use crate::i18n::t;
 use crate::ui::components::button::{ButtonVariant, button};
 use crate::ui::theme;
 
@@ -28,10 +29,10 @@ impl ConfirmOptions {
         Self {
             title: title.into(),
             message: message.into(),
-            confirm_label: "Confirm".into(),
-            cancel_label: "Cancel".into(),
+            confirm_label: t("common.confirm").into(),
+            cancel_label: t("common.cancel").into(),
             dont_ask_again: false,
-            checkbox_label: "Don't ask again".into(),
+            checkbox_label: t("confirm.dont_ask_again").into(),
             checkbox_checked: false,
         }
     }

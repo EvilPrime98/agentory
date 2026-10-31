@@ -121,5 +121,7 @@
   "app.unsaved.body": "This skill has edits that were not saved. Leave and discard them?",
   "app.unsaved.discard": "Discard",
   "app.unsaved.keep": "Keep editing",
-  "app.checking_tools": "Checking tools…"
+  "app.checking_tools": "Checking tools…",
+  "common.confirm": "Confirm",
+  "confirm.dont_ask_again": "Don't ask again"
 }
