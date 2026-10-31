@@ -23,6 +23,7 @@ use crate::ui::toast;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const MAX_TITLE_CHARS: usize = 40;
+const PREFILL_DELAY: Duration = Duration::from_millis(2500);
 
 /// A session name from a terminal title: status glyphs and spinners stripped, long titles
 /// ellipsized. `None` for titles that say nothing about the conversation.
@@ -165,6 +166,7 @@ impl SessionsStore {
         id: String,
         worktree: Option<Worktree>,
         prefs: &Prefs,
+        input: Option<String>,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         let cwd = worktree
@@ -233,10 +235,26 @@ impl SessionsStore {
             _exit_sub: exit_sub,
             _title_sub: title_sub,
         });
-        self.active = Some(id);
+        self.active = Some(id.clone());
         self.revision += 1;
         cx.notify();
+        if let Some(text) = input {
+            self.prefill(&id, text, cx);
+        }
         Ok(())
+    }
+
+    /// Type `text` into the agent's input without submitting it. No hook fires at startup, so
+    /// give Claude a moment to draw its prompt first (early bytes are queued by the PTY anyway).
+    fn prefill(&self, id: &str, text: String, cx: &mut Context<Self>) {
+        let Some(terminal) = self.get(id).map(|s| s.terminal.clone()) else {
+            return;
+        };
+        cx.spawn(async move |_, cx| {
+            cx.background_executor().timer(PREFILL_DELAY).await;
+            terminal.update(cx, |t, _| t.send(text.as_bytes()));
+        })
+        .detach();
     }
 
     /// Open a plain shell in `cwd`. It is removed again when the shell exits.
@@ -415,20 +433,25 @@ impl SessionsStore {
 /// "New session" for a project. Git projects use the remembered worktree choice; without one they
 /// are asked (when `ask_worktree` is on) and the answer can be remembered for the project.
 pub fn begin_new(project_id: &str, cx: &mut App) {
+    begin_new_input(project_id, None, cx);
+}
+
+/// `begin_new`, with `input` typed (not submitted) into the new agent's prompt.
+pub fn begin_new_input(project_id: &str, input: Option<String>, cx: &mut App) {
     let stores = cx.global::<Stores>().clone();
     let Some(project) = stores.projects.read(cx).get(project_id).cloned() else {
         return;
     };
     if !project.is_git_repo() {
-        launch(stores, project, false, cx);
+        launch(stores, project, false, input, cx);
         return;
     }
     if let Some(worktree) = project.use_worktree {
-        launch(stores, project, worktree, cx);
+        launch(stores, project, worktree, input, cx);
         return;
     }
     if !stores.prefs.read(cx).prefs.ask_worktree {
-        launch(stores, project, false, cx);
+        launch(stores, project, false, input, cx);
         return;
     }
     let options = ConfirmOptions::new(
@@ -447,7 +470,7 @@ pub fn begin_new(project_id: &str, cx: &mut App) {
                 p.set_use_worktree(&project.id, Some(worktree), cx)
             });
         }
-        launch(stores, project, worktree, cx);
+        launch(stores, project, worktree, input, cx);
     });
 }
 
@@ -458,7 +481,7 @@ pub fn begin_new_with(project_id: &str, worktree: bool, cx: &mut App) {
         return;
     };
     let worktree = worktree && project.is_git_repo();
-    launch(stores, project, worktree, cx);
+    launch(stores, project, worktree, None, cx);
 }
 
 /// Where a project terminal starts.
@@ -524,10 +547,10 @@ pub fn request_close(id: &str, cx: &mut App) {
     });
 }
 
-fn launch(stores: Stores, project: Project, worktree: bool, cx: &mut App) {
+fn launch(stores: Stores, project: Project, worktree: bool, input: Option<String>, cx: &mut App) {
     let id = new_id("s");
     if !worktree {
-        spawn_session(&stores, &project, id, None, cx);
+        spawn_session(&stores, &project, id, None, input, cx);
         return;
     }
     toast::success(cx, "Creating the worktree…");
@@ -545,7 +568,7 @@ fn launch(stores: Stores, project: Project, worktree: bool, cx: &mut App) {
         })
         .await;
         cx.update(|cx| match result {
-            Ok(wt) => spawn_session(&stores, &project, id, Some(wt), cx),
+            Ok(wt) => spawn_session(&stores, &project, id, Some(wt), input, cx),
             Err(e) => toast::error(cx, format!("Could not create the worktree: {e}")),
         });
     })
@@ -557,12 +580,13 @@ fn spawn_session(
     project: &Project,
     id: String,
     worktree: Option<Worktree>,
+    input: Option<String>,
     cx: &mut App,
 ) {
     let prefs = stores.prefs.read(cx).prefs.clone();
-    let result = stores
-        .sessions
-        .update(cx, |s, cx| s.start(project, id, worktree, &prefs, cx));
+    let result = stores.sessions.update(cx, |s, cx| {
+        s.start(project, id, worktree, &prefs, input, cx)
+    });
     if let Err(e) = result {
         tracing::error!("could not start a session: {e}");
         toast::error(cx, e);
