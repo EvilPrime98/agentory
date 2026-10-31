@@ -117,7 +117,6 @@
   "usage.no_sessions": "No hay sesiones en ejecución",
   "route.sessions": "Sesiones",
   "app.claude_missing": "No se encontró Claude Code en el PATH. Indica el comando en Ajustes.",
-  "app.spm_missing": "No se encontró spm en el PATH: el panel de skills es de solo lectura.",
   "app.close.title": "Cerrar Agentory",
   "app.close.body_one": "Se cerrará {n} sesión en ejecución.",
   "app.close.body_other": "Se cerrarán {n} sesiones en ejecución.",

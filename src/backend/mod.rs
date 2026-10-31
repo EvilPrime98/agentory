@@ -1,4 +1,4 @@
-//! Plain async functions over the outside world (`git`, `spm`). Call them only through
+//! Plain async functions over the outside world (`git`, the built-in `spm`). Call them only through
 //! `runtime::run`.
 
 pub mod git;
@@ -10,15 +10,8 @@ use std::process::Stdio;
 use tokio::process::Command;
 
 /// Run `program args…` in `dir` and return its stdout, or the stderr/exit status as the error.
-/// Windows `.cmd` shims (`spm`) are reached through `cmd /c`.
 pub(crate) async fn capture(program: &str, args: &[&str], dir: &Path) -> Result<String, String> {
-    let mut cmd = if cfg!(windows) && program != "git" {
-        let mut c = Command::new("cmd");
-        c.arg("/c").arg(program);
-        c
-    } else {
-        Command::new(program)
-    };
+    let mut cmd = Command::new(program);
     cmd.args(args)
         .current_dir(dir)
         // Tools installed while the app runs (winget) are not on its PATH yet.

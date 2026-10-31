@@ -9,7 +9,6 @@ use gpui::{
     Window, actions, div, prelude::*, px,
 };
 
-use crate::backend::spm;
 use crate::i18n::{t, t_n};
 use crate::platform::pty;
 use crate::route::{GoBack, History, Navigate, Route, window_title};
@@ -255,11 +254,7 @@ impl AppRoot {
     fn begin_startup(&mut self, cx: &mut Context<Self>) {
         let program = self.stores.prefs.read(cx).prefs.program().to_string();
         cx.spawn(async move |this, cx| {
-            let (claude, spm_ok) = runtime::run(async move {
-                let claude = pty::resolve_program(&program);
-                (claude, spm::available().await)
-            })
-            .await;
+            let claude = runtime::run(async move { pty::resolve_program(&program) }).await;
             this.update(cx, |this, cx| {
                 this.loading = false;
                 cx.notify();
@@ -272,13 +267,6 @@ impl AppRoot {
                             t("app.claude_missing"),
                         );
                     }
-                }
-                if !spm_ok {
-                    tracing::warn!("spm was not found on PATH");
-                    toast::error(
-                        cx,
-                        t("app.spm_missing"),
-                    );
                 }
                 // Dev aid: start a session in the selected project right away.
                 if std::env::var_os("AGENTORY_AUTOSTART").is_some() {

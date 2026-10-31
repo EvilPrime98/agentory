@@ -118,29 +118,42 @@ impl SpmManifest {
     }
 }
 
-/// One row of `spm doctor --json`.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+/// One skill of the context-cost report.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct DoctorSkill {
     pub name: String,
+    /// `spm` (declared in `spm.json`), `project` (hand-written) or `global`.
+    pub source: String,
     pub description_tokens: u32,
     pub body_tokens: u32,
+    /// Invocations in the transcripts window.
+    pub uses: u32,
+    /// Why it is worth removing: `unused`, `overlaps <skill> (<pct>%)`.
+    pub reasons: Vec<String>,
+    pub flagged: bool,
 }
 
-impl Default for DoctorSkill {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            description_tokens: 0,
-            body_tokens: 0,
-        }
-    }
+/// Two skills whose descriptions say much the same.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct DoctorOverlap {
+    pub a: String,
+    pub b: String,
+    pub score: f64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default)]
 pub struct DoctorReport {
+    /// Ranked by cost, highest first.
     pub skills: Vec<DoctorSkill>,
+    pub overlaps: Vec<DoctorOverlap>,
+    /// Days of transcripts the usage counts cover.
+    pub days: u32,
+    /// Transcripts read; without any, nothing is flagged as unused.
+    pub transcripts: u32,
+    pub advice: Vec<String>,
 }
 
 impl DoctorReport {

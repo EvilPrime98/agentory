@@ -8,7 +8,7 @@
 #   agentory-helper.exe Windows only: launches the app and swaps/reverts self-built exes
 #   LICENSE, NOTICE.txt
 #
-# Needs: cargo. `claude`, `spm` and `git` are looked up on the user's PATH at run time.
+# Needs: cargo. `claude` and `git` are looked up on the user's PATH at run time.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

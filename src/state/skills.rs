@@ -1,4 +1,4 @@
-//! Skills of the selected project, through `spm`: read from disk, mutate by shelling out.
+//! Skills of the selected project, through the built-in `spm`: read from disk, mutate through `backend::spm`.
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -50,7 +50,7 @@ impl SkillsStore {
         self.refresh_available(cx);
     }
 
-    /// `spm available`, only for projects that have an `spm.json`.
+    /// The repo pool listing, only for projects that have an `spm.json`.
     fn refresh_available(&mut self, cx: &mut Context<Self>) {
         let Some(dir) = self.project.clone() else {
             return;
@@ -207,7 +207,7 @@ impl SkillsStore {
         });
     }
 
-    /// `spm doctor --json`: the context-cost report.
+    /// The context-cost report.
     pub fn run_doctor(&mut self, cx: &mut Context<Self>) {
         let Some(dir) = self.project.clone() else {
             return;

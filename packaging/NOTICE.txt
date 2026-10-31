@@ -1,7 +1,7 @@
 Agentory
 Copyright (c) AminPerez. Licensed under GPL-3.0-or-later (see LICENSE).
 
-Agentory runs the `claude` (Claude Code), `spm` and `git` programs that are already installed on
+Agentory runs the `claude` (Claude Code) and `git` programs that are already installed on
 your machine; it does not bundle them.
 
 Built with GPUI (gpui-ce), terminal emulation by the `vt100` crate and PTY handling by `portable-pty`. Third-party crates keep their own licences.

@@ -33,8 +33,9 @@ one is waiting on you. Agentory puts them in one place and tells you.
 - **Worktree isolation.** Start a session in a fresh `git worktree` on its own branch
   (`agentory/<id>`) so parallel agents never step on each other's files.
 - **Skills, managed per project.** A built-in skills page reads `spm.json` and `.claude/skills`,
-  installs, updates and removes skills through the [`spm`](https://github.com/EvilPrime98/mySkills)
-  CLI, and shows each skill's context cost via `spm doctor`.
+  installs, updates and removes skills with a built-in `spm` (same `spm.json` and cache as the
+  [`spm`](https://github.com/EvilPrime98/claude-spm) CLI, which keeps working on the same projects),
+  and shows each skill's context cost, usage and overlaps.
 - **Touches nothing of yours.** Status comes from hooks injected with
   `claude --settings <generated file>`. Your project and global Claude settings are never edited, and
   sessions started outside Agentory are unaffected.
@@ -56,8 +57,8 @@ cd agentory
 cargo run --release
 ```
 
-Requirements: Windows 10 1809 or later (ConPTY), a recent stable Rust toolchain, and `claude`, `git`
-and `spm` on your `PATH`.
+Requirements: Windows 10 1809 or later (ConPTY), a recent stable Rust toolchain, and `claude` and `git`
+on your `PATH`.
 
 ## Usage
 

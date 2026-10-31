@@ -1,4 +1,4 @@
-//! Skills page: a project's skills, managed through `spm`.
+//! Skills page: a project's skills, managed by the built-in `spm`.
 
 use std::collections::BTreeSet;
 
