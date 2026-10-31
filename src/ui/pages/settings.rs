@@ -5,6 +5,7 @@ use gpui::{
     Render, Styled, Subscription, Window, div, prelude::*, px,
 };
 
+use crate::i18n::t;
 use crate::platform::logging;
 use crate::route::{GoBack, Navigate};
 use crate::state::Stores;
@@ -23,7 +24,7 @@ pub struct SettingsPage {
 impl EventEmitter<Navigate> for SettingsPage {}
 impl EventEmitter<GoBack> for SettingsPage {}
 
-fn section(title: &'static str, body: impl IntoElement) -> AnyElement {
+fn section(title: &str, body: impl IntoElement) -> AnyElement {
     div()
         .flex()
         .flex_col()
@@ -37,7 +38,7 @@ fn section(title: &'static str, body: impl IntoElement) -> AnyElement {
             div()
                 .text_size(px(13.0))
                 .font_weight(gpui::FontWeight::SEMIBOLD)
-                .child(title),
+                .child(title.to_string()),
         )
         .child(body)
         .into_any_element()
@@ -92,6 +93,8 @@ impl Render for SettingsPage {
         let font = prefs.terminal_font_size;
         let font_stores = self.stores.clone();
         let font_stores_up = self.stores.clone();
+        let language = prefs.language;
+        let language_stores = self.stores.clone();
 
         div()
             .id("settings-scroll")
@@ -116,6 +119,29 @@ impl Render for SettingsPage {
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .child("Settings"),
                     )
+                    .child(section(
+                        &t("settings.language.title"),
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap(px(10.0))
+                            .child(
+                                div()
+                                    .text_size(px(12.5))
+                                    .text_color(theme::text_muted())
+                                    .child(t("settings.language.hint")),
+                            )
+                            .child(small_button(
+                                "pref-language",
+                                t(language.label_key()),
+                                move |_, _, cx| {
+                                    language_stores.prefs.update(cx, |p, cx| {
+                                        p.update(cx, |p| p.language = p.language.next())
+                                    });
+                                },
+                            )),
+                    ))
                     .child(section(
                         "Claude Code",
                         div()

@@ -4,6 +4,7 @@
 mod app;
 mod assets;
 mod backend;
+mod i18n;
 mod model;
 mod platform;
 mod route;

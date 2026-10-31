@@ -1,0 +1,7 @@
+{
+  "settings.language.title": "Idioma",
+  "settings.language.hint": "Idioma de la interfaz. Sistema sigue el idioma de tu sistema operativo.",
+  "settings.language.system": "Sistema",
+  "settings.language.english": "English",
+  "settings.language.spanish": "Español"
+}

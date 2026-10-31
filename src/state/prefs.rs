@@ -4,6 +4,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::i18n::LanguagePref;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Prefs {
@@ -19,6 +21,8 @@ pub struct Prefs {
     pub sidebar_collapsed: bool,
     /// Id of the shell last opened as a project terminal.
     pub last_shell: String,
+    /// Interface language. System follows the OS locale.
+    pub language: LanguagePref,
 }
 
 impl Default for Prefs {
@@ -31,6 +35,7 @@ impl Default for Prefs {
             terminal_font_size: 13.0,
             sidebar_collapsed: false,
             last_shell: String::new(),
+            language: LanguagePref::System,
         }
     }
 }
@@ -108,6 +113,13 @@ mod tests {
         assert!(p.ask_worktree);
         assert_eq!(p.terminal_font_size, 13.0);
         assert_eq!(p.program(), "claude");
+    }
+
+    #[test]
+    fn language_defaults_to_system_and_round_trips() {
+        assert_eq!(Prefs::default().language, LanguagePref::System);
+        let p: Prefs = serde_json::from_str(r#"{"language":"spanish"}"#).unwrap();
+        assert_eq!(p.language, LanguagePref::Spanish);
     }
 
     #[test]
