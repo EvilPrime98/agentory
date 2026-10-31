@@ -19,5 +19,22 @@
   "sidebar.projects": "PROYECTOS",
   "sidebar.empty_hint": "Añade una carpeta de proyecto para iniciar una sesión de Claude Code.",
   "sidebar.made_with": "Hecho con",
-  "sidebar.made_by": "por EvilPrime98"
+  "sidebar.made_by": "por EvilPrime98",
+  "settings.title": "Ajustes",
+  "settings.claude.title": "Claude Code",
+  "settings.claude.hint": "Comando que se inicia en cada sesión. Déjalo vacío para usar `claude` del PATH.",
+  "settings.sessions.title": "Sesiones",
+  "settings.sessions.worktree": "Ofrecer un worktree de git aislado para las sesiones nuevas en proyectos git",
+  "settings.sessions.notify": "Avisar cuando una sesión necesite entrada o termine",
+  "settings.sessions.fullscreen": "Fijar el prompt abajo (modo pantalla completa de Claude Code, se aplica a las sesiones nuevas)",
+  "settings.projects.title": "Proyectos",
+  "settings.projects.hint": "Dónde empiezan las sesiones nuevas. Haz clic para alternar: Preguntar, Worktree, Carpeta del proyecto. Alt+clic en + en la barra lateral inicia una sesión del otro modo.",
+  "settings.projects.ask": "Preguntar",
+  "settings.projects.worktree": "Worktree",
+  "settings.projects.folder": "Carpeta del proyecto",
+  "settings.terminal.title": "Terminal",
+  "settings.terminal.font_size": "Tamaño de fuente",
+  "settings.data.title": "Datos",
+  "settings.data.open_logs": "Abrir registros",
+  "settings.data.open_config": "Abrir carpeta de ajustes"
 }

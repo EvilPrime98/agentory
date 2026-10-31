@@ -117,7 +117,7 @@ impl Render for SettingsPage {
                         div()
                             .text_size(px(20.0))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .child("Settings"),
+                            .child(t("settings.title")),
                     )
                     .child(section(
                         &t("settings.language.title"),
@@ -143,7 +143,7 @@ impl Render for SettingsPage {
                             )),
                     ))
                     .child(section(
-                        "Claude Code",
+                        &t("settings.claude.title"),
                         div()
                             .flex()
                             .flex_col()
@@ -152,7 +152,7 @@ impl Render for SettingsPage {
                                 div()
                                     .text_size(px(12.5))
                                     .text_color(theme::text_muted())
-                                    .child("Command started in each session. Leave empty for `claude` on PATH."),
+                                    .child(t("settings.claude.hint")),
                             )
                             .child(
                                 div()
@@ -167,33 +167,33 @@ impl Render for SettingsPage {
                             ),
                     ))
                     .child(section(
-                        "Sessions",
+                        &t("settings.sessions.title"),
                         div()
                             .flex()
                             .flex_col()
                             .gap(px(10.0))
                             .child(checkbox(
                                 "pref-worktree",
-                                "Offer an isolated git worktree for new sessions in git projects",
+                                t("settings.sessions.worktree"),
                                 prefs.ask_worktree,
                                 set(|p, v| p.ask_worktree = v),
                             ))
                             .child(checkbox(
                                 "pref-notify",
-                                "Notify when a session needs input or finishes",
+                                t("settings.sessions.notify"),
                                 prefs.notifications,
                                 set(|p, v| p.notifications = v),
                             ))
                             .child(checkbox(
                                 "pref-fullscreen",
-                                "Pin the prompt to the bottom (Claude Code fullscreen mode, applies to new sessions)",
+                                t("settings.sessions.fullscreen"),
                                 prefs.fullscreen_agents,
                                 set(|p, v| p.fullscreen_agents = v),
                             )),
                     ))
                     .when(!git_projects.is_empty(), |s| {
                         s.child(section(
-                            "Projects",
+                            &t("settings.projects.title"),
                             div()
                                 .flex()
                                 .flex_col()
@@ -202,14 +202,14 @@ impl Render for SettingsPage {
                                     div()
                                         .text_size(px(12.5))
                                         .text_color(theme::text_muted())
-                                        .child("Where new sessions start. Click to cycle: Ask, Worktree, Project folder. Alt-click on + in the sidebar starts one session the other way."),
+                                        .child(t("settings.projects.hint")),
                                 )
                                 .children(git_projects.into_iter().map(|(id, name, choice)| {
                                     let store = projects_store.clone();
                                     let (label, next) = match choice {
-                                        None => ("Ask", Some(true)),
-                                        Some(true) => ("Worktree", Some(false)),
-                                        Some(false) => ("Project folder", None),
+                                        None => (t("settings.projects.ask"), Some(true)),
+                                        Some(true) => (t("settings.projects.worktree"), Some(false)),
+                                        Some(false) => (t("settings.projects.folder"), None),
                                     };
                                     div()
                                         .flex()
@@ -230,12 +230,12 @@ impl Render for SettingsPage {
                         ))
                     })
                     .child(section(
-                        "Terminal",
+                        &t("settings.terminal.title"),
                         div()
                             .flex()
                             .items_center()
                             .gap(px(10.0))
-                            .child(div().text_size(px(13.0)).child("Font size"))
+                            .child(div().text_size(px(13.0)).child(t("settings.terminal.font_size")))
                             .child(small_button("font-down", "−", move |_, _, cx| {
                                 font_stores.prefs.update(cx, |p, cx| {
                                     p.update(cx, |p| {
@@ -260,13 +260,13 @@ impl Render for SettingsPage {
                             })),
                     ))
                     .child(section(
-                        "Data",
+                        &t("settings.data.title"),
                         div()
                             .flex()
                             .gap(px(8.0))
                             .child(button(
                                 "open-logs",
-                                "Open logs",
+                                t("settings.data.open_logs"),
                                 ButtonVariant::Secondary,
                                 |_, _, _| {
                                     let _ = open::that(logging::log_dir());
@@ -274,7 +274,7 @@ impl Render for SettingsPage {
                             ))
                             .child(button(
                                 "open-config",
-                                "Open settings folder",
+                                t("settings.data.open_config"),
                                 ButtonVariant::Secondary,
                                 |_, _, _| {
                                     if let Some(dir) = dirs::config_dir() {

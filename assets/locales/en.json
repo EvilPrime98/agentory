@@ -19,5 +19,22 @@
   "sidebar.projects": "PROJECTS",
   "sidebar.empty_hint": "Add a project folder to start a Claude Code session.",
   "sidebar.made_with": "Made with",
-  "sidebar.made_by": "by EvilPrime98"
+  "sidebar.made_by": "by EvilPrime98",
+  "settings.title": "Settings",
+  "settings.claude.title": "Claude Code",
+  "settings.claude.hint": "Command started in each session. Leave empty for `claude` on PATH.",
+  "settings.sessions.title": "Sessions",
+  "settings.sessions.worktree": "Offer an isolated git worktree for new sessions in git projects",
+  "settings.sessions.notify": "Notify when a session needs input or finishes",
+  "settings.sessions.fullscreen": "Pin the prompt to the bottom (Claude Code fullscreen mode, applies to new sessions)",
+  "settings.projects.title": "Projects",
+  "settings.projects.hint": "Where new sessions start. Click to cycle: Ask, Worktree, Project folder. Alt-click on + in the sidebar starts one session the other way.",
+  "settings.projects.ask": "Ask",
+  "settings.projects.worktree": "Worktree",
+  "settings.projects.folder": "Project folder",
+  "settings.terminal.title": "Terminal",
+  "settings.terminal.font_size": "Font size",
+  "settings.data.title": "Data",
+  "settings.data.open_logs": "Open logs",
+  "settings.data.open_config": "Open settings folder"
 }
