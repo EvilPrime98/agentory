@@ -12,6 +12,7 @@ use crate::state::Stores;
 use crate::state::prefs::{MAX_FONT, MIN_FONT};
 use crate::ui::components::button::{ButtonVariant, button, small_button};
 use crate::ui::components::checkbox::checkbox;
+use crate::ui::pages::selfbuild_section;
 use crate::ui::components::text_input::{TextInput, TextInputEvent};
 use crate::ui::theme;
 
@@ -24,10 +25,20 @@ pub struct SettingsPage {
 impl EventEmitter<Navigate> for SettingsPage {}
 impl EventEmitter<GoBack> for SettingsPage {}
 
+/// Narrowest a card gets before the row wraps and the cards stack.
+const CARD_MIN_W: f32 = 340.0;
+
+/// A wrapping row of cards that share the width evenly.
+fn row() -> gpui::Div {
+    div().flex().flex_wrap().items_start().gap(px(12.0))
+}
+
 fn section(title: &str, body: impl IntoElement) -> AnyElement {
     div()
         .flex()
         .flex_col()
+        .flex_1()
+        .min_w(px(CARD_MIN_W))
         .gap(px(10.0))
         .p(px(16.0))
         .rounded(px(10.0))
@@ -51,6 +62,7 @@ impl SettingsPage {
         let subs = vec![
             cx.observe(&stores.prefs, |_, _, cx| cx.notify()),
             cx.observe(&stores.projects, |_, _, cx| cx.notify()),
+            cx.observe(&stores.selfbuild, |_, _, cx| cx.notify()),
             cx.subscribe(&claude_input, |this, input, ev: &TextInputEvent, cx| {
                 if matches!(ev, TextInputEvent::Changed) {
                     let value = input.read(cx).value().to_string();
@@ -60,6 +72,7 @@ impl SettingsPage {
                 }
             }),
         ];
+        selfbuild_section::recheck(&stores, cx);
         Self {
             stores,
             claude_input,
@@ -109,9 +122,9 @@ impl Render for SettingsPage {
                 div()
                     .flex()
                     .flex_col()
-                    .gap(px(14.0))
+                    .gap(px(12.0))
                     .w_full()
-                    .max_w(px(720.0))
+                    .max_w(px(1100.0))
                     .p(px(24.0))
                     .child(
                         div()
@@ -119,7 +132,7 @@ impl Render for SettingsPage {
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .child(t("settings.title")),
                     )
-                    .child(section(
+                    .child(row().child(section(
                         &t("settings.language.title"),
                         div()
                             .flex()
@@ -128,6 +141,8 @@ impl Render for SettingsPage {
                             .gap(px(10.0))
                             .child(
                                 div()
+                                    .flex_1()
+                                    .min_w_0()
                                     .text_size(px(12.5))
                                     .text_color(theme::text_muted())
                                     .child(t("settings.language.hint")),
@@ -165,8 +180,8 @@ impl Render for SettingsPage {
                                     .bg(theme::bg_app())
                                     .child(self.claude_input.clone()),
                             ),
-                    ))
-                    .child(section(
+                    )))
+                    .child(row().child(section(
                         &t("settings.sessions.title"),
                         div()
                             .flex()
@@ -222,7 +237,14 @@ impl Render for SettingsPage {
                                         .items_center()
                                         .justify_between()
                                         .gap(px(10.0))
-                                        .child(div().truncate().text_size(px(13.0)).child(name))
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .min_w_0()
+                                                .truncate()
+                                                .text_size(px(13.0))
+                                                .child(name),
+                                        )
                                         .child(small_button(
                                             gpui::SharedString::from(format!("wt-{id}")),
                                             label,
@@ -234,11 +256,12 @@ impl Render for SettingsPage {
                                         ))
                                 })),
                         ))
-                    })
-                    .child(section(
+                    }))
+                    .child(row().child(section(
                         &t("settings.terminal.title"),
                         div()
                             .flex()
+                            .flex_wrap()
                             .items_center()
                             .gap(px(10.0))
                             .child(div().text_size(px(13.0)).child(t("settings.terminal.font_size")))
@@ -269,6 +292,7 @@ impl Render for SettingsPage {
                         &t("settings.data.title"),
                         div()
                             .flex()
+                            .flex_wrap()
                             .gap(px(8.0))
                             .child(button(
                                 "open-logs",
@@ -288,7 +312,11 @@ impl Render for SettingsPage {
                                     }
                                 },
                             )),
-                    )),
+                    )))
+                    .child(row().child(section(
+                        &t("selfbuild.title"),
+                        selfbuild_section::body(&self.stores, cx),
+                    ))),
             )
     }
 }

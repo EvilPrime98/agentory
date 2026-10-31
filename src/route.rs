@@ -11,6 +11,8 @@ pub enum Route {
     Skills(String),
     Docs(String),
     SkillEditor(String, String),
+    /// Review and apply the change of the Modify session with this id.
+    Review(String),
 }
 
 impl Route {
@@ -26,6 +28,7 @@ impl Route {
             Self::Skills(_) => "skills.title",
             Self::Docs(_) => "docs.title",
             Self::SkillEditor(..) => "skill_editor.title",
+            Self::Review(_) => "review.title",
         })
     }
 }

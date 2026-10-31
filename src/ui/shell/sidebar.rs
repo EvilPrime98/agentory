@@ -10,7 +10,7 @@ use gpui::{
     deferred, div, prelude::*, px, radians,
 };
 
-use crate::i18n::{t, t_n};
+use crate::i18n::{t, t_args, t_n};
 use crate::model::{Project, SessionStatus};
 use crate::platform::shells::{self, Shell};
 use crate::route::{Navigate, Route};
@@ -132,6 +132,8 @@ impl Sidebar {
         cx.observe(&stores.projects, |_, _, cx| cx.notify())
             .detach();
         cx.observe(&stores.sessions, |_, _, cx| cx.notify())
+            .detach();
+        cx.observe(&stores.selfbuild, |_, _, cx| cx.notify())
             .detach();
         Self {
             stores,
@@ -794,9 +796,169 @@ impl Sidebar {
     }
 }
 
+impl Sidebar {
+    /// The "Modify Agentory" group, kept apart from the projects. `None` unless self-build is on.
+    fn modify_block(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if !self.stores.prefs.read(cx).prefs.self_build_enabled {
+            return None;
+        }
+        let rows: Vec<_> = self
+            .stores
+            .sessions
+            .read(cx)
+            .modifying()
+            .map(|s| (s.id.clone(), s.name.clone(), s.status))
+            .collect();
+        let active = self.stores.sessions.read(cx).active.clone();
+        let on_sessions = self.route == Route::Sessions;
+        let update = self.stores.selfbuild.read(cx).update_available().map(str::to_string);
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .pb(px(6.0))
+                .mb(px(4.0))
+                .border_b_1()
+                .border_color(theme::border_subtle())
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .h(px(30.0))
+                        .px(px(6.0))
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(8.0))
+                                .child(icon(Icon::Pencil, px(14.0)).text_color(theme::text_muted()))
+                                .child(
+                                    div()
+                                        .text_size(px(11.0))
+                                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                                        .text_color(theme::text_muted())
+                                        .child(t("sidebar.modify")),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .id("new-modify-session")
+                                .flex_none()
+                                .size(px(24.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(4.0))
+                                .cursor_pointer()
+                                .hover(|s| s.bg(theme::hover()))
+                                .on_click(cx.listener(|_, _, _, cx| {
+                                    cx.emit(Navigate(Route::Sessions));
+                                    sessions::begin_modify(cx);
+                                }))
+                                .child(icon(Icon::Plus, px(15.0)).text_color(theme::text())),
+                        ),
+                )
+                .when_some(update, |s, tag| {
+                    s.child(
+                        div()
+                            .id("upstream-update-available")
+                            .ml(px(26.0))
+                            .px(px(6.0))
+                            .h(px(ROW_H))
+                            .flex()
+                            .items_center()
+                            .rounded(px(6.0))
+                            .cursor_pointer()
+                            .hover(|s| s.bg(theme::hover()))
+                            .text_size(px(12.0))
+                            .text_color(theme::warning())
+                            .on_click(cx.listener(|_, _, _, cx| cx.emit(Navigate(Route::Settings))))
+                            .child(t_args("selfbuild.upstream.available", &[("tag", &tag)])),
+                    )
+                })
+                .children(rows.into_iter().map(|(id, name, status)| {
+                    let (pick_id, close_id, review_id) = (id.clone(), id.clone(), id.clone());
+                    let is_active = on_sessions && active.as_deref() == Some(id.as_str());
+                    div()
+                        .flex()
+                        .items_center()
+                        .h(px(ROW_H))
+                        .ml(px(26.0))
+                        .px(px(6.0))
+                        .rounded(px(6.0))
+                        .when(is_active, |s| s.bg(theme::accent_soft()))
+                        .child(
+                            div()
+                                .id(gpui::SharedString::from(format!("modify-{id}")))
+                                .flex()
+                                .flex_1()
+                                .min_w_0()
+                                .items_center()
+                                .gap(px(8.0))
+                                .h_full()
+                                .cursor_pointer()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.stores
+                                        .sessions
+                                        .update(cx, |s, cx| s.select(&pick_id, cx));
+                                    cx.emit(Navigate(Route::Sessions));
+                                }))
+                                .child(status_dot(status))
+                                .child(
+                                    div()
+                                        .truncate()
+                                        .text_size(px(12.5))
+                                        .text_color(if status == SessionStatus::Exited {
+                                            theme::text_muted()
+                                        } else {
+                                            theme::text()
+                                        })
+                                        .child(name),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .id(gpui::SharedString::from(format!("review-modify-{id}")))
+                                .flex_none()
+                                .size(px(20.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(4.0))
+                                .cursor_pointer()
+                                .hover(|s| s.bg(theme::hover()))
+                                .on_click(cx.listener(move |_, _, _, cx| {
+                                    cx.emit(Navigate(Route::Review(review_id.clone())));
+                                }))
+                                .child(icon(Icon::Branch, px(13.0)).text_color(theme::text_muted())),
+                        )
+                        .child(
+                            div()
+                                .id(gpui::SharedString::from(format!("close-modify-{id}")))
+                                .flex_none()
+                                .size(px(20.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(4.0))
+                                .cursor_pointer()
+                                .hover(|s| s.bg(theme::hover()))
+                                .on_click(cx.listener(move |_, _, _, cx| {
+                                    sessions::request_close(&close_id, cx);
+                                }))
+                                .child(icon(Icon::Close, px(12.0)).text_color(theme::text_muted())),
+                        )
+                }))
+                .into_any_element(),
+        )
+    }
+}
+
 impl Render for Sidebar {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let projects: Vec<Project> = self.stores.projects.read(cx).items.clone();
+        let modify = self.modify_block(cx);
         let blocks: Vec<_> = projects.iter().map(|p| self.project_block(p, cx)).collect();
         let empty = projects.is_empty();
 
@@ -849,6 +1011,7 @@ impl Render for Sidebar {
                     .px(px(6.0))
                     .pb(px(8.0))
                     .overflow_y_scroll()
+                    .children(modify)
                     .children(blocks)
                     .when(empty, |s| {
                         s.child(

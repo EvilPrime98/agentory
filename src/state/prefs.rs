@@ -19,6 +19,8 @@ pub struct Prefs {
     pub notifications: bool,
     /// Launch agent sessions in Claude Code's fullscreen renderer so the prompt sits at the bottom.
     pub fullscreen_agents: bool,
+    /// Self-build was enabled: the source is cloned and the first build finished.
+    pub self_build_enabled: bool,
     pub terminal_font_size: f32,
     pub sidebar_collapsed: bool,
     /// Id of the shell last opened as a project terminal.
@@ -35,6 +37,7 @@ impl Default for Prefs {
             send_doc_prompt: false,
             notifications: true,
             fullscreen_agents: true,
+            self_build_enabled: false,
             terminal_font_size: 13.0,
             sidebar_collapsed: false,
             last_shell: String::new(),
@@ -115,6 +118,7 @@ mod tests {
         assert!(!p.notifications);
         assert!(p.ask_worktree);
         assert!(!p.send_doc_prompt);
+        assert!(!p.self_build_enabled);
         assert_eq!(p.terminal_font_size, 13.0);
         assert_eq!(p.program(), "claude");
     }

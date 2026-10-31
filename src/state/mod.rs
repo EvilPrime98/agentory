@@ -2,6 +2,8 @@
 
 pub mod prefs;
 pub mod projects;
+pub mod review;
+pub mod selfbuild;
 pub mod sessions;
 pub mod skills;
 pub mod usage;
@@ -14,6 +16,8 @@ use gpui::{App, AppContext as _, Entity, Global};
 pub struct Stores {
     pub prefs: Entity<prefs::PrefsStore>,
     pub projects: Entity<projects::ProjectsStore>,
+    pub review: Entity<review::ReviewStore>,
+    pub selfbuild: Entity<selfbuild::SelfBuildStore>,
     pub sessions: Entity<sessions::SessionsStore>,
     pub skills: Entity<skills::SkillsStore>,
     pub usage: Entity<usage::UsageStore>,
@@ -45,8 +49,11 @@ impl Stores {
         })
         .detach();
         let usage = cx.new(|cx| usage::UsageStore::new(sessions.clone(), cx));
+        let selfbuild = cx.new(|cx| selfbuild::SelfBuildStore::new(prefs.clone(), cx));
         Self {
             prefs,
+            selfbuild,
+            review: cx.new(|_| review::ReviewStore::default()),
             projects: cx.new(|_| projects::ProjectsStore::load()),
             sessions,
             skills: cx.new(|_| skills::SkillsStore::default()),

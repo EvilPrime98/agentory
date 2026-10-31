@@ -21,6 +21,8 @@ pub(crate) async fn capture(program: &str, args: &[&str], dir: &Path) -> Result<
     };
     cmd.args(args)
         .current_dir(dir)
+        // Tools installed while the app runs (winget) are not on its PATH yet.
+        .env("PATH", crate::selfbuild::preflight::augmented_path())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -47,4 +49,12 @@ pub(crate) async fn capture(program: &str, args: &[&str], dir: &Path) -> Result<
             msg
         })
     }
+}
+
+/// Run `git args…` in `dir` with a throwaway identity, panicking on failure. For test fixtures.
+#[cfg(test)]
+pub(crate) async fn sh(dir: &Path, args: &[&str]) {
+    let mut a = vec!["-c", "user.name=t", "-c", "user.email=t@t"];
+    a.extend_from_slice(args);
+    capture("git", &a, dir).await.unwrap();
 }

@@ -18,6 +18,7 @@ use crate::state::{Stores, sessions};
 use crate::ui::app_loader::app_loader;
 use crate::ui::confirm::{self, ConfirmHost, ConfirmOptions};
 use crate::ui::pages::docs::DocsPage;
+use crate::ui::pages::review::ReviewPage;
 use crate::ui::pages::sessions::SessionsPage;
 use crate::ui::pages::settings::SettingsPage;
 use crate::ui::pages::skill_editor::SkillEditorPage;
@@ -62,6 +63,7 @@ enum Page {
     Skills(Entity<SkillsPage>),
     Docs(Entity<DocsPage>),
     SkillEditor(Entity<SkillEditorPage>),
+    Review(Entity<ReviewPage>),
 }
 
 const PANEL_OPEN: Duration = Duration::from_millis(220);
@@ -463,6 +465,20 @@ impl AppRoot {
                 ));
                 Page::SkillEditor(page)
             }
+            Route::Review(id) => {
+                let page = cx.new(|cx| ReviewPage::new(self.stores.clone(), id, cx));
+                self._page_subs.push(cx.subscribe_in(
+                    &page,
+                    window,
+                    |this, _, ev: &Navigate, window, cx| this.navigate(ev.0.clone(), window, cx),
+                ));
+                self._page_subs.push(cx.subscribe_in(
+                    &page,
+                    window,
+                    |this, _, _: &GoBack, window, cx| this.go_back(window, cx),
+                ));
+                Page::Review(page)
+            }
         };
     }
 
@@ -526,6 +542,7 @@ impl Focusable for AppRoot {
 impl Render for AppRoot {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_window_title(window);
+        crate::selfbuild::ready::on_frame();
         if !self.loading {
             if let Some(route) = self.pending_route.take() {
                 self.navigate(route, window, cx);
@@ -540,6 +557,7 @@ impl Render for AppRoot {
             Page::Skills(page) => AnyView::from(page.clone()).into_any_element(),
             Page::Docs(page) => AnyView::from(page.clone()).into_any_element(),
             Page::SkillEditor(page) => AnyView::from(page.clone()).into_any_element(),
+            Page::Review(page) => AnyView::from(page.clone()).into_any_element(),
         };
 
         div()

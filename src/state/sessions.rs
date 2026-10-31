@@ -7,7 +7,8 @@ use std::time::Duration;
 use gpui::{App, AppContext as _, Context, Entity, Subscription, Window};
 
 use crate::app::AppRoot;
-use crate::backend::git::{self, Worktree};
+use crate::backend::git::{self, Merged, Worktree};
+use crate::selfbuild::upstream;
 use crate::backend::spm;
 use crate::model::{Project, SessionStatus, new_id};
 use crate::i18n::{t, t_args};
@@ -50,11 +51,27 @@ fn clean_title(raw: &str) -> Option<String> {
     })
 }
 
-/// What a session runs: a Claude agent, or a plain shell opened from the project's Terminals.
+/// Project id of the "Modify Agentory" sessions. It matches no entry of the projects store, so
+/// those sessions never show under a user project.
+pub const SELF_PROJECT_ID: &str = "agentory-self";
+const SELF_PROJECT_NAME: &str = "Agentory";
+/// Seed prompt of a Modify session. Ends where the user's request goes; not submitted.
+const MODIFY_PROMPT: &str = include_str!("../selfbuild/modify_prompt.md");
+
+/// What a session runs: a Claude agent, a plain shell opened from the project's Terminals, or an
+/// agent that edits Agentory's own source in a worktree of the self-build clone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionKind {
     Agent,
     Shell,
+    SelfModify,
+}
+
+impl SessionKind {
+    /// Runs an agent CLI (hooks, status and usage apply), as opposed to a plain shell.
+    pub fn is_agent(self) -> bool {
+        !matches!(self, Self::Shell)
+    }
 }
 
 pub struct Session {
@@ -119,6 +136,12 @@ impl SessionsStore {
             .filter(move |s| s.project_id == project_id)
     }
 
+    /// The "Modify Agentory" sessions.
+    pub fn modifying(&self) -> impl Iterator<Item = &Session> {
+        self.for_project(SELF_PROJECT_ID)
+            .filter(|s| s.kind == SessionKind::SelfModify)
+    }
+
     pub fn agents<'a>(&'a self, project_id: &'a str) -> impl Iterator<Item = &'a Session> {
         self.for_project(project_id)
             .filter(|s| s.kind == SessionKind::Agent)
@@ -166,6 +189,7 @@ impl SessionsStore {
         project: &Project,
         id: String,
         worktree: Option<Worktree>,
+        kind: SessionKind,
         prefs: &Prefs,
         input: Option<String>,
         cx: &mut Context<Self>,
@@ -211,7 +235,11 @@ impl SessionsStore {
         let font_size = prefs.terminal_font_size;
         let terminal = cx.new(|cx| Terminal::new(spawned, rows, cols, font_size, cx));
 
-        let n = self.agents(&project.id).count() + 1;
+        let n = self
+            .for_project(&project.id)
+            .filter(|s| s.kind == kind)
+            .count()
+            + 1;
         let name = match &worktree {
             Some(_) => format!("{} #{n} (worktree)", project.name),
             None => format!("{} #{n}", project.name),
@@ -226,7 +254,7 @@ impl SessionsStore {
         });
         self.items.push(Session {
             id: id.clone(),
-            kind: SessionKind::Agent,
+            kind,
             project_id: project.id.clone(),
             name,
             cwd,
@@ -247,7 +275,7 @@ impl SessionsStore {
 
     /// Type `text` into the agent's input without submitting it. No hook fires at startup, so
     /// give Claude a moment to draw its prompt first (early bytes are queued by the PTY anyway).
-    fn prefill(&self, id: &str, text: String, cx: &mut Context<Self>) {
+    pub fn prefill(&self, id: &str, text: String, cx: &mut Context<Self>) {
         let Some(terminal) = self.get(id).map(|s| s.terminal.clone()) else {
             return;
         };
@@ -546,6 +574,116 @@ pub fn request_close(id: &str, cx: &mut App) {
     });
 }
 
+/// The pseudo-project the Modify sessions belong to, rooted at the self-build clone.
+fn self_project(clone_dir: PathBuf) -> Project {
+    Project {
+        id: SELF_PROJECT_ID.to_string(),
+        name: SELF_PROJECT_NAME.to_string(),
+        path: clone_dir,
+        use_worktree: Some(true),
+    }
+}
+
+/// "New Modify session": an agent in a fresh worktree of the self-build clone, with the seed
+/// prompt typed in. Does nothing unless self-build is enabled and the clone is ready.
+pub fn begin_modify(cx: &mut App) {
+    let stores = cx.global::<Stores>().clone();
+    let enabled = stores.prefs.read(cx).prefs.self_build_enabled;
+    let clone_dir = stores
+        .selfbuild
+        .read(cx)
+        .paths()
+        .filter(|p| crate::selfbuild::clone::is_ready(p))
+        .map(|p| p.clone_dir());
+    let (true, Some(clone_dir)) = (enabled, clone_dir) else {
+        toast::error(cx, t("sessions.modify.unavailable"));
+        return;
+    };
+    let project = self_project(clone_dir);
+    let id = new_id("m");
+    toast::success(cx, t("sessions.worktree.creating"));
+    cx.spawn(async move |cx| {
+        let (p, sid) = (project.clone(), id.clone());
+        let result =
+            runtime::run(async move { git::add_worktree(&p.path, &p.name, &sid).await }).await;
+        cx.update(|cx| match result {
+            Ok(wt) => {
+                let prefs = stores.prefs.read(cx).prefs.clone();
+                let started = stores.sessions.update(cx, |s, cx| {
+                    s.start(
+                        &project,
+                        id,
+                        Some(wt),
+                        SessionKind::SelfModify,
+                        &prefs,
+                        Some(MODIFY_PROMPT.to_string()),
+                        cx,
+                    )
+                });
+                if let Err(e) = started {
+                    tracing::error!("could not start a Modify session: {e}");
+                    toast::error(cx, e);
+                }
+            }
+            Err(e) => toast::error(cx, t_args("sessions.worktree.failed", &[("error", &e)])),
+        });
+    })
+    .detach();
+}
+
+/// "Update from upstream": merge release `tag` into a fresh worktree of `user`, then open an agent
+/// session in it. A clean merge goes straight to review; a conflict is left in progress for the
+/// agent to resolve. Either way the result is applied through the normal review flow.
+pub fn begin_upstream_update(tag: String, cx: &mut App) {
+    let stores = cx.global::<Stores>().clone();
+    let enabled = stores.prefs.read(cx).prefs.self_build_enabled;
+    let clone_dir = stores
+        .selfbuild
+        .read(cx)
+        .paths()
+        .filter(|p| crate::selfbuild::clone::is_ready(p))
+        .map(|p| p.clone_dir());
+    let (true, Some(clone_dir)) = (enabled, clone_dir) else {
+        toast::error(cx, t("sessions.modify.unavailable"));
+        return;
+    };
+    let project = self_project(clone_dir);
+    let id = new_id("u");
+    toast::success(cx, t("sessions.worktree.creating"));
+    cx.spawn(async move |cx| {
+        let (p, sid, tg) = (project.clone(), id.clone(), tag.clone());
+        let result = runtime::run(async move {
+            let wt = git::add_worktree_from(&p.path, &p.name, &sid, crate::selfbuild::clone::USER_BRANCH).await?;
+            match upstream::merge_tag(&wt, &tg).await {
+                Ok(merged) => Ok((wt, merged)),
+                Err(e) => {
+                    let _ = git::remove_worktree(&p.path, &wt).await;
+                    Err(e)
+                }
+            }
+        })
+        .await;
+        cx.update(|cx| match result {
+            Ok((wt, merged)) => {
+                let prompt = match merged {
+                    Merged::Clean => upstream::clean_prompt(&tag),
+                    Merged::Conflict(files) => upstream::conflict_prompt(&tag, &files),
+                };
+                let prefs = stores.prefs.read(cx).prefs.clone();
+                let started = stores.sessions.update(cx, |s, cx| {
+                    s.start(&project, id, Some(wt), SessionKind::SelfModify, &prefs, Some(prompt), cx)
+                });
+                if let Err(e) = started {
+                    tracing::error!("could not start an upstream update session: {e}");
+                    toast::error(cx, e);
+                }
+            }
+            Err(e) => toast::error(cx, t_args("selfbuild.upstream.failed", &[("error", &e)])),
+        });
+    })
+    .detach();
+}
+
 fn launch(stores: Stores, project: Project, worktree: bool, input: Option<String>, cx: &mut App) {
     let id = new_id("s");
     if !worktree {
@@ -584,7 +722,7 @@ fn spawn_session(
 ) {
     let prefs = stores.prefs.read(cx).prefs.clone();
     let result = stores.sessions.update(cx, |s, cx| {
-        s.start(project, id, worktree, &prefs, input, cx)
+        s.start(project, id, worktree, SessionKind::Agent, &prefs, input, cx)
     });
     if let Err(e) = result {
         tracing::error!("could not start a session: {e}");
@@ -595,6 +733,31 @@ fn spawn_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn modify_worktree_and_branch_naming() {
+        assert_eq!(git::branch_name("m1a2"), "agentory/m1a2");
+        let path = git::worktree_path(SELF_PROJECT_NAME, "m1a2");
+        assert!(path.ends_with(std::path::Path::new("Agentory/worktrees/Agentory/m1a2")));
+    }
+
+    #[test]
+    fn modify_sessions_are_not_user_project_sessions() {
+        let p = self_project(PathBuf::from("clone"));
+        assert_eq!(p.id, SELF_PROJECT_ID);
+        assert_eq!(p.path, PathBuf::from("clone"));
+        assert!(SessionKind::SelfModify.is_agent());
+        assert!(SessionKind::Agent.is_agent());
+        assert!(!SessionKind::Shell.is_agent());
+    }
+
+    #[test]
+    fn modify_prompt_covers_the_rules() {
+        for needle in ["cargo build", "cargo test", "agentory-helper", "ready marker"] {
+            assert!(MODIFY_PROMPT.contains(needle), "{needle}");
+        }
+        assert!(!MODIFY_PROMPT.contains('\r'), "a CR would submit the prompt");
+    }
 
     #[test]
     fn glyphs_are_stripped() {
