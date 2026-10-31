@@ -18,6 +18,7 @@ use crate::ui::app_loader::app_loader;
 use crate::ui::confirm::{self, ConfirmHost, ConfirmOptions};
 use crate::ui::pages::sessions::SessionsPage;
 use crate::ui::pages::settings::SettingsPage;
+use crate::ui::pages::skill_editor::SkillEditorPage;
 use crate::ui::pages::skills::SkillsPage;
 use crate::ui::shell::header::header;
 use crate::ui::shell::sidebar::Sidebar;
@@ -57,6 +58,7 @@ enum Page {
     Sessions(Entity<SessionsPage>),
     Settings(Entity<SettingsPage>),
     Skills(Entity<SkillsPage>),
+    SkillEditor(Entity<SkillEditorPage>),
 }
 
 const PANEL_OPEN: Duration = Duration::from_millis(220);
@@ -320,13 +322,46 @@ impl AppRoot {
     }
 
     pub fn navigate(&mut self, route: Route, window: &mut Window, cx: &mut Context<Self>) {
-        self.history.push(route);
-        self.route_changed(window, cx);
+        self.leave_guarded(window, cx, move |this, window, cx| {
+            this.history.push(route);
+            this.route_changed(window, cx);
+        });
     }
 
     pub fn go_back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.history.back_or_home();
-        self.route_changed(window, cx);
+        self.leave_guarded(window, cx, |this, window, cx| {
+            this.history.back_or_home();
+            this.route_changed(window, cx);
+        });
+    }
+
+    /// Run `leave` now, or after a confirmation when the skill editor holds unsaved edits.
+    fn leave_guarded(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        leave: impl FnOnce(&mut Self, &mut Window, &mut Context<Self>) + 'static,
+    ) {
+        let dirty = matches!(&self.page, Page::SkillEditor(p) if p.read(cx).is_dirty(cx));
+        if !dirty {
+            return leave(self, window, cx);
+        }
+        let root = cx.entity();
+        let handle = window.window_handle();
+        let options = ConfirmOptions::new(
+            "Unsaved changes",
+            "This skill has edits that were not saved. Leave and discard them?",
+        )
+        .labels("Discard", "Keep editing");
+        confirm::ask(cx, options, move |answer, _, cx| {
+            if answer == Some(true) {
+                handle
+                    .update(cx, |_, window, cx| {
+                        root.update(cx, |root, cx| leave(root, window, cx))
+                    })
+                    .ok();
+            }
+        });
     }
 
     fn route_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -386,6 +421,17 @@ impl AppRoot {
                     |this, _, _: &GoBack, window, cx| this.go_back(window, cx),
                 ));
                 Page::Skills(page)
+            }
+            Route::SkillEditor(id, name) => {
+                self.stores.projects.update(cx, |p, cx| p.select(&id, cx));
+                self.sync_skills_project(cx);
+                let page = cx.new(|cx| SkillEditorPage::new(self.stores.clone(), name, cx));
+                self._page_subs.push(cx.subscribe_in(
+                    &page,
+                    window,
+                    |this, _, _: &GoBack, window, cx| this.go_back(window, cx),
+                ));
+                Page::SkillEditor(page)
             }
         };
     }
@@ -461,6 +507,7 @@ impl Render for AppRoot {
             Page::Sessions(page) => AnyView::from(page.clone()).into_any_element(),
             Page::Settings(page) => AnyView::from(page.clone()).into_any_element(),
             Page::Skills(page) => AnyView::from(page.clone()).into_any_element(),
+            Page::SkillEditor(page) => AnyView::from(page.clone()).into_any_element(),
         };
 
         div()

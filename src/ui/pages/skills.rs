@@ -7,7 +7,7 @@ use gpui::{
     Render, StatefulInteractiveElement, Styled, Subscription, Window, div, prelude::*, px,
 };
 
-use crate::route::{GoBack, Navigate};
+use crate::route::{GoBack, Navigate, Route};
 use crate::state::Stores;
 use crate::ui::components::button::small_button;
 use crate::ui::components::smooth_scroll::SmoothScroll;
@@ -225,6 +225,7 @@ impl Render for SkillsPage {
             names.extend(m.skills.keys().cloned());
         }
         let installed_names = names.clone();
+        let project_id = self.stores.projects.read(cx).selected.clone();
         let rows: Vec<AnyElement> = names
             .into_iter()
             .enumerate()
@@ -238,6 +239,11 @@ impl Render for SkillsPage {
                         .map(|s| s.description_tokens)
                 });
                 let remove_name = name.clone();
+                let edit_route = project_id
+                    .clone()
+                    .filter(|_| on_disk)
+                    .map(|id| Route::SkillEditor(id, name.clone()));
+                let name_route = edit_route.clone();
                 row_base(i)
                     .when(!on_disk, |s| {
                         s.child(
@@ -250,10 +256,16 @@ impl Render for SkillsPage {
                     })
                     .child(
                         div()
+                            .id(gpui::SharedString::from(format!("open-skill-{name}")))
                             .flex()
                             .flex_col()
                             .flex_1()
                             .min_w_0()
+                            .when_some(name_route, |s, route| {
+                                s.cursor_pointer().on_click(cx.listener(move |_, _, _, cx| {
+                                    cx.emit(Navigate(route.clone()));
+                                }))
+                            })
                             .child(
                                 div()
                                     .truncate()
@@ -290,6 +302,13 @@ impl Render for SkillsPage {
                                 .text_color(theme::text_muted())
                                 .child(format!("{tokens} tok")),
                         )
+                    })
+                    .when_some(edit_route, |s, route| {
+                        s.child(icon_button(
+                            gpui::SharedString::from(format!("edit-skill-{name}")),
+                            Icon::Pencil,
+                            cx.listener(move |_, _, _, cx| cx.emit(Navigate(route.clone()))),
+                        ))
                     })
                     .child(icon_button(
                         gpui::SharedString::from(format!("rm-skill-{}", name.clone())),

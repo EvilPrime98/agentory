@@ -1,11 +1,13 @@
 //! Routing. GPUI has no router: an `enum Route` plus a back/forward stack.
 
-/// App pages. `Skills` carries the id of the project it manages.
+/// App pages. `Skills` carries the id of the project it manages; `SkillEditor` the project id and
+/// the name of the installed skill being edited.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Route {
     Sessions,
     Settings,
     Skills(String),
+    SkillEditor(String, String),
 }
 
 impl Route {
@@ -19,6 +21,7 @@ impl Route {
             Self::Sessions => "Sessions",
             Self::Settings => "Settings",
             Self::Skills(_) => "Skills",
+            Self::SkillEditor(..) => "Editing Skill",
         }
     }
 }
