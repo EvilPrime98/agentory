@@ -47,7 +47,11 @@ pub async fn check(clone: &Path) -> Result<Status, String> {
     let base = git::base_tag(clone, USER_BRANCH).await?;
     let tags = git::list_tags(clone).await?;
     let local_changes = git::count_commits(clone, &base, USER_BRANCH).await?;
-    Ok(Status { available: newest_after(&tags, &base), base, local_changes })
+    Ok(Status {
+        available: newest_after(&tags, &base),
+        base,
+        local_changes,
+    })
 }
 
 /// Merge `tag` into the worktree branch. A conflict is left in progress in the worktree.
@@ -88,7 +92,9 @@ mod tests {
 
     #[test]
     fn newest_tag_is_numeric_not_lexical() {
-        let tags: Vec<String> = ["v0.9.0", "v0.10.0", "v0.1.0", "nightly"].map(String::from).into();
+        let tags: Vec<String> = ["v0.9.0", "v0.10.0", "v0.1.0", "nightly"]
+            .map(String::from)
+            .into();
         assert_eq!(newest_after(&tags, "v0.1.0").as_deref(), Some("v0.10.0"));
         assert_eq!(newest_after(&tags, "v0.10.0"), None);
         assert_eq!(newest_after(&tags, "weird"), None);
@@ -114,7 +120,10 @@ mod tests {
         commit(&origin, "a.txt", "one\n").await;
         sh(&origin, &["tag", "v0.1.0"]).await;
         let clone = root.join("clone");
-        let (o, c) = (origin.to_string_lossy().into_owned(), clone.to_string_lossy().into_owned());
+        let (o, c) = (
+            origin.to_string_lossy().into_owned(),
+            clone.to_string_lossy().into_owned(),
+        );
         sh(&root, &["clone", "--branch", "v0.1.0", &o, &c]).await;
         sh(&clone, &["checkout", "-b", USER_BRANCH]).await;
         commit(&clone, "mine.txt", "mine\n").await;
@@ -125,7 +134,14 @@ mod tests {
     async fn check_reports_base_local_changes_and_new_release() {
         let (root, origin, clone) = setup("check").await;
         let s = check(&clone).await.unwrap();
-        assert_eq!(s, Status { base: "v0.1.0".into(), local_changes: 1, available: None });
+        assert_eq!(
+            s,
+            Status {
+                base: "v0.1.0".into(),
+                local_changes: 1,
+                available: None
+            }
+        );
 
         commit(&origin, "b.txt", "two\n").await;
         sh(&origin, &["tag", "v0.2.0"]).await;
@@ -142,9 +158,14 @@ mod tests {
         sh(&origin, &["tag", "v0.2.0"]).await;
         check(&clone).await.unwrap();
 
-        let wt = git::add_worktree_from(&clone, "T", &format!("u{}", std::process::id()), USER_BRANCH)
-            .await
-            .unwrap();
+        let wt = git::add_worktree_from(
+            &clone,
+            "T",
+            &format!("u{}", std::process::id()),
+            USER_BRANCH,
+        )
+        .await
+        .unwrap();
         assert_eq!(merge_tag(&wt, "v0.2.0").await.unwrap(), Merged::Clean);
         git::fast_forward(&clone, &wt.branch).await.unwrap();
         let s = check(&clone).await.unwrap();
@@ -162,10 +183,18 @@ mod tests {
         sh(&origin, &["tag", "v0.2.0"]).await;
         check(&clone).await.unwrap();
 
-        let wt = git::add_worktree_from(&clone, "T", &format!("c{}", std::process::id()), USER_BRANCH)
-            .await
-            .unwrap();
-        assert_eq!(merge_tag(&wt, "v0.2.0").await.unwrap(), Merged::Conflict(vec!["a.txt".into()]));
+        let wt = git::add_worktree_from(
+            &clone,
+            "T",
+            &format!("c{}", std::process::id()),
+            USER_BRANCH,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            merge_tag(&wt, "v0.2.0").await.unwrap(),
+            Merged::Conflict(vec!["a.txt".into()])
+        );
         let _ = git::remove_worktree(&clone, &wt).await;
         let _ = fs::remove_dir_all(&root);
     }

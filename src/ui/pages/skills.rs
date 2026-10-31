@@ -207,12 +207,16 @@ impl SkillsPage {
         }
         self.install_input.update(cx, |i, cx| i.set_value("", cx));
         let global = self.install_global;
-        self.stores.skills.update(cx, |s, cx| s.install(names, global, cx));
+        self.stores
+            .skills
+            .update(cx, |s, cx| s.install(names, global, cx));
     }
 
     fn submit_search(&mut self, cx: &mut Context<Self>) {
         let term = self.market_input.read(cx).value().trim().to_string();
-        self.stores.skills.update(cx, |s, cx| s.search_market(term, cx));
+        self.stores
+            .skills
+            .update(cx, |s, cx| s.search_market(term, cx));
     }
 
     fn submit_init(&mut self, cx: &mut Context<Self>) {
@@ -335,7 +339,10 @@ impl Render for SkillsPage {
                                 .bg(theme::hover())
                                 .text_size(px(11.0))
                                 .text_color(theme::text_muted())
-                                .child(t_args("skills.tokens_short", &[("n", &tokens.to_string())])),
+                                .child(t_args(
+                                    "skills.tokens_short",
+                                    &[("n", &tokens.to_string())],
+                                )),
                         )
                     })
                     .when(is_market, |s| {
@@ -344,7 +351,9 @@ impl Render for SkillsPage {
                             t("skills.update_latest"),
                             cx.listener(move |this, _, _, cx| {
                                 let n = latest_name.clone();
-                                this.stores.skills.update(cx, |s, cx| s.update_latest(n, cx));
+                                this.stores
+                                    .skills
+                                    .update(cx, |s, cx| s.update_latest(n, cx));
                             }),
                         ))
                     })
@@ -553,13 +562,13 @@ impl Render for SkillsPage {
                                     .flex()
                                     .items_center()
                                     .gap(px(12.0))
-                                    .when_some(manifest.as_ref().map(|m| m.isolate), |s, isolate| {
-                                        let skills = self.stores.skills.clone();
-                                        let is_busy = busy.is_some();
-                                        s.child(
-                                            div()
-                                                .when(is_busy, |d| d.opacity(0.5))
-                                                .child(checkbox(
+                                    .when_some(
+                                        manifest.as_ref().map(|m| m.isolate),
+                                        |s, isolate| {
+                                            let skills = self.stores.skills.clone();
+                                            let is_busy = busy.is_some();
+                                            s.child(div().when(is_busy, |d| d.opacity(0.5)).child(
+                                                checkbox(
                                                     "skills-isolate",
                                                     t("skills.isolate"),
                                                     isolate,
@@ -570,9 +579,10 @@ impl Render for SkillsPage {
                                                             });
                                                         }
                                                     },
-                                                )),
-                                        )
-                                    })
+                                                ),
+                                            ))
+                                        },
+                                    )
                                     .when_some(busy, |s, label| {
                                         s.child(
                                             div()
@@ -592,7 +602,9 @@ impl Render for SkillsPage {
                                             .cursor_pointer()
                                             .hover(|s| s.bg(theme::hover()))
                                             .on_click(cx.listener(|this, _, _, cx| {
-                                                this.stores.skills.update(cx, |s, cx| s.refresh(cx));
+                                                this.stores
+                                                    .skills
+                                                    .update(cx, |s, cx| s.refresh(cx));
                                             }))
                                             .child(
                                                 icon(Icon::Refresh, px(15.0))
@@ -611,9 +623,7 @@ impl Render for SkillsPage {
                                     div()
                                         .text_size(px(12.5))
                                         .text_color(theme::text_muted())
-                                        .child(
-                                            t("skills.no_manifest"),
-                                        ),
+                                        .child(t("skills.no_manifest")),
                                 )
                                 .child(
                                     div()
@@ -717,16 +727,24 @@ impl Render for SkillsPage {
                         );
 
                         let available_count = available_rows.len();
-                        let mut available_body: Vec<AnyElement> =
-                            vec![div().flex().child(field(&self.filter_input)).into_any_element()];
+                        let mut available_body: Vec<AnyElement> = vec![
+                            div()
+                                .flex()
+                                .child(field(&self.filter_input))
+                                .into_any_element(),
+                        ];
                         if let Some(e) = available_error {
                             available_body.push(muted_note(e).into_any_element());
                         }
                         if nothing_new && !has_available_error {
-                            available_body.push(muted_note(t("skills.nothing_to_install").into()).into_any_element());
+                            available_body.push(
+                                muted_note(t("skills.nothing_to_install").into())
+                                    .into_any_element(),
+                            );
                         }
                         if no_match {
-                            available_body.push(muted_note(t("skills.no_match").into()).into_any_element());
+                            available_body
+                                .push(muted_note(t("skills.no_match").into()).into_any_element());
                         }
                         available_body.push(
                             self.available_scroll
@@ -757,7 +775,9 @@ impl Render for SkillsPage {
                                 .into_any_element(),
                         ];
                         if searching {
-                            market_body.push(muted_note(t("skills.market.searching").into()).into_any_element());
+                            market_body.push(
+                                muted_note(t("skills.market.searching").into()).into_any_element(),
+                            );
                         }
                         if let Some(e) = search_error {
                             market_body.push(muted_note(e).into_any_element());
@@ -797,15 +817,40 @@ impl Render for SkillsPage {
                         let row = || div().flex().flex_wrap().items_start().gap(px(12.0));
                         s.child(
                             row()
-                                .child(card(&t("skills.card.cost"), None, Some(cost_actions), cost_body))
-                                .child(card(&t("skills.card.repos"), Some(repo_count), None, repo_body)),
+                                .child(card(
+                                    &t("skills.card.cost"),
+                                    None,
+                                    Some(cost_actions),
+                                    cost_body,
+                                ))
+                                .child(card(
+                                    &t("skills.card.repos"),
+                                    Some(repo_count),
+                                    None,
+                                    repo_body,
+                                )),
                         )
                         .child(
                             row()
-                                .child(card(&t("skills.card.installed"), Some(installed_count), None, installed_body))
-                                .child(card(&t("skills.card.available"), Some(available_count), None, available_body)),
+                                .child(card(
+                                    &t("skills.card.installed"),
+                                    Some(installed_count),
+                                    None,
+                                    installed_body,
+                                ))
+                                .child(card(
+                                    &t("skills.card.available"),
+                                    Some(available_count),
+                                    None,
+                                    available_body,
+                                )),
                         )
-                        .child(row().child(card(&t("skills.card.market"), Some(hit_count), None, market_body)))
+                        .child(row().child(card(
+                            &t("skills.card.market"),
+                            Some(hit_count),
+                            None,
+                            market_body,
+                        )))
                     }),
             )
     }

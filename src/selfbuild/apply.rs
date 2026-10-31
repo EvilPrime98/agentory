@@ -61,12 +61,18 @@ pub async fn apply(paths: &Paths, wt: &Worktree, events: Events) -> Applied {
 
 /// Stage 1: commit what the agent left, then merge the current `user` tip into the worktree.
 /// `Some(files)` means a conflict.
-async fn merge_step(paths: &Paths, wt: &Worktree, log: &mut Log) -> Result<Option<Vec<String>>, String> {
+async fn merge_step(
+    paths: &Paths,
+    wt: &Worktree,
+    log: &mut Log,
+) -> Result<Option<Vec<String>>, String> {
     log.stage(Stage::Merge);
     let clone = paths.clone_dir();
     let on = git::current_branch(&clone).await?;
     if on != USER_BRANCH {
-        return Err(format!("the source clone is on branch {on}, expected {USER_BRANCH}"));
+        return Err(format!(
+            "the source clone is on branch {on}, expected {USER_BRANCH}"
+        ));
     }
 
     // A conflict from an earlier attempt that has not been resolved yet.
@@ -103,7 +109,9 @@ fn unresolved(wt: &Path, files: Vec<String>) -> Vec<String> {
     files
         .into_iter()
         .filter(|f| match std::fs::read_to_string(wt.join(f)) {
-            Ok(text) => text.lines().any(|l| l.starts_with("<<<<<<< ") || l.starts_with(">>>>>>> ")),
+            Ok(text) => text
+                .lines()
+                .any(|l| l.starts_with("<<<<<<< ") || l.starts_with(">>>>>>> ")),
             Err(_) => true,
         })
         .collect()
@@ -112,19 +120,33 @@ fn unresolved(wt: &Path, files: Vec<String>) -> Vec<String> {
 /// Copy the tested exe out of the target dir, then move `user`. A failed copy leaves `user`
 /// alone; a failed fast-forward means `user` moved since the merge, and the next Apply starts
 /// from the new tip.
-async fn stage_and_merge(paths: &Paths, wt: &Worktree, job: &Job, log: &mut Log) -> Result<Staged, String> {
+async fn stage_and_merge(
+    paths: &Paths,
+    wt: &Worktree,
+    job: &Job,
+    log: &mut Log,
+) -> Result<Staged, String> {
     let staged = paths.staged_exe();
     if let Some(dir) = staged.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("could not create {}: {e}", dir.display()))?;
     }
-    std::fs::copy(job.exe(), &staged).map_err(|e| format!("could not stage {}: {e}", staged.display()))?;
+    std::fs::copy(job.exe(), &staged)
+        .map_err(|e| format!("could not stage {}: {e}", staged.display()))?;
     log.line(format!("staged {}", staged.display()));
 
-    git::fast_forward(&paths.clone_dir(), &wt.branch).await.map_err(|e| {
-        format!("{USER_BRANCH} changed while building; apply again to rebuild on the new tip ({e})")
-    })?;
+    git::fast_forward(&paths.clone_dir(), &wt.branch)
+        .await
+        .map_err(|e| {
+            format!(
+                "{USER_BRANCH} changed while building; apply again to rebuild on the new tip ({e})"
+            )
+        })?;
     log.line(format!("{USER_BRANCH} now at {}", job.build_id));
-    Ok(Staged { exe: staged, build_id: job.build_id.clone() })
+    Ok(Staged {
+        exe: staged,
+        build_id: job.build_id.clone(),
+    })
 }
 
 /// Remove the worktree and its branch, from the clone that owns them.
@@ -148,7 +170,10 @@ pub fn swap_args(pid: u32, staged: &Staged) -> Vec<String> {
 /// Where the helper lives: the env var it sets when it launches the app, else next to this exe
 /// (an installed app that was not started through the helper).
 pub fn helper_exe() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os(HELPER_ENV).map(PathBuf::from).filter(|p| p.is_file()) {
+    if let Some(p) = std::env::var_os(HELPER_ENV)
+        .map(PathBuf::from)
+        .filter(|p| p.is_file())
+    {
         return Some(p);
     }
     let name = format!("agentory-helper{}", std::env::consts::EXE_SUFFIX);
@@ -174,7 +199,9 @@ fn spawn_detached(helper: &Path, args: &[String]) -> Result<(), String> {
         // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP: outlives this process.
         cmd.creation_flags(0x0000_0008 | 0x0000_0200);
     }
-    cmd.spawn().map(|_| ()).map_err(|e| format!("could not start {}: {e}", helper.display()))
+    cmd.spawn()
+        .map(|_| ())
+        .map_err(|e| format!("could not start {}: {e}", helper.display()))
 }
 
 #[cfg(test)]
@@ -248,7 +275,8 @@ fn main() {
 
     /// A tiny crate named like the app, as the `user` branch of a clone, plus an agent worktree.
     async fn fixture(name: &str) -> Fixture {
-        let root = std::env::temp_dir().join(format!("agentory-apply-{name}-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("agentory-apply-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let paths = Paths::in_dirs(root.join("r"), root.join("l"));
         let clone = paths.clone_dir();
@@ -264,8 +292,21 @@ fn main() {
         sh(&clone, &["init", "-b", USER_BRANCH]).await;
         sh(&clone, &["add", "-A"]).await;
         sh(&clone, &["commit", "-m", "init"]).await;
-        let wt = Worktree { path: root.join("wt"), branch: "agentory/m1".into() };
-        sh(&clone, &["worktree", "add", &wt.path.to_string_lossy(), "-b", &wt.branch]).await;
+        let wt = Worktree {
+            path: root.join("wt"),
+            branch: "agentory/m1".into(),
+        };
+        sh(
+            &clone,
+            &[
+                "worktree",
+                "add",
+                &wt.path.to_string_lossy(),
+                "-b",
+                &wt.branch,
+            ],
+        )
+        .await;
         Fixture { root, paths, wt }
     }
 
@@ -274,21 +315,33 @@ fn main() {
         let f = fixture("pass").await;
         let before = f.user_sha().await;
         f.agent_writes("src/main.rs", &main_with("// changed"));
-        let Applied::Ready(staged) = f.apply().await else { panic!("expected Ready") };
+        let Applied::Ready(staged) = f.apply().await else {
+            panic!("expected Ready")
+        };
         assert!(staged.exe.is_file());
         assert_ne!(f.user_sha().await, before);
         // What is installed is what was tested: user sits at the built commit.
         assert_eq!(f.user_sha().await, staged.build_id);
-        assert!(fs::read_to_string(f.clone_dir().join("src/main.rs")).unwrap().contains("// changed"));
+        assert!(
+            fs::read_to_string(f.clone_dir().join("src/main.rs"))
+                .unwrap()
+                .contains("// changed")
+        );
     }
 
     #[tokio::test]
     async fn failing_gate_leaves_user_and_staging_untouched() {
         let f = fixture("fail").await;
         let before = f.user_sha().await;
-        f.agent_writes("src/main.rs", &main_with("// x").replace("fn ok() {}", "fn ok() { panic!(\"nope\"); }"));
+        f.agent_writes(
+            "src/main.rs",
+            &main_with("// x").replace("fn ok() {}", "fn ok() { panic!(\"nope\"); }"),
+        );
         let out = f.apply().await;
-        assert!(matches!(out, Applied::Failed(Outcome::TestsFailed(_))), "{out:?}");
+        assert!(
+            matches!(out, Applied::Failed(Outcome::TestsFailed(_))),
+            "{out:?}"
+        );
         assert_eq!(f.user_sha().await, before);
         assert!(!f.paths.staged_exe().exists());
     }
@@ -298,7 +351,10 @@ fn main() {
         let f = fixture("nobuild").await;
         let before = f.user_sha().await;
         f.agent_writes("src/main.rs", "fn main() { let x: u32 = \"no\"; }");
-        assert!(matches!(f.apply().await, Applied::Failed(Outcome::BuildFailed(_))));
+        assert!(matches!(
+            f.apply().await,
+            Applied::Failed(Outcome::BuildFailed(_))
+        ));
         assert_eq!(f.user_sha().await, before);
     }
 
@@ -307,9 +363,14 @@ fn main() {
         let f = fixture("stale").await;
         f.user_commits("extra.txt", "x").await;
         f.agent_writes("src/main.rs", &main_with("// agent"));
-        let Applied::Ready(staged) = f.apply().await else { panic!("expected Ready") };
+        let Applied::Ready(staged) = f.apply().await else {
+            panic!("expected Ready")
+        };
         assert_eq!(f.user_sha().await, staged.build_id);
-        assert!(f.clone_dir().join("extra.txt").exists(), "the user's own commit survives");
+        assert!(
+            f.clone_dir().join("extra.txt").exists(),
+            "the user's own commit survives"
+        );
     }
 
     #[tokio::test]
@@ -326,7 +387,9 @@ fn main() {
         assert_eq!(f.apply().await, conflict);
 
         f.agent_writes("src/main.rs", &main_with("// both"));
-        let Applied::Ready(staged) = f.apply().await else { panic!("expected Ready after resolving") };
+        let Applied::Ready(staged) = f.apply().await else {
+            panic!("expected Ready after resolving")
+        };
         assert_eq!(f.user_sha().await, staged.build_id);
     }
 
@@ -338,13 +401,19 @@ fn main() {
         f.agent_writes("src/main.rs", &main_with("// agent"));
         assert!(matches!(f.apply().await, Applied::Conflict(_)));
         // Leaving the markers in the file is still a conflict.
-        let marked = format!("<<<<<<< HEAD\n{}=======\n>>>>>>> user\n", main_with("// agent"));
+        let marked = format!(
+            "<<<<<<< HEAD\n{}=======\n>>>>>>> user\n",
+            main_with("// agent")
+        );
         f.agent_writes("src/main.rs", &marked);
         assert!(matches!(f.apply().await, Applied::Conflict(_)));
         // Staging them (as `git add` would) must not smuggle them in either.
         sh(&f.wt.path, &["add", "-A"]).await;
         let out = f.apply().await;
-        assert!(matches!(&out, Applied::Error(e) if e.contains("conflict markers")), "{out:?}");
+        assert!(
+            matches!(&out, Applied::Error(e) if e.contains("conflict markers")),
+            "{out:?}"
+        );
         assert_eq!(f.user_sha().await, tip);
     }
 
@@ -354,7 +423,10 @@ fn main() {
         sh(&f.clone_dir(), &["checkout", "-b", "other"]).await;
         f.agent_writes("src/main.rs", &main_with("// c"));
         let out = f.apply().await;
-        assert!(matches!(&out, Applied::Error(e) if e.contains("expected user")), "{out:?}");
+        assert!(
+            matches!(&out, Applied::Error(e) if e.contains("expected user")),
+            "{out:?}"
+        );
     }
 
     #[tokio::test]
@@ -363,13 +435,21 @@ fn main() {
         f.agent_writes("src/main.rs", "// scratch");
         discard(&f.paths, &f.wt).await.unwrap();
         assert!(!f.wt.path.exists());
-        let b = capture("git", &["branch", "--list", &f.wt.branch], &f.clone_dir()).await.unwrap();
+        let b = capture("git", &["branch", "--list", &f.wt.branch], &f.clone_dir())
+            .await
+            .unwrap();
         assert!(b.trim().is_empty());
     }
 
     #[test]
     fn swap_args_match_the_helper_cli() {
-        let staged = Staged { exe: PathBuf::from("S"), build_id: "abc".into() };
-        assert_eq!(swap_args(7, &staged), ["swap", "--pid", "7", "--new", "S", "--build-id", "abc"]);
+        let staged = Staged {
+            exe: PathBuf::from("S"),
+            build_id: "abc".into(),
+        };
+        assert_eq!(
+            swap_args(7, &staged),
+            ["swap", "--pid", "7", "--new", "S", "--build-id", "abc"]
+        );
     }
 }

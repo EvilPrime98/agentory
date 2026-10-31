@@ -60,12 +60,14 @@ async fn smoke(job: &Job, log: &mut Log) -> Result<(), String> {
     }
     match ready::read(&marker) {
         None => Err("smoke launch wrote no ready marker".into()),
-        Some((pid, _)) if Some(pid) != exit.pid => {
-            Err(format!("ready marker pid {pid} is not the launched process ({:?})", exit.pid))
-        }
-        Some((_, id)) if id != job.build_id => {
-            Err(format!("ready marker has build id {id}, expected {}", job.build_id))
-        }
+        Some((pid, _)) if Some(pid) != exit.pid => Err(format!(
+            "ready marker pid {pid} is not the launched process ({:?})",
+            exit.pid
+        )),
+        Some((_, id)) if id != job.build_id => Err(format!(
+            "ready marker has build id {id}, expected {}",
+            job.build_id
+        )),
         Some(_) => {
             log.line("smoke launch ok");
             Ok(())

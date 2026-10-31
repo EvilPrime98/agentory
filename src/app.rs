@@ -262,10 +262,7 @@ impl AppRoot {
                     Some(path) => tracing::info!("claude: {}", path.display()),
                     None => {
                         tracing::warn!("claude was not found on PATH");
-                        toast::error(
-                            cx,
-                            t("app.claude_missing"),
-                        );
+                        toast::error(cx, t("app.claude_missing"));
                     }
                 }
                 // Dev aid: start a session in the selected project right away.
@@ -297,11 +294,8 @@ impl AppRoot {
         self.close_check_pending = true;
         let root = cx.entity();
         let handle = window.window_handle();
-        let options = ConfirmOptions::new(
-            t("app.close.title"),
-            t_n("app.close.body", running),
-        )
-        .labels(t("common.close"), t("common.cancel"));
+        let options = ConfirmOptions::new(t("app.close.title"), t_n("app.close.body", running))
+            .labels(t("common.close"), t("common.cancel"));
         confirm::ask(cx, options, move |answer, _, cx| {
             let close = answer == Some(true);
             root.update(cx, |root, _| {
@@ -344,11 +338,8 @@ impl AppRoot {
         }
         let root = cx.entity();
         let handle = window.window_handle();
-        let options = ConfirmOptions::new(
-            t("app.unsaved.title"),
-            t("app.unsaved.body"),
-        )
-        .labels(t("app.unsaved.discard"), t("app.unsaved.keep"));
+        let options = ConfirmOptions::new(t("app.unsaved.title"), t("app.unsaved.body"))
+            .labels(t("app.unsaved.discard"), t("app.unsaved.keep"));
         confirm::ask(cx, options, move |answer, _, cx| {
             if answer == Some(true) {
                 handle
@@ -605,7 +596,9 @@ impl Render for AppRoot {
             )
             .child(self.toasts.clone())
             .child(self.confirm.clone())
-            .when(self.loading, |s| s.child(app_loader(t("app.checking_tools"))))
+            .when(self.loading, |s| {
+                s.child(app_loader(t("app.checking_tools")))
+            })
     }
 }
 

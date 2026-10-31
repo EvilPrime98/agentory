@@ -68,7 +68,12 @@ fn index(stage: Stage) -> usize {
 
 impl Run {
     fn new(session: &str) -> Run {
-        Run { session: session.to_string(), phase: RunPhase::Running, stage: None, log: Vec::new() }
+        Run {
+            session: session.to_string(),
+            phase: RunPhase::Running,
+            stage: None,
+            log: Vec::new(),
+        }
     }
 
     pub fn stage_state(&self, stage: Stage) -> StageState {
@@ -113,7 +118,9 @@ pub fn failure_prompt(log: &[String]) -> String {
 
 impl ReviewStore {
     pub fn running(&self) -> bool {
-        self.run.as_ref().is_some_and(|r| r.phase == RunPhase::Running)
+        self.run
+            .as_ref()
+            .is_some_and(|r| r.phase == RunPhase::Running)
     }
 
     /// The run for `session`, if the last one was for it.
@@ -127,7 +134,11 @@ impl ReviewStore {
             return;
         }
         let stores = cx.global::<Stores>().clone();
-        let wt = stores.sessions.read(cx).get(session_id).and_then(|s| s.worktree.clone());
+        let wt = stores
+            .sessions
+            .read(cx)
+            .get(session_id)
+            .and_then(|s| s.worktree.clone());
         let paths = stores.selfbuild.read(cx).paths().cloned();
         let (Some(wt), Some(paths)) = (wt, paths) else {
             toast::error(cx, t("review.unavailable"));
@@ -148,7 +159,8 @@ impl ReviewStore {
                 }
             };
             let (result, ()) = join(job, pump).await;
-            this.update(cx, |this, cx| this.finish(sid, paths, wt, result, cx)).ok();
+            this.update(cx, |this, cx| this.finish(sid, paths, wt, result, cx))
+                .ok();
         })
         .detach();
     }
@@ -167,19 +179,32 @@ impl ReviewStore {
         cx.notify();
     }
 
-    fn finish(&mut self, session: String, paths: Paths, wt: Worktree, result: Applied, cx: &mut Context<Self>) {
+    fn finish(
+        &mut self,
+        session: String,
+        paths: Paths,
+        wt: Worktree,
+        result: Applied,
+        cx: &mut Context<Self>,
+    ) {
         let stores = cx.global::<Stores>().clone();
-        let Some(run) = self.run.as_mut().filter(|r| r.session == session) else { return };
+        let Some(run) = self.run.as_mut().filter(|r| r.session == session) else {
+            return;
+        };
         run.phase = match result {
             Applied::Conflict(files) => {
                 let prompt = conflict_prompt(&files);
-                stores.sessions.update(cx, |s, cx| s.prefill(&session, prompt, cx));
+                stores
+                    .sessions
+                    .update(cx, |s, cx| s.prefill(&session, prompt, cx));
                 RunPhase::Conflict(files)
             }
             Applied::Failed(Outcome::BuildFailed(_)) => RunPhase::Failed(Failure::Build),
             Applied::Failed(Outcome::TestsFailed(_)) => RunPhase::Failed(Failure::Tests),
             Applied::Failed(Outcome::SmokeFailed(_)) => RunPhase::Failed(Failure::Smoke),
-            Applied::Failed(Outcome::Passed(_)) => RunPhase::Failed(Failure::Other("unexpected pass".into())),
+            Applied::Failed(Outcome::Passed(_)) => {
+                RunPhase::Failed(Failure::Other("unexpected pass".into()))
+            }
             Applied::Error(e) => {
                 run.log.push(e.clone());
                 RunPhase::Failed(Failure::Other(e))
@@ -198,10 +223,14 @@ impl ReviewStore {
 
     /// Type the end of the failure log into the session's input, for the agent to fix.
     pub fn send_log(&mut self, session: &str, cx: &mut Context<Self>) {
-        let Some(run) = self.for_session(session) else { return };
+        let Some(run) = self.for_session(session) else {
+            return;
+        };
         let prompt = failure_prompt(&run.log);
         let stores = cx.global::<Stores>().clone();
-        stores.sessions.update(cx, |s, cx| s.prefill(session, prompt, cx));
+        stores
+            .sessions
+            .update(cx, |s, cx| s.prefill(session, prompt, cx));
         stores.sessions.update(cx, |s, cx| s.select(session, cx));
     }
 
@@ -211,7 +240,11 @@ impl ReviewStore {
             return;
         }
         let stores = cx.global::<Stores>().clone();
-        let wt = stores.sessions.read(cx).get(session).and_then(|s| s.worktree.clone());
+        let wt = stores
+            .sessions
+            .read(cx)
+            .get(session)
+            .and_then(|s| s.worktree.clone());
         let paths = stores.selfbuild.read(cx).paths().cloned();
         stores.sessions.update(cx, |s, cx| s.close(session, cx));
         if self.run.as_ref().is_some_and(|r| r.session == session) {
@@ -229,7 +262,15 @@ impl ReviewStore {
             let result = runtime::run(async move { apply::discard(&paths, &wt).await }).await;
             if let Err(e) = result {
                 tracing::warn!("could not remove worktree {branch}: {e}");
-                cx.update(|cx| toast::error(cx, t_args("review.cleanup_failed", &[("branch", &branch), ("error", &e)])));
+                cx.update(|cx| {
+                    toast::error(
+                        cx,
+                        t_args(
+                            "review.cleanup_failed",
+                            &[("branch", &branch), ("error", &e)],
+                        ),
+                    )
+                });
             }
         })
         .detach();
@@ -237,7 +278,9 @@ impl ReviewStore {
 
     /// Hand over to the helper, which swaps the exe once this process is gone, and quit.
     pub fn restart(&mut self, cx: &mut Context<Self>) {
-        let Some(RunPhase::Ready(staged)) = self.run.as_ref().map(|r| r.phase.clone()) else { return };
+        let Some(RunPhase::Ready(staged)) = self.run.as_ref().map(|r| r.phase.clone()) else {
+            return;
+        };
         match apply::start_swap(&staged) {
             // Quitting kills the sessions' children (see `AppRoot`).
             Ok(()) => cx.quit(),
@@ -251,7 +294,12 @@ mod tests {
     use super::*;
 
     fn run_at(phase: RunPhase, stage: Option<Stage>) -> Run {
-        Run { session: "m1".into(), phase, stage, log: vec![] }
+        Run {
+            session: "m1".into(),
+            phase,
+            stage,
+            log: vec![],
+        }
     }
 
     fn pill(run: &Run) -> Vec<StageState> {
@@ -262,8 +310,14 @@ mod tests {
     fn pill_follows_the_running_stage() {
         use StageState::*;
         assert_eq!(pill(&run_at(RunPhase::Running, None)), [Pending; 4]);
-        assert_eq!(pill(&run_at(RunPhase::Running, Some(Stage::Build))), [Done, Active, Pending, Pending]);
-        assert_eq!(pill(&run_at(RunPhase::Running, Some(Stage::Gate))), [Done, Done, Active, Pending]);
+        assert_eq!(
+            pill(&run_at(RunPhase::Running, Some(Stage::Build))),
+            [Done, Active, Pending, Pending]
+        );
+        assert_eq!(
+            pill(&run_at(RunPhase::Running, Some(Stage::Gate))),
+            [Done, Done, Active, Pending]
+        );
     }
 
     #[test]
@@ -277,7 +331,10 @@ mod tests {
 
     #[test]
     fn pill_is_all_done_when_ready() {
-        let staged = Staged { exe: "x".into(), build_id: "b".into() };
+        let staged = Staged {
+            exe: "x".into(),
+            build_id: "b".into(),
+        };
         let ready = run_at(RunPhase::Ready(staged), Some(Stage::Ready));
         assert_eq!(pill(&ready), [StageState::Done; 4]);
     }

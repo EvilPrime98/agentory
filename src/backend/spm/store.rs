@@ -91,7 +91,10 @@ pub fn find_skills(root: &Path, root_name: &str) -> Vec<(String, PathBuf)> {
             let Ok(rd) = fs::read_dir(dir) else { continue };
             let mut entries: Vec<_> = rd.filter_map(Result::ok).collect();
             entries.sort_by(|a, b| {
-                locale_cmp(&a.file_name().to_string_lossy(), &b.file_name().to_string_lossy())
+                locale_cmp(
+                    &a.file_name().to_string_lossy(),
+                    &b.file_name().to_string_lossy(),
+                )
             });
             for e in entries {
                 let name = e.file_name().to_string_lossy().into_owned();
@@ -187,7 +190,10 @@ pub fn hash_dir(dir: &Path) -> std::io::Result<String> {
     fn walk(root: &Path, d: &Path, h: &mut Sha256) -> std::io::Result<()> {
         let mut entries: Vec<_> = fs::read_dir(d)?.collect::<Result<_, _>>()?;
         entries.sort_by(|a, b| {
-            locale_cmp(&a.file_name().to_string_lossy(), &b.file_name().to_string_lossy())
+            locale_cmp(
+                &a.file_name().to_string_lossy(),
+                &b.file_name().to_string_lossy(),
+            )
         });
         for e in entries {
             if e.file_name() == ".git" {
@@ -257,7 +263,10 @@ pub struct Manifest {
 
 impl Manifest {
     pub fn isolate(&self) -> bool {
-        self.rest.get("isolate").and_then(Value::as_bool).unwrap_or(false)
+        self.rest
+            .get("isolate")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
     }
 
     pub fn set_isolate(&mut self, on: bool) {
@@ -311,7 +320,13 @@ pub fn read_manifest(file: &Path) -> Result<Manifest, String> {
         Some(Value::Array(names)) => names
             .into_iter()
             .filter_map(|n| n.as_str().map(str::to_string))
-            .map(|n| (n, pool.first().map_or(Value::Null, |r| Value::String(r.clone()))))
+            .map(|n| {
+                (
+                    n,
+                    pool.first()
+                        .map_or(Value::Null, |r| Value::String(r.clone())),
+                )
+            })
             .collect(),
         Some(Value::Object(o)) => o.into_iter().collect(),
         _ => BTreeMap::new(),
@@ -331,10 +346,18 @@ pub fn write_manifest(file: &Path, m: &Manifest) -> Result<(), String> {
             repos.push(r);
         }
     }
-    out.insert("repos".into(), repos.into_iter().cloned().map(Value::String).collect());
+    out.insert(
+        "repos".into(),
+        repos.into_iter().cloned().map(Value::String).collect(),
+    );
     out.insert(
         "skills".into(),
-        Value::Object(m.skills.iter().map(|(k, v)| (k.clone(), v.clone())).collect()),
+        Value::Object(
+            m.skills
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        ),
     );
     for (k, v) in &m.rest {
         out.insert(k.clone(), v.clone());
@@ -383,7 +406,11 @@ fn read_settings(file: &Path) -> Result<Map<String, Value>, String> {
 
 /// Hide global skills in the project: each gets `"off"` in `skillOverrides`, unless a local skill
 /// has the same name (an existing `"off"` is then removed).
-pub fn sync_overrides(settings_file: &Path, global_dir: &Path, local_dir: &Path) -> Result<(), String> {
+pub fn sync_overrides(
+    settings_file: &Path,
+    global_dir: &Path,
+    local_dir: &Path,
+) -> Result<(), String> {
     let mut settings = read_settings(settings_file)?;
     let mut keep: Vec<String> = Vec::new();
     for folder in list_skills(local_dir) {

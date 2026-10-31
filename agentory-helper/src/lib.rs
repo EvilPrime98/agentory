@@ -38,7 +38,10 @@ impl Layout {
 
     /// Layout rooted at `root` (`root/bin/*`, `root/ready`).
     pub fn in_dir(root: &Path) -> Layout {
-        Layout { bin: root.join("bin"), ready: root.join("ready") }
+        Layout {
+            bin: root.join("bin"),
+            ready: root.join("ready"),
+        }
     }
 
     pub fn active(&self) -> PathBuf {
@@ -118,7 +121,9 @@ fn place(from: &Path, to: &Path) -> io::Result<()> {
 #[cfg(windows)]
 pub fn wait_for_exit(pid: u32, timeout: Duration) -> io::Result<()> {
     use windows_sys::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
-    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject};
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject,
+    };
     unsafe {
         let h = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
         if h.is_null() {
@@ -130,7 +135,10 @@ pub fn wait_for_exit(pid: u32, timeout: Duration) -> io::Result<()> {
         if r == WAIT_OBJECT_0 {
             Ok(())
         } else {
-            Err(io::Error::new(io::ErrorKind::TimedOut, format!("pid {pid} did not exit")))
+            Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!("pid {pid} did not exit"),
+            ))
         }
     }
 }
@@ -140,7 +148,10 @@ pub fn wait_for_exit(pid: u32, timeout: Duration) -> io::Result<()> {
     let start = Instant::now();
     while Path::new(&format!("/proc/{pid}")).exists() {
         if start.elapsed() > timeout {
-            return Err(io::Error::new(io::ErrorKind::TimedOut, format!("pid {pid} did not exit")));
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!("pid {pid} did not exit"),
+            ));
         }
         sleep(Duration::from_millis(50));
     }
@@ -156,7 +167,12 @@ fn marker_build_id(ready: &Path) -> Option<String> {
 }
 
 /// Pass means: still alive after `dur` and the ready marker carries `build_id`.
-pub fn smoke_check(child: &mut Child, layout: &Layout, build_id: &str, dur: Duration) -> Result<(), String> {
+pub fn smoke_check(
+    child: &mut Child,
+    layout: &Layout,
+    build_id: &str,
+    dur: Duration,
+) -> Result<(), String> {
     let deadline = Instant::now() + dur;
     while Instant::now() < deadline {
         if let Ok(Some(status)) = child.try_wait() {
@@ -169,7 +185,9 @@ pub fn smoke_check(child: &mut Child, layout: &Layout, build_id: &str, dur: Dura
     }
     match marker_build_id(&layout.ready) {
         Some(id) if id == build_id => Ok(()),
-        Some(id) => Err(format!("ready marker has build id {id}, expected {build_id}")),
+        Some(id) => Err(format!(
+            "ready marker has build id {id}, expected {build_id}"
+        )),
         None => Err("no valid ready marker".into()),
     }
 }
@@ -182,7 +200,13 @@ pub enum Outcome {
 
 /// Wait for `pid` to exit, install `new` as `active` (keeping the old one as `known-good`),
 /// relaunch and smoke check. On failure restore the previous exe and relaunch it.
-pub fn swap(layout: &Layout, pid: u32, new: &Path, build_id: &str, smoke: Duration) -> io::Result<Outcome> {
+pub fn swap(
+    layout: &Layout,
+    pid: u32,
+    new: &Path,
+    build_id: &str,
+    smoke: Duration,
+) -> io::Result<Outcome> {
     fs::create_dir_all(&layout.bin)?;
     wait_for_exit(pid, EXIT_WAIT)?;
     let _ = fs::remove_file(&layout.ready);
@@ -211,7 +235,10 @@ pub fn swap(layout: &Layout, pid: u32, new: &Path, build_id: &str, smoke: Durati
     } else {
         retry(|| remove_if_exists(&active))?;
     }
-    let _ = fs::write(layout.revert_log(), format!("reverted build {build_id}: {reason}\n"));
+    let _ = fs::write(
+        layout.revert_log(),
+        format!("reverted build {build_id}: {reason}\n"),
+    );
     launch(layout)?;
     Ok(Outcome::Reverted(reason))
 }
