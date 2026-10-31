@@ -10,6 +10,7 @@ use gpui::{
 use crate::route::{GoBack, Navigate, Route};
 use crate::state::Stores;
 use crate::ui::components::button::small_button;
+use crate::ui::components::checkbox::checkbox;
 use crate::ui::components::smooth_scroll::SmoothScroll;
 use crate::ui::components::text_input::{TextInput, TextInputEvent};
 use crate::ui::icons::{Icon, icon};
@@ -446,7 +447,27 @@ impl Render for SkillsPage {
                                 div()
                                     .flex()
                                     .items_center()
-                                    .gap(px(8.0))
+                                    .gap(px(12.0))
+                                    .when_some(manifest.as_ref().map(|m| m.isolate), |s, isolate| {
+                                        let skills = self.stores.skills.clone();
+                                        let is_busy = busy.is_some();
+                                        s.child(
+                                            div()
+                                                .when(is_busy, |d| d.opacity(0.5))
+                                                .child(checkbox(
+                                                    "skills-isolate",
+                                                    "Isolate from global skills",
+                                                    isolate,
+                                                    move |on, _, cx| {
+                                                        if !is_busy {
+                                                            skills.update(cx, |s, cx| {
+                                                                s.set_isolate(on, cx)
+                                                            });
+                                                        }
+                                                    },
+                                                )),
+                                        )
+                                    })
                                     .when_some(busy, |s, label| {
                                         s.child(
                                             div()

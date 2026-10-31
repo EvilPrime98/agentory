@@ -99,6 +99,8 @@ impl HookEvent {
 pub struct SpmManifest {
     pub repos: Vec<String>,
     pub skills: BTreeMap<String, serde_json::Value>,
+    /// Whether global skills are hidden in this project. A missing key counts as off.
+    pub isolate: bool,
 }
 
 impl SpmManifest {

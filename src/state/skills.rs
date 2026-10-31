@@ -153,8 +153,20 @@ impl SkillsStore {
             "Initializing skills".into(),
             true,
             cx,
-            move |dir| async move { spm::init(&dir, repo.as_deref()).await },
+            move |dir| async move { spm::init(&dir, repo.as_deref(), true).await },
         );
+    }
+
+    /// Turn isolation from global skills on or off by re-running `spm init`.
+    pub fn set_isolate(&mut self, isolate: bool, cx: &mut Context<Self>) {
+        let label = if isolate {
+            "Isolating from global skills"
+        } else {
+            "Allowing global skills"
+        };
+        self.mutate(label.into(), false, cx, move |dir| async move {
+            spm::init(&dir, None, isolate).await
+        });
     }
 
     pub fn install(&mut self, names: Vec<String>, cx: &mut Context<Self>) {
