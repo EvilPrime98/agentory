@@ -817,61 +817,64 @@ impl Sidebar {
             }))
             .when(!terminals.is_empty(), |s| {
                 s.child(section_header(t("sidebar.terminals")))
-                .children(terminals.into_iter().map(|(id, name)| {
-                    let (pick_id, close_id) = (id.clone(), id.clone());
-                    let is_active = on_sessions && active.as_deref() == Some(id.as_str());
-                    div()
-                        .flex()
-                        .items_center()
-                        .h(px(ROW_H))
-                        .ml(px(26.0))
-                        .px(px(6.0))
-                        .rounded(px(6.0))
-                        .when(is_active, |s| s.bg(theme::accent_soft()))
-                        .child(
-                            div()
-                                .id(gpui::SharedString::from(format!("terminal-{id}")))
-                                .flex()
-                                .flex_1()
-                                .min_w_0()
-                                .items_center()
-                                .gap(px(8.0))
-                                .h_full()
-                                .cursor_pointer()
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.stores
-                                        .sessions
-                                        .update(cx, |s, cx| s.select(&pick_id, cx));
-                                    cx.emit(Navigate(Route::Sessions));
-                                }))
-                                .child(
-                                    icon(Icon::Terminal, px(13.0)).text_color(theme::text_muted()),
-                                )
-                                .child(
-                                    div()
-                                        .truncate()
-                                        .text_size(px(12.5))
-                                        .text_color(theme::text())
-                                        .child(name),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .id(gpui::SharedString::from(format!("close-terminal-{id}")))
-                                .flex_none()
-                                .size(px(20.0))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded(px(4.0))
-                                .cursor_pointer()
-                                .hover(|s| s.bg(theme::hover()))
-                                .on_click(cx.listener(move |_, _, _, cx| {
-                                    sessions::request_close(&close_id, cx);
-                                }))
-                                .child(icon(Icon::Close, px(12.0)).text_color(theme::text_muted())),
-                        )
-                }))
+                    .children(terminals.into_iter().map(|(id, name)| {
+                        let (pick_id, close_id) = (id.clone(), id.clone());
+                        let is_active = on_sessions && active.as_deref() == Some(id.as_str());
+                        div()
+                            .flex()
+                            .items_center()
+                            .h(px(ROW_H))
+                            .ml(px(26.0))
+                            .px(px(6.0))
+                            .rounded(px(6.0))
+                            .when(is_active, |s| s.bg(theme::accent_soft()))
+                            .child(
+                                div()
+                                    .id(gpui::SharedString::from(format!("terminal-{id}")))
+                                    .flex()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .items_center()
+                                    .gap(px(8.0))
+                                    .h_full()
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.stores
+                                            .sessions
+                                            .update(cx, |s, cx| s.select(&pick_id, cx));
+                                        cx.emit(Navigate(Route::Sessions));
+                                    }))
+                                    .child(
+                                        icon(Icon::Terminal, px(13.0))
+                                            .text_color(theme::text_muted()),
+                                    )
+                                    .child(
+                                        div()
+                                            .truncate()
+                                            .text_size(px(12.5))
+                                            .text_color(theme::text())
+                                            .child(name),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .id(gpui::SharedString::from(format!("close-terminal-{id}")))
+                                    .flex_none()
+                                    .size(px(20.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(px(4.0))
+                                    .cursor_pointer()
+                                    .hover(|s| s.bg(theme::hover()))
+                                    .on_click(cx.listener(move |_, _, _, cx| {
+                                        sessions::request_close(&close_id, cx);
+                                    }))
+                                    .child(
+                                        icon(Icon::Close, px(12.0)).text_color(theme::text_muted()),
+                                    ),
+                            )
+                    }))
             });
 
         div()
@@ -913,7 +916,12 @@ impl Sidebar {
             .collect();
         let active = self.stores.sessions.read(cx).active.clone();
         let on_sessions = self.route == Route::Sessions;
-        let update = self.stores.selfbuild.read(cx).update_available().map(str::to_string);
+        let update = self
+            .stores
+            .selfbuild
+            .read(cx)
+            .update_available()
+            .map(str::to_string);
         Some(
             div()
                 .flex()
@@ -1033,7 +1041,9 @@ impl Sidebar {
                                 .on_click(cx.listener(move |_, _, _, cx| {
                                     cx.emit(Navigate(Route::Review(review_id.clone())));
                                 }))
-                                .child(icon(Icon::Branch, px(13.0)).text_color(theme::text_muted())),
+                                .child(
+                                    icon(Icon::Branch, px(13.0)).text_color(theme::text_muted()),
+                                ),
                         )
                         .child(
                             div()

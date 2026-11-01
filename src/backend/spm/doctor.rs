@@ -61,7 +61,10 @@ pub fn find_overlaps(docs: &[(String, String)]) -> Vec<DoctorOverlap> {
             if *nx == 0.0 || *ny == 0.0 {
                 continue;
             }
-            let dot: f64 = x.iter().map(|(t, w)| w * y.get(t).copied().unwrap_or(0.0)).sum();
+            let dot: f64 = x
+                .iter()
+                .map(|(t, w)| w * y.get(t).copied().unwrap_or(0.0))
+                .sum();
             let score = dot / (nx * ny);
             if score >= OVERLAP_THRESHOLD {
                 pairs.push(DoctorOverlap {
@@ -164,7 +167,9 @@ pub fn usage_counts(
         if modified < cutoff {
             continue;
         }
-        let Ok(file) = fs::File::open(&path) else { continue };
+        let Ok(file) = fs::File::open(&path) else {
+            continue;
+        };
         files += 1;
         let mut bump = |name: &str| *counts.entry(skill_key(name)).or_default() += 1;
         for line in BufReader::new(file).split(b'\n').filter_map(Result::ok) {
@@ -172,7 +177,9 @@ pub fn usage_counts(
             if !line.contains("\"Skill\"") && !line.contains("<command-name>") {
                 continue;
             }
-            let Ok(entry) = serde_json::from_str::<Value>(&line) else { continue };
+            let Ok(entry) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
             if entry
                 .get("timestamp")
                 .and_then(Value::as_str)
@@ -298,7 +305,11 @@ pub fn build_report(input: &Input) -> DoctorReport {
             .max()
             .unwrap_or(0);
     }
-    let overlaps = find_overlaps(&all.iter().map(|s| (s.skill.name.clone(), s.text.clone())).collect::<Vec<_>>());
+    let overlaps = find_overlaps(
+        &all.iter()
+            .map(|s| (s.skill.name.clone(), s.text.clone()))
+            .collect::<Vec<_>>(),
+    );
     let index: HashMap<String, usize> = all
         .iter()
         .enumerate()
@@ -336,7 +347,10 @@ pub fn build_report(input: &Input) -> DoctorReport {
     skills.sort_by_key(|s| std::cmp::Reverse(s.description_tokens + s.body_tokens));
     let total: u32 = skills.iter().map(|s| s.description_tokens).sum();
     let mut advice = Vec::new();
-    if !input.manifest.isolate() && global_tokens >= GLOBAL_NOISE_TOKENS && global_tokens > total / 2 {
+    if !input.manifest.isolate()
+        && global_tokens >= GLOBAL_NOISE_TOKENS
+        && global_tokens > total / 2
+    {
         advice.push(format!(
             "Global skills add ~{global_tokens} tokens to every session here. Turn on isolation to hide them in this project."
         ));
@@ -374,7 +388,8 @@ mod tests {
     use super::*;
 
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("agentory-doctor-{}-{name}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("agentory-doctor-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -405,17 +420,32 @@ mod tests {
     #[test]
     fn timestamps_parse_to_epoch_ms() {
         assert_eq!(parse_ms("1970-01-01T00:00:00Z"), Some(0));
-        assert_eq!(parse_ms("2024-03-01T12:00:00.250Z"), Some(1_709_294_400_250));
-        assert_eq!(parse_ms("2024-03-01T14:00:00+02:00"), Some(1_709_294_400_000));
+        assert_eq!(
+            parse_ms("2024-03-01T12:00:00.250Z"),
+            Some(1_709_294_400_250)
+        );
+        assert_eq!(
+            parse_ms("2024-03-01T14:00:00+02:00"),
+            Some(1_709_294_400_000)
+        );
         assert_eq!(parse_ms("nope"), None);
     }
 
     #[test]
     fn similar_descriptions_overlap_and_unrelated_ones_do_not() {
         let docs = vec![
-            ("a".to_string(), "Review pull request code changes for bugs and style".to_string()),
-            ("b".to_string(), "Review pull request code changes for bugs and style issues".to_string()),
-            ("c".to_string(), "Render chess boards from algebraic notation".to_string()),
+            (
+                "a".to_string(),
+                "Review pull request code changes for bugs and style".to_string(),
+            ),
+            (
+                "b".to_string(),
+                "Review pull request code changes for bugs and style issues".to_string(),
+            ),
+            (
+                "c".to_string(),
+                "Render chess boards from algebraic notation".to_string(),
+            ),
         ];
         let o = find_overlaps(&docs);
         assert_eq!(o.len(), 1);
@@ -434,8 +464,18 @@ mod tests {
         let root = scratch("report");
         let project = root.join("proj");
         let skills = project.join(".claude").join("skills");
-        skill(&skills, "used", "Format Rust source files with rustfmt automatically", "body one");
-        skill(&skills, "twin", "Format Rust source files with rustfmt automatically too", "body two");
+        skill(
+            &skills,
+            "used",
+            "Format Rust source files with rustfmt automatically",
+            "body one",
+        );
+        skill(
+            &skills,
+            "twin",
+            "Format Rust source files with rustfmt automatically too",
+            "body two",
+        );
         skill(&skills, "idle", "Draw chess boards from notation", "x");
 
         let projects = root.join("claude").join("projects");
@@ -451,7 +491,11 @@ mod tests {
             "type": "user",
             "message": {"content": "<command-name>/twin</command-name>"},
         });
-        fs::write(transcripts.join("a.jsonl"), format!("{line}\n{line}\n{slash}\nnot json\n")).unwrap();
+        fs::write(
+            transcripts.join("a.jsonl"),
+            format!("{line}\n{line}\n{slash}\nnot json\n"),
+        )
+        .unwrap();
 
         let (counts, files) = usage_counts(&project.to_string_lossy(), 60, Some(&projects), now);
         assert_eq!((files, counts["used"], counts["twin"]), (1, 2, 1));
@@ -469,7 +513,11 @@ mod tests {
         let by = |n: &str| r.skills.iter().find(|s| s.name == n).unwrap().clone();
         assert_eq!(by("idle").reasons, vec!["unused"]);
         assert!(by("used").reasons.is_empty());
-        assert!(by("twin").reasons[0].starts_with("overlaps used ("), "{:?}", by("twin").reasons);
+        assert!(
+            by("twin").reasons[0].starts_with("overlaps used ("),
+            "{:?}",
+            by("twin").reasons
+        );
         assert_eq!(r.overlaps.len(), 1);
         let _ = fs::remove_dir_all(&root);
     }

@@ -106,7 +106,8 @@ mod tests {
 
     /// A tiny crate standing in for the app, in its own dirs so the outer cargo lock is not shared.
     fn fixture(name: &str, main: &str) -> Job {
-        let root = std::env::temp_dir().join(format!("agentory-fixture-{name}-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("agentory-fixture-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let src = root.join("src");
         fs::create_dir_all(&src).unwrap();
@@ -199,6 +200,10 @@ mod tests {
         });
         let out = run(&job, tx).await;
         printer.await.unwrap();
-        assert!(out.passed(), "{:?}", &out.log()[out.log().len().saturating_sub(3000)..]);
+        assert!(
+            out.passed(),
+            "{:?}",
+            &out.log()[out.log().len().saturating_sub(3000)..]
+        );
     }
 }

@@ -7,7 +7,8 @@ fn fake_app() -> PathBuf {
     let mut p = std::env::current_exe().unwrap();
     p.pop(); // deps
     p.pop();
-    p.join("examples").join(format!("fake_app{}", std::env::consts::EXE_SUFFIX))
+    p.join("examples")
+        .join(format!("fake_app{}", std::env::consts::EXE_SUFFIX))
 }
 
 fn setup(name: &str) -> (Layout, PathBuf) {
@@ -35,7 +36,9 @@ fn cleanup(layout: &Layout) {
     let name = format!("fake_app{}", std::env::consts::EXE_SUFFIX);
     let _ = if cfg!(windows) {
         // The helper's relaunched copies are named active/known-good, so kill by that too.
-        process::Command::new("taskkill").args(["/F", "/FI", "IMAGENAME eq active.exe"]).output()
+        process::Command::new("taskkill")
+            .args(["/F", "/FI", "IMAGENAME eq active.exe"])
+            .output()
     } else {
         process::Command::new("pkill").args(["-f", &name]).output()
     };

@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 use gpui::{
-    Context, Entity, EventEmitter, IntoElement, ParentElement, Render,
-    SharedString, Styled, Subscription, Window, div, prelude::*, px,
+    Context, Entity, EventEmitter, IntoElement, ParentElement, Render, SharedString, Styled,
+    Subscription, Window, div, prelude::*, px,
 };
 
 use crate::i18n::{t, t_args};
@@ -43,21 +43,20 @@ impl SkillEditorPage {
             .join("SKILL.md");
         let (saved, load_error) = match std::fs::read_to_string(&path) {
             Ok(text) => (text, None),
-            Err(e) => (
-                String::new(),
-                Some(e.to_string().into()),
-            ),
+            Err(e) => (String::new(), Some(e.to_string().into())),
         };
         let area = cx.new(|cx| {
             let mut a = TextArea::new(cx);
             a.set_value(&saved, cx);
             a
         });
-        let subs = vec![cx.subscribe(&area, |this, _, ev: &TextAreaEvent, cx| match ev {
-            TextAreaEvent::Changed => cx.notify(),
-            TextAreaEvent::Save => this.save(cx),
-            TextAreaEvent::Submit => {}
-        })];
+        let subs = vec![
+            cx.subscribe(&area, |this, _, ev: &TextAreaEvent, cx| match ev {
+                TextAreaEvent::Changed => cx.notify(),
+                TextAreaEvent::Save => this.save(cx),
+                TextAreaEvent::Submit => {}
+            }),
+        ];
         Self {
             name,
             path,
@@ -85,7 +84,13 @@ impl SkillEditorPage {
                 self.saved = text;
                 toast::success(cx, t_args("skill_editor.saved", &[("name", &self.name)]));
             }
-            Err(e) => toast::error(cx, t_args("skill_editor.save_failed", &[("name", &self.name), ("error", &e.to_string())])),
+            Err(e) => toast::error(
+                cx,
+                t_args(
+                    "skill_editor.save_failed",
+                    &[("name", &self.name), ("error", &e.to_string())],
+                ),
+            ),
         }
         cx.notify();
     }
@@ -221,17 +226,19 @@ impl Render for SkillEditorPage {
                             .border_1()
                             .border_color(theme::border_subtle())
                             .bg(theme::bg_app())
-                            .child(self.preview_scroll.attach(
-                                div()
-                                    .id("skill-editor-preview")
-                                    .flex()
-                                    .flex_col()
-                                    .flex_1()
-                                    .min_h_0()
-                                    .p(px(16.0))
-                                    .child(preview),
-                                window,
-                            )),
+                            .child(
+                                self.preview_scroll.attach(
+                                    div()
+                                        .id("skill-editor-preview")
+                                        .flex()
+                                        .flex_col()
+                                        .flex_1()
+                                        .min_h_0()
+                                        .p(px(16.0))
+                                        .child(preview),
+                                    window,
+                                ),
+                            ),
                     ),
             )
     }

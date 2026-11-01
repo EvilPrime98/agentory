@@ -117,7 +117,10 @@ fn kind_color(kind: ChangeKind) -> Rgba {
 }
 
 fn tint(color: Rgba) -> Rgba {
-    Rgba { alpha: 0.14, ..color }
+    Rgba {
+        alpha: 0.14,
+        ..color
+    }
 }
 
 impl GitPage {
@@ -232,7 +235,9 @@ impl GitPage {
 
     fn set_badge(&self, count: usize, cx: &mut Context<Self>) {
         let id = self.project_id.clone();
-        self.stores.git.update(cx, |g, cx| g.set_count(&id, count, cx));
+        self.stores
+            .git
+            .update(cx, |g, cx| g.set_count(&id, count, cx));
     }
 
     fn list(&self, group: Group) -> &[Change] {
@@ -260,7 +265,12 @@ impl GitPage {
             .into_iter()
             .find(|g| self.list(*g).iter().any(|c| c.path == pick.path));
         match moved {
-            Some(group) => self.pick = Some(Pick { path: pick.path, group }),
+            Some(group) => {
+                self.pick = Some(Pick {
+                    path: pick.path,
+                    group,
+                })
+            }
             None => {
                 self.pick = None;
                 self.diff.clear();
@@ -292,14 +302,20 @@ impl GitPage {
         let generation = self.diff_gen;
         let staged = pick.group == Group::Staged;
         cx.spawn(async move |this, cx| {
-            let text = runtime::run(async move { git::file_diff(&root, &change, staged).await }).await;
+            let text =
+                runtime::run(async move { git::file_diff(&root, &change, staged).await }).await;
             this.update(cx, |this, cx| {
                 if this.diff_gen != generation {
                     return;
                 }
                 let mut lines = match text {
                     Ok(text) => git::parse_diff(&text),
-                    Err(e) => vec![DiffLine { kind: LineKind::Note, old: None, new: None, text: e }],
+                    Err(e) => vec![DiffLine {
+                        kind: LineKind::Note,
+                        old: None,
+                        new: None,
+                        text: e,
+                    }],
                 };
                 let hidden = lines.len().saturating_sub(MAX_DIFF_LINES);
                 lines.truncate(MAX_DIFF_LINES);
@@ -318,8 +334,14 @@ impl GitPage {
 
     /// Run a git command off the UI thread, then refresh. A failure becomes a toast plus the
     /// expandable output under the header.
-    fn op<F, Fut>(&mut self, label: String, net: bool, clear_message: bool, cx: &mut Context<Self>, f: F)
-    where
+    fn op<F, Fut>(
+        &mut self,
+        label: String,
+        net: bool,
+        clear_message: bool,
+        cx: &mut Context<Self>,
+        f: F,
+    ) where
         F: FnOnce(PathBuf) -> Fut,
         Fut: Future<Output = Result<(), String>> + Send + 'static,
     {
@@ -372,19 +394,27 @@ impl GitPage {
     }
 
     fn stage(&mut self, paths: Vec<String>, cx: &mut Context<Self>) {
-        self.op(t("git.stage"), false, false, cx, move |root| async move { git::stage(&root, &paths).await });
+        self.op(t("git.stage"), false, false, cx, move |root| async move {
+            git::stage(&root, &paths).await
+        });
     }
 
     fn stage_all(&mut self, cx: &mut Context<Self>) {
-        self.op(t("git.stage_all"), false, false, cx, |root| async move { git::stage_everything(&root).await });
+        self.op(t("git.stage_all"), false, false, cx, |root| async move {
+            git::stage_everything(&root).await
+        });
     }
 
     fn unstage(&mut self, paths: Vec<String>, cx: &mut Context<Self>) {
-        self.op(t("git.unstage"), false, false, cx, move |root| async move { git::unstage(&root, &paths).await });
+        self.op(t("git.unstage"), false, false, cx, move |root| async move {
+            git::unstage(&root, &paths).await
+        });
     }
 
     fn unstage_all(&mut self, cx: &mut Context<Self>) {
-        self.op(t("git.unstage_all"), false, false, cx, |root| async move { git::unstage_everything(&root).await });
+        self.op(t("git.unstage_all"), false, false, cx, |root| async move {
+            git::unstage_everything(&root).await
+        });
     }
 
     fn ask_discard(&mut self, change: Change, cx: &mut Context<Self>) {
@@ -393,8 +423,11 @@ impl GitPage {
         } else {
             "git.discard.body"
         };
-        let options = ConfirmOptions::new(t("git.discard.title"), t_args(key, &[("path", &change.path)]))
-            .labels(t("git.discard"), t("common.cancel"));
+        let options = ConfirmOptions::new(
+            t("git.discard.title"),
+            t_args(key, &[("path", &change.path)]),
+        )
+        .labels(t("git.discard"), t("common.cancel"));
         let page = cx.entity();
         confirm::ask(cx, options, move |answer, _, cx| {
             if answer == Some(true) {
@@ -409,8 +442,9 @@ impl GitPage {
 
     fn ask_discard_all(&mut self, cx: &mut Context<Self>) {
         let count = self.status.unstaged.len();
-        let options = ConfirmOptions::new(t("git.discard.title"), t_n("git.discard_all.body", count))
-            .labels(t("git.discard_all"), t("common.cancel"));
+        let options =
+            ConfirmOptions::new(t("git.discard.title"), t_n("git.discard_all.body", count))
+                .labels(t("git.discard_all"), t("common.cancel"));
         let page = cx.entity();
         confirm::ask(cx, options, move |answer, _, cx| {
             if answer == Some(true) {
@@ -441,8 +475,11 @@ impl GitPage {
             return;
         }
         // Like VS Code: with nothing staged, offer to commit everything.
-        let options = ConfirmOptions::new(t("git.commit.stage_all.title"), t("git.commit.stage_all.body"))
-            .labels(t("git.commit.stage_all.confirm"), t("common.cancel"));
+        let options = ConfirmOptions::new(
+            t("git.commit.stage_all.title"),
+            t("git.commit.stage_all.body"),
+        )
+        .labels(t("git.commit.stage_all.confirm"), t("common.cancel"));
         let page = cx.entity();
         confirm::ask(cx, options, move |answer, _, cx| {
             if answer == Some(true) {
@@ -461,12 +498,16 @@ impl GitPage {
     }
 
     fn fetch(&mut self, cx: &mut Context<Self>) {
-        self.op(t("git.fetch"), true, false, cx, |root| async move { git::fetch(&root).await });
+        self.op(t("git.fetch"), true, false, cx, |root| async move {
+            git::fetch(&root).await
+        });
     }
 
     fn sync(&mut self, cx: &mut Context<Self>) {
         let status = self.status.clone();
-        self.op(t("git.sync"), true, false, cx, move |root| async move { git::sync(&root, &status).await });
+        self.op(t("git.sync"), true, false, cx, move |root| async move {
+            git::sync(&root, &status).await
+        });
     }
 
     fn init_repo(&mut self, cx: &mut Context<Self>) {
@@ -585,7 +626,11 @@ impl GitPage {
                         )
                         .child(small_button(
                             "git-output-toggle",
-                            t(if open { "git.output_hide" } else { "git.output_show" }),
+                            t(if open {
+                                "git.output_hide"
+                            } else {
+                                "git.output_show"
+                            }),
                             cx.listener(|this, _, _, cx| {
                                 this.failure_open = !this.failure_open;
                                 cx.notify();
@@ -678,39 +723,61 @@ impl GitPage {
     }
 
     fn file_row(&self, group: Group, change: &Change, cx: &mut Context<Self>) -> AnyElement {
-        let pick = Pick { path: change.path.clone(), group };
+        let pick = Pick {
+            path: change.path.clone(),
+            group,
+        };
         let selected = self.pick.as_ref() == Some(&pick);
         let (dir, name) = match change.path.rsplit_once('/') {
             Some((d, n)) => (d.to_string(), n.to_string()),
             None => (String::new(), change.path.clone()),
         };
-        let id = |what: &str| SharedString::from(format!("git-{what}-{}-{}", group.key(), change.path));
+        let id =
+            |what: &str| SharedString::from(format!("git-{what}-{}-{}", group.key(), change.path));
         let mut actions: Vec<AnyElement> = Vec::new();
         match group {
             Group::Staged => {
                 let paths = Self::paths_of(change);
                 actions.push(
-                    icon_button(id("unstage"), Icon::Minus, cx.listener(move |this, _, _, cx| this.unstage(paths.clone(), cx)))
-                        .into_any_element(),
+                    icon_button(
+                        id("unstage"),
+                        Icon::Minus,
+                        cx.listener(move |this, _, _, cx| this.unstage(paths.clone(), cx)),
+                    )
+                    .into_any_element(),
                 );
             }
             Group::Changes => {
                 let for_discard = change.clone();
                 let paths = Self::paths_of(change);
                 actions.push(
-                    icon_button(id("discard"), Icon::Undo, cx.listener(move |this, _, _, cx| this.ask_discard(for_discard.clone(), cx)))
-                        .into_any_element(),
+                    icon_button(
+                        id("discard"),
+                        Icon::Undo,
+                        cx.listener(move |this, _, _, cx| {
+                            this.ask_discard(for_discard.clone(), cx)
+                        }),
+                    )
+                    .into_any_element(),
                 );
                 actions.push(
-                    icon_button(id("stage"), Icon::Plus, cx.listener(move |this, _, _, cx| this.stage(paths.clone(), cx)))
-                        .into_any_element(),
+                    icon_button(
+                        id("stage"),
+                        Icon::Plus,
+                        cx.listener(move |this, _, _, cx| this.stage(paths.clone(), cx)),
+                    )
+                    .into_any_element(),
                 );
             }
             Group::Conflicts => {
                 let paths = Self::paths_of(change);
                 actions.push(
-                    icon_button(id("resolve"), Icon::Plus, cx.listener(move |this, _, _, cx| this.stage(paths.clone(), cx)))
-                        .into_any_element(),
+                    icon_button(
+                        id("resolve"),
+                        Icon::Plus,
+                        cx.listener(move |this, _, _, cx| this.stage(paths.clone(), cx)),
+                    )
+                    .into_any_element(),
                 );
             }
         }
@@ -742,7 +809,13 @@ impl GitPage {
                             .text_color(kind_color(change.kind))
                             .child(change.kind.letter()),
                     )
-                    .child(div().flex_none().text_size(px(12.5)).text_color(theme::text()).child(name))
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_size(px(12.5))
+                            .text_color(theme::text())
+                            .child(name),
+                    )
                     .child(
                         div()
                             .flex_1()
@@ -762,25 +835,52 @@ impl GitPage {
         let mut groups: Vec<AnyElement> = Vec::new();
 
         if !status.conflicts.is_empty() {
-            groups.push(self.group_header(Group::Conflicts, t("git.group.conflicts"), status.conflicts.len(), Vec::new()));
+            groups.push(self.group_header(
+                Group::Conflicts,
+                t("git.group.conflicts"),
+                status.conflicts.len(),
+                Vec::new(),
+            ));
             for c in &status.conflicts {
                 groups.push(self.file_row(Group::Conflicts, c, cx));
             }
         }
         if !status.staged.is_empty() {
-            let unstage_all = icon_button("git-unstage-all", Icon::Minus, cx.listener(|this, _, _, cx| this.unstage_all(cx)))
-                .into_any_element();
-            groups.push(self.group_header(Group::Staged, t("git.group.staged"), status.staged.len(), vec![unstage_all]));
+            let unstage_all = icon_button(
+                "git-unstage-all",
+                Icon::Minus,
+                cx.listener(|this, _, _, cx| this.unstage_all(cx)),
+            )
+            .into_any_element();
+            groups.push(self.group_header(
+                Group::Staged,
+                t("git.group.staged"),
+                status.staged.len(),
+                vec![unstage_all],
+            ));
             for c in &status.staged {
                 groups.push(self.file_row(Group::Staged, c, cx));
             }
         }
         if !status.unstaged.is_empty() {
-            let discard_all = icon_button("git-discard-all", Icon::Undo, cx.listener(|this, _, _, cx| this.ask_discard_all(cx)))
-                .into_any_element();
-            let stage_all = icon_button("git-stage-all", Icon::Plus, cx.listener(|this, _, _, cx| this.stage_all(cx)))
-                .into_any_element();
-            groups.push(self.group_header(Group::Changes, t("git.group.changes"), status.unstaged.len(), vec![discard_all, stage_all]));
+            let discard_all = icon_button(
+                "git-discard-all",
+                Icon::Undo,
+                cx.listener(|this, _, _, cx| this.ask_discard_all(cx)),
+            )
+            .into_any_element();
+            let stage_all = icon_button(
+                "git-stage-all",
+                Icon::Plus,
+                cx.listener(|this, _, _, cx| this.stage_all(cx)),
+            )
+            .into_any_element();
+            groups.push(self.group_header(
+                Group::Changes,
+                t("git.group.changes"),
+                status.unstaged.len(),
+                vec![discard_all, stage_all],
+            ));
             for c in &status.unstaged {
                 groups.push(self.file_row(Group::Changes, c, cx));
             }
@@ -850,10 +950,14 @@ impl GitPage {
                 .overflow_y_scroll()
                 .track_scroll(&self.diff_scroll)
                 .py(px(6.0))
-                .when(rows.is_empty(), |s| s.child(muted_note(t("git.no_diff").into())))
+                .when(rows.is_empty(), |s| {
+                    s.child(muted_note(t("git.no_diff").into()))
+                })
                 .children(rows)
                 .when(self.diff_hidden > 0, |s| {
-                    s.child(muted_note(t_args("git.diff_cut", &[("n", &self.diff_hidden.to_string())]).into()))
+                    s.child(muted_note(
+                        t_args("git.diff_cut", &[("n", &self.diff_hidden.to_string())]).into(),
+                    ))
                 }),
         )
         .into_any_element()
@@ -879,7 +983,11 @@ fn diff_row(line: &DiffLine) -> AnyElement {
         LineKind::Note => (None, theme::text_muted(), ""),
         LineKind::Context => (None, theme::text_secondary(), " "),
     };
-    let text = if line.text.is_empty() { " ".to_string() } else { line.text.clone() };
+    let text = if line.text.is_empty() {
+        " ".to_string()
+    } else {
+        line.text.clone()
+    };
     div()
         .flex()
         .flex_none()
@@ -890,7 +998,14 @@ fn diff_row(line: &DiffLine) -> AnyElement {
         .child(num(line.old))
         .child(num(line.new))
         .child(div().flex_none().w(px(14.0)).text_color(color).child(sign))
-        .child(div().flex_1().min_w_0().pr(px(8.0)).text_color(color).child(text))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .pr(px(8.0))
+                .text_color(color)
+                .child(text),
+        )
         .into_any_element()
 }
 
@@ -898,7 +1013,9 @@ impl Render for GitPage {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let body: AnyElement = match &self.repo {
             Repo::Loading => muted_note(t("git.loading").into()).into_any_element(),
-            Repo::Failed(e) => muted_note(t_args("git.read_failed", &[("error", e)]).into()).into_any_element(),
+            Repo::Failed(e) => {
+                muted_note(t_args("git.read_failed", &[("error", e)]).into()).into_any_element()
+            }
             Repo::Missing => div()
                 .flex()
                 .flex_col()

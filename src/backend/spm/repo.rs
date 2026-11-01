@@ -54,7 +54,10 @@ pub fn parse_repo(spec: &str) -> Result<RepoSpec, String> {
         }
     }
 
-    if subdir.as_deref().is_some_and(|d| d.split('/').any(|p| p == "..")) {
+    if subdir
+        .as_deref()
+        .is_some_and(|d| d.split('/').any(|p| p == ".."))
+    {
         return Err(format!(
             "invalid subdirectory \"{}\": \"..\" is not allowed",
             subdir.unwrap_or_default()
@@ -90,14 +93,24 @@ pub fn cache_dir() -> PathBuf {
 }
 
 fn cache_path(repo: &RepoSpec) -> PathBuf {
-    let digest = Sha1::digest(format!("{}#{}", repo.url, repo.r#ref.as_deref().unwrap_or("")));
+    let digest = Sha1::digest(format!(
+        "{}#{}",
+        repo.url,
+        repo.r#ref.as_deref().unwrap_or("")
+    ));
     let id = &store::hex(&digest)[..8];
     let base = repo.url.trim_end_matches('/');
     let base = base.rsplit(['/', '\\']).next().unwrap_or(base);
     let base = base.strip_suffix(".git").unwrap_or(base);
     let name: String = base
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-') { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     cache_dir().join(format!("{name}-{id}"))
 }
@@ -108,8 +121,10 @@ fn git(args: &[&str], cwd: Option<&Path>) -> Result<String, String> {
     // The cache is spm's own; on Windows it can end up owned by Administrators, which git rejects
     // as "dubious ownership".
     if let Some(cwd) = cwd {
-        cmd.arg("-c")
-            .arg(format!("safe.directory={}", cwd.to_string_lossy().replace('\\', "/")));
+        cmd.arg("-c").arg(format!(
+            "safe.directory={}",
+            cwd.to_string_lossy().replace('\\', "/")
+        ));
         cmd.current_dir(cwd);
     }
     cmd.args(args)
@@ -134,8 +149,15 @@ fn git(args: &[&str], cwd: Option<&Path>) -> Result<String, String> {
         Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
     } else {
         let err = String::from_utf8_lossy(&out.stderr);
-        let err = if err.trim().is_empty() { out.status.to_string() } else { err.trim().to_string() };
-        Err(format!("git {} failed: {err}", args.first().copied().unwrap_or("")))
+        let err = if err.trim().is_empty() {
+            out.status.to_string()
+        } else {
+            err.trim().to_string()
+        };
+        Err(format!(
+            "git {} failed: {err}",
+            args.first().copied().unwrap_or("")
+        ))
     }
 }
 
@@ -146,7 +168,10 @@ fn is_sha(r: Option<&str>) -> bool {
 /// Specs sharing a clone (same repo and ref, different subdir) must not clone concurrently.
 fn lock_for(dir: &Path) -> Arc<Mutex<()>> {
     static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
-    let mut map = LOCKS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    let mut map = LOCKS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     map.entry(dir.to_path_buf()).or_default().clone()
 }
 
@@ -266,7 +291,13 @@ fn default_name(spec: &str) -> String {
     let base = base.rsplit(['/', '\\']).next().unwrap_or(base);
     let base = base.strip_suffix(".git").unwrap_or(base);
     base.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-') { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -295,7 +326,10 @@ pub fn load_pool(specs: &[String]) -> Result<Pool, String> {
             .collect();
         handles
             .into_iter()
-            .map(|h| h.join().unwrap_or_else(|_| Err("fetch thread panicked".into())))
+            .map(|h| {
+                h.join()
+                    .unwrap_or_else(|_| Err("fetch thread panicked".into()))
+            })
             .collect()
     });
     let mut pool = Pool::new();
@@ -313,7 +347,10 @@ pub fn load_pool(specs: &[String]) -> Result<Pool, String> {
 }
 
 /// The candidate for a skill, preferring the `wanted` repo when given.
-pub fn pick_candidate<'a>(candidates: Option<&'a Vec<Candidate>>, wanted: Option<&str>) -> Option<&'a Candidate> {
+pub fn pick_candidate<'a>(
+    candidates: Option<&'a Vec<Candidate>>,
+    wanted: Option<&str>,
+) -> Option<&'a Candidate> {
     let candidates = candidates?;
     match wanted {
         None => candidates.first(),

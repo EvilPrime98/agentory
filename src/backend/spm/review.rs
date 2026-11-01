@@ -28,7 +28,10 @@ pub fn inspect_skill(dir: &Path) -> std::io::Result<Report> {
     fn walk(root: &Path, d: &Path, r: &mut Report) -> std::io::Result<()> {
         let mut entries: Vec<_> = fs::read_dir(d)?.collect::<Result<_, _>>()?;
         entries.sort_by(|a, b| {
-            locale_cmp(&a.file_name().to_string_lossy(), &b.file_name().to_string_lossy())
+            locale_cmp(
+                &a.file_name().to_string_lossy(),
+                &b.file_name().to_string_lossy(),
+            )
         });
         for e in entries {
             if e.file_name() == ".git" {
@@ -73,11 +76,14 @@ pub fn inspect_skill(dir: &Path) -> std::io::Result<Report> {
 /// The `allowed-tools:` line of the front matter, if any.
 fn allowed_tools(skill_md: &str) -> Option<String> {
     let rest = skill_md.strip_prefix("---")?;
-    let rest = rest.strip_prefix("\r\n").or_else(|| rest.strip_prefix('\n'))?;
+    let rest = rest
+        .strip_prefix("\r\n")
+        .or_else(|| rest.strip_prefix('\n'))?;
     let end = rest.find("\n---")?;
-    rest[..end]
-        .lines()
-        .find_map(|l| l.strip_prefix("allowed-tools:").map(|v| v.trim().to_string()))
+    rest[..end].lines().find_map(|l| {
+        l.strip_prefix("allowed-tools:")
+            .map(|v| v.trim().to_string())
+    })
 }
 
 fn is_executable(full: &Path, rel: &str) -> std::io::Result<bool> {
@@ -129,7 +135,11 @@ impl Review {
             .unwrap_or_default();
         l.push(format!("commit  {from}{}", self.sha));
         l.push(format!("hash    {}", self.hash));
-        l.push(format!("files   {} ({})", self.report.files.len(), kb(self.report.size)));
+        l.push(format!(
+            "files   {} ({})",
+            self.report.files.len(),
+            kb(self.report.size)
+        ));
         for (p, s) in self.report.files.iter().take(LISTED) {
             l.push(format!("  {p}  {}", kb(*s)));
         }
@@ -153,7 +163,11 @@ mod tests {
         let d = std::env::temp_dir().join(format!("agentory-review-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(d.join("scripts")).unwrap();
-        fs::write(d.join("SKILL.md"), "---\nname: x\nallowed-tools: Bash, Read\n---\nhi").unwrap();
+        fs::write(
+            d.join("SKILL.md"),
+            "---\nname: x\nallowed-tools: Bash, Read\n---\nhi",
+        )
+        .unwrap();
         fs::write(d.join("scripts/run.txt"), "plain").unwrap();
         fs::write(d.join("tool.py"), "print(1)").unwrap();
         fs::write(d.join("blob.dat"), [1u8, 0, 2]).unwrap();
@@ -161,7 +175,11 @@ mod tests {
         let r = inspect_skill(&d).unwrap();
         assert_eq!(r.files.len(), 5);
         for want in ["scripts/run.txt", "tool.py", "blob.dat"] {
-            assert!(r.flags.contains(&format!("script or binary: {want}")), "{want}: {:?}", r.flags);
+            assert!(
+                r.flags.contains(&format!("script or binary: {want}")),
+                "{want}: {:?}",
+                r.flags
+            );
         }
         assert!(!r.flags.iter().any(|f| f.contains("notes.md")));
         assert!(r.flags.contains(&"allowed-tools: Bash, Read".to_string()));

@@ -27,7 +27,11 @@ use crate::ui::theme;
 fn smoke_secs() -> Option<u64> {
     let mut args = std::env::args().skip_while(|a| a != "--smoke");
     args.next()?;
-    Some(args.next().and_then(|s| s.parse().ok()).unwrap_or(selfbuild::SMOKE_SECS))
+    Some(
+        args.next()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(selfbuild::SMOKE_SECS),
+    )
 }
 
 fn main() {

@@ -43,7 +43,8 @@ impl Paths {
     }
     /// Where a gated build waits for the helper to install it (shared with the helper's `--new`).
     pub fn staged_exe(&self) -> PathBuf {
-        self.bin_dir().join(format!("staged{}", std::env::consts::EXE_SUFFIX))
+        self.bin_dir()
+            .join(format!("staged{}", std::env::consts::EXE_SUFFIX))
     }
     /// Shared `CARGO_TARGET_DIR`, reused so builds stay incremental.
     pub fn target_dir(&self) -> PathBuf {
@@ -81,13 +82,28 @@ mod tests {
 
     #[test]
     fn target_dir_is_local_not_roaming() {
-        assert_eq!(p().target_dir(), Path::new("L").join("Agentory").join("target"));
+        assert_eq!(
+            p().target_dir(),
+            Path::new("L").join("Agentory").join("target")
+        );
     }
 
     #[test]
     fn built_exe_is_in_release() {
         let exe = p().built_exe();
-        assert!(exe.starts_with(Path::new("L").join("Agentory").join("target").join("release")));
-        assert!(exe.file_name().unwrap().to_string_lossy().starts_with("agentory"));
+        assert!(
+            exe.starts_with(
+                Path::new("L")
+                    .join("Agentory")
+                    .join("target")
+                    .join("release")
+            )
+        );
+        assert!(
+            exe.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("agentory")
+        );
     }
 }

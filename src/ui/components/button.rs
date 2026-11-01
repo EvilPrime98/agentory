@@ -51,7 +51,10 @@ pub fn button(
             .bg(theme::bg_panel())
             .border_color(theme::border_subtle())
             .text_color(theme::text())
-            .hover(|s| s.bg(theme::btn_hover()).border_color(theme::border_strong()))
+            .hover(|s| {
+                s.bg(theme::btn_hover())
+                    .border_color(theme::border_strong())
+            })
             .active(|s| s.bg(theme::btn_active())),
         ButtonVariant::Ghost => base
             .text_color(theme::text_secondary())

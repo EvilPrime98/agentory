@@ -8,10 +8,16 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use gpui::{ScrollDelta, ScrollHandle, ScrollWheelEvent, StatefulInteractiveElement, Styled, px};
+use gpui::{
+    IntoElement, ParentElement, ScrollDelta, ScrollHandle, ScrollWheelEvent,
+    StatefulInteractiveElement, Styled, div, px,
+};
+
+use crate::ui::theme;
 
 /// Fraction of the remaining distance covered each frame.
 const DECAY: f32 = 0.18;
+const FRAME_PAD: f32 = 12.0;
 /// Distance (px) under which the animation snaps to its target.
 const SETTLE: f32 = 0.5;
 
@@ -44,6 +50,38 @@ impl SmoothScroll {
                     cx.notify(view);
                 }
             })
+    }
+
+    pub fn framed<E>(&self, el: E, window: &mut gpui::Window) -> gpui::Div
+    where
+        E: StatefulInteractiveElement + Styled + IntoElement,
+    {
+        let list = self.attach(el.pr(px(10.0)), window);
+        let max = f32::from(self.handle.max_offset().y);
+        let view = f32::from(self.handle.bounds().size.height);
+        let thumb = (max > 0.0 && view > 0.0).then(|| {
+            let h = (view * view / (view + max)).max(24.0).min(view);
+            let progress = (-f32::from(self.handle.offset().y) / max).clamp(0.0, 1.0);
+            div()
+                .absolute()
+                .right(px(4.0))
+                .top(px(FRAME_PAD + progress * (view - h).max(0.0)))
+                .w(px(4.0))
+                .h(px(h))
+                .rounded_full()
+                .bg(theme::text_muted())
+                .opacity(0.7)
+        });
+        div()
+            .relative()
+            .p(px(FRAME_PAD))
+            .rounded(px(10.0))
+            .bg(theme::bg_panel())
+            .border_1()
+            .border_color(theme::border_subtle())
+            .overflow_hidden()
+            .child(list)
+            .children(thumb)
     }
 
     /// Advance the animation one frame, requesting another until it settles.

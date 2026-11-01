@@ -72,18 +72,21 @@ fn age_label(modified_ms: i64) -> String {
 }
 
 impl SessionHistoryPage {
-    pub fn new(stores: Stores, project_id: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        stores: Stores,
+        project_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let search = cx.new(|cx| TextInput::new(t("history.search_placeholder"), cx));
-        let subs = vec![cx.subscribe_in(
-            &search,
-            window,
-            |this, _, ev: &TextInputEvent, _, cx| {
+        let subs = vec![
+            cx.subscribe_in(&search, window, |this, _, ev: &TextInputEvent, _, cx| {
                 if matches!(ev, TextInputEvent::Changed) {
                     this.page = 0;
                     cx.notify();
                 }
-            },
-        )];
+            }),
+        ];
         let mut this = Self {
             stores,
             project_id,
@@ -149,8 +152,15 @@ impl SessionHistoryPage {
         }
     }
 
-    fn begin_rename(&mut self, id: String, current: String, window: &mut Window, cx: &mut Context<Self>) {
-        let input = cx.new(|cx| TextInput::new(t("history.rename_placeholder"), cx).with_value(current));
+    fn begin_rename(
+        &mut self,
+        id: String,
+        current: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let input =
+            cx.new(|cx| TextInput::new(t("history.rename_placeholder"), cx).with_value(current));
         let rename_id = id.clone();
         self._rename_sub = Some(cx.subscribe_in(
             &input,
@@ -185,8 +195,11 @@ impl SessionHistoryPage {
         self.sessions
             .iter()
             .filter(|m| {
-                path.as_deref()
-                    .is_some_and(|p| m.cwd.as_deref().is_some_and(|c| transcripts::same_dir(c, p)))
+                path.as_deref().is_some_and(|p| {
+                    m.cwd
+                        .as_deref()
+                        .is_some_and(|c| transcripts::same_dir(c, p))
+                })
             })
             .filter(|m| {
                 query.is_empty()
@@ -205,14 +218,19 @@ impl SessionHistoryPage {
 
 impl Render for SessionHistoryPage {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.search
-            .update(cx, |s, _| s.set_placeholder(t("history.search_placeholder")));
+        self.search.update(cx, |s, _| {
+            s.set_placeholder(t("history.search_placeholder"))
+        });
         let all: Vec<SessionMeta> = self.visible(cx).into_iter().cloned().collect();
         let empty = all.is_empty();
         let pages = all.len().div_ceil(PAGE_SIZE).max(1);
         self.page = self.page.min(pages - 1);
         let page = self.page;
-        let metas: Vec<SessionMeta> = all.into_iter().skip(page * PAGE_SIZE).take(PAGE_SIZE).collect();
+        let metas: Vec<SessionMeta> = all
+            .into_iter()
+            .skip(page * PAGE_SIZE)
+            .take(PAGE_SIZE)
+            .collect();
 
         let rows = metas.into_iter().enumerate().map(|(index, meta)| {
             let title = self
@@ -372,23 +390,19 @@ impl Render for SessionHistoryPage {
                             ),
                     )
                     .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(8.0))
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .h(px(26.0))
-                                    .px(px(8.0))
-                                    .rounded(px(4.0))
-                                    .border_1()
-                                    .border_color(theme::border_subtle())
-                                    .bg(theme::bg_app())
-                                    .child(self.search.clone()),
-                            )
+                        div().flex().items_center().gap(px(8.0)).child(
+                            div()
+                                .flex()
+                                .flex_1()
+                                .min_w_0()
+                                .h(px(26.0))
+                                .px(px(8.0))
+                                .rounded(px(4.0))
+                                .border_1()
+                                .border_color(theme::border_subtle())
+                                .bg(theme::bg_app())
+                                .child(self.search.clone()),
+                        ),
                     )
                     .child(table)
                     .when(pages > 1, |s| {

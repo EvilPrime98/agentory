@@ -63,16 +63,25 @@ async fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
 
 /// The commit `branch` and the worktree's HEAD last had in common.
 pub async fn merge_base(wt: &Path, branch: &str) -> Result<String, String> {
-    Ok(git(wt, &["merge-base", "HEAD", branch]).await?.trim().to_string())
+    Ok(git(wt, &["merge-base", "HEAD", branch])
+        .await?
+        .trim()
+        .to_string())
 }
 
 #[cfg(test)]
 pub async fn head_sha(dir: &Path) -> Result<String, String> {
-    Ok(git(dir, &["rev-parse", "--short=12", "HEAD"]).await?.trim().to_string())
+    Ok(git(dir, &["rev-parse", "--short=12", "HEAD"])
+        .await?
+        .trim()
+        .to_string())
 }
 
 pub async fn current_branch(dir: &Path) -> Result<String, String> {
-    Ok(git(dir, &["rev-parse", "--abbrev-ref", "HEAD"]).await?.trim().to_string())
+    Ok(git(dir, &["rev-parse", "--abbrev-ref", "HEAD"])
+        .await?
+        .trim()
+        .to_string())
 }
 
 /// Stage everything, so new files show up in the diff and are committed with the rest.
@@ -84,28 +93,45 @@ pub async fn stage_all(wt: &Path) -> Result<(), String> {
 /// included. Stages the worktree as a side effect.
 pub async fn diff_since(wt: &Path, base: &str) -> Result<String, String> {
     stage_all(wt).await?;
-    git(wt, &["diff", "--cached", "--no-color", "--no-ext-diff", base]).await
+    git(
+        wt,
+        &["diff", "--cached", "--no-color", "--no-ext-diff", base],
+    )
+    .await
 }
 
 /// Files in conflict (unmerged), if any.
 pub async fn conflicted_files(wt: &Path) -> Result<Vec<String>, String> {
     let out = git(wt, &["diff", "--name-only", "--diff-filter=U"]).await?;
-    Ok(out.lines().map(str::to_string).filter(|l| !l.is_empty()).collect())
+    Ok(out
+        .lines()
+        .map(str::to_string)
+        .filter(|l| !l.is_empty())
+        .collect())
 }
 
 /// Commit all changes in the worktree. `false` when there was nothing to commit. Completes a
 /// merge the user resolved by hand.
 pub async fn commit_all(wt: &Path, message: &str) -> Result<bool, String> {
     stage_all(wt).await?;
-    let merging = git(wt, &["rev-parse", "-q", "--verify", "MERGE_HEAD"]).await.is_ok();
+    let merging = git(wt, &["rev-parse", "-q", "--verify", "MERGE_HEAD"])
+        .await
+        .is_ok();
     if !merging && git(wt, &["diff", "--cached", "--quiet"]).await.is_ok() {
         return Ok(false);
     }
     // A machine without a git identity still has to be able to commit.
-    let has_identity = git(wt, &["config", "user.email"]).await.is_ok_and(|s| !s.trim().is_empty());
+    let has_identity = git(wt, &["config", "user.email"])
+        .await
+        .is_ok_and(|s| !s.trim().is_empty());
     let mut args = Vec::new();
     if !has_identity {
-        args.extend(["-c", "user.name=Agentory", "-c", "user.email=agentory@localhost"]);
+        args.extend([
+            "-c",
+            "user.name=Agentory",
+            "-c",
+            "user.email=agentory@localhost",
+        ]);
     }
     args.extend(["commit", "-m", message]);
     git(wt, &args).await.map(|_| true)
@@ -142,30 +168,49 @@ pub async fn fetch_tags(repo: &Path) -> Result<(), String> {
 
 pub async fn list_tags(repo: &Path) -> Result<Vec<String>, String> {
     let out = git(repo, &["tag", "--list"]).await?;
-    Ok(out.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect())
+    Ok(out
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect())
 }
 
 /// The nearest tag reachable from `rev`: the release the branch is based on.
 pub async fn base_tag(repo: &Path, rev: &str) -> Result<String, String> {
-    Ok(git(repo, &["describe", "--tags", "--abbrev=0", rev]).await?.trim().to_string())
+    Ok(git(repo, &["describe", "--tags", "--abbrev=0", rev])
+        .await?
+        .trim()
+        .to_string())
 }
 
 /// Commits reachable from `to` but not from `from`.
 pub async fn count_commits(repo: &Path, from: &str, to: &str) -> Result<usize, String> {
     let range = format!("{from}..{to}");
     let out = git(repo, &["rev-list", "--count", &range]).await?;
-    out.trim().parse().map_err(|_| format!("unexpected rev-list output: {out}"))
+    out.trim()
+        .parse()
+        .map_err(|_| format!("unexpected rev-list output: {out}"))
 }
 
 /// A worktree on a new branch started from `base` (e.g. `user`), for an upstream merge.
-pub async fn add_worktree_from(repo: &Path, project_name: &str, session_id: &str, base: &str) -> Result<Worktree, String> {
+pub async fn add_worktree_from(
+    repo: &Path,
+    project_name: &str,
+    session_id: &str,
+    base: &str,
+) -> Result<Worktree, String> {
     let path = worktree_path(project_name, session_id);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let branch = branch_name(session_id);
     let path_str = path.to_string_lossy().into_owned();
-    capture("git", &["worktree", "add", &path_str, "-b", &branch, base], repo).await?;
+    capture(
+        "git",
+        &["worktree", "add", &path_str, "-b", &branch, base],
+        repo,
+    )
+    .await?;
     Ok(Worktree { path, branch })
 }
 
@@ -176,7 +221,8 @@ pub async fn remove_worktree(repo: &Path, wt: &Worktree) -> Result<(), String> {
     let removed = git(repo, &["worktree", "remove", "--force", &path]).await;
     if wt.path.exists() {
         // `worktree remove` can fail on a locked file; fall back to deleting the folder.
-        std::fs::remove_dir_all(&wt.path).map_err(|e| removed.err().unwrap_or_else(|| e.to_string()))?;
+        std::fs::remove_dir_all(&wt.path)
+            .map_err(|e| removed.err().unwrap_or_else(|| e.to_string()))?;
     }
     let _ = git(repo, &["worktree", "prune"]).await;
     match git(repo, &["branch", "-D", &wt.branch]).await {
@@ -346,7 +392,14 @@ pub async fn init(dir: &Path) -> Result<(), String> {
 pub async fn status(root: &Path) -> Result<Status, String> {
     let out = git(
         root,
-        &["--no-optional-locks", "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"],
+        &[
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "-z",
+            "--untracked-files=all",
+        ],
     )
     .await?;
     Ok(parse_status(&out))
@@ -434,22 +487,52 @@ pub fn parse_diff(diff: &str) -> Vec<DiffLine> {
             if let Some((o, n)) = hunk_starts(line) {
                 (old, new) = (o, n);
             }
-            out.push(DiffLine { kind: LineKind::Hunk, old: None, new: None, text: line.to_string() });
+            out.push(DiffLine {
+                kind: LineKind::Hunk,
+                old: None,
+                new: None,
+                text: line.to_string(),
+            });
         } else if !in_hunk {
             if line.starts_with("Binary files") || line.starts_with("GIT binary patch") {
-                out.push(DiffLine { kind: LineKind::Note, old: None, new: None, text: line.to_string() });
+                out.push(DiffLine {
+                    kind: LineKind::Note,
+                    old: None,
+                    new: None,
+                    text: line.to_string(),
+                });
             }
         } else if let Some(t) = line.strip_prefix('+') {
-            out.push(DiffLine { kind: LineKind::Add, old: None, new: Some(new), text: t.to_string() });
+            out.push(DiffLine {
+                kind: LineKind::Add,
+                old: None,
+                new: Some(new),
+                text: t.to_string(),
+            });
             new += 1;
         } else if let Some(t) = line.strip_prefix('-') {
-            out.push(DiffLine { kind: LineKind::Del, old: Some(old), new: None, text: t.to_string() });
+            out.push(DiffLine {
+                kind: LineKind::Del,
+                old: Some(old),
+                new: None,
+                text: t.to_string(),
+            });
             old += 1;
         } else if line.starts_with('\\') {
-            out.push(DiffLine { kind: LineKind::Note, old: None, new: None, text: line.to_string() });
+            out.push(DiffLine {
+                kind: LineKind::Note,
+                old: None,
+                new: None,
+                text: line.to_string(),
+            });
         } else {
             let t = line.strip_prefix(' ').unwrap_or(line);
-            out.push(DiffLine { kind: LineKind::Context, old: Some(old), new: Some(new), text: t.to_string() });
+            out.push(DiffLine {
+                kind: LineKind::Context,
+                old: Some(old),
+                new: Some(new),
+                text: t.to_string(),
+            });
             old += 1;
             new += 1;
         }
@@ -486,9 +569,13 @@ pub async fn unstage_everything(root: &Path) -> Result<(), String> {
 /// Throw away the working-tree change of one file: restore a tracked one, delete an untracked one.
 pub async fn discard(root: &Path, change: &Change) -> Result<(), String> {
     if change.kind == ChangeKind::Untracked {
-        gitl(root, &["clean", "-f", "-q", "--", &change.path]).await.map(|_| ())
+        gitl(root, &["clean", "-f", "-q", "--", &change.path])
+            .await
+            .map(|_| ())
     } else {
-        gitl(root, &["restore", "--", &change.path]).await.map(|_| ())
+        gitl(root, &["restore", "--", &change.path])
+            .await
+            .map(|_| ())
     }
 }
 
@@ -500,10 +587,17 @@ pub async fn discard_everything(root: &Path) -> Result<(), String> {
 
 /// Commit what is staged. Hooks run. A machine without a git identity still commits.
 pub async fn commit(root: &Path, message: &str) -> Result<(), String> {
-    let has_identity = git(root, &["config", "user.email"]).await.is_ok_and(|s| !s.trim().is_empty());
+    let has_identity = git(root, &["config", "user.email"])
+        .await
+        .is_ok_and(|s| !s.trim().is_empty());
     let mut args = Vec::new();
     if !has_identity {
-        args.extend(["-c", "user.name=Agentory", "-c", "user.email=agentory@localhost"]);
+        args.extend([
+            "-c",
+            "user.name=Agentory",
+            "-c",
+            "user.email=agentory@localhost",
+        ]);
     }
     args.extend(["commit", "-m", message]);
     git(root, &args).await.map(|_| ())
@@ -519,7 +613,9 @@ pub async fn sync(root: &Path, status: &Status) -> Result<(), String> {
         git(root, &["pull"]).await?;
         git(root, &["push"]).await.map(|_| ())
     } else {
-        git(root, &["push", "--set-upstream", "origin", "HEAD"]).await.map(|_| ())
+        git(root, &["push", "--set-upstream", "origin", "HEAD"])
+            .await
+            .map(|_| ())
     }
 }
 
@@ -544,7 +640,10 @@ u UU N... 1 2 3 4 a b c clash.rs\0\
         assert_eq!((st.ahead, st.behind), (2, 1));
         let paths = |v: &[Change]| v.iter().map(|c| c.path.clone()).collect::<Vec<_>>();
         assert_eq!(paths(&st.staged), ["src/both.rs", "new.rs", "renamed.rs"]);
-        assert_eq!(paths(&st.unstaged), ["src/both.rs", "gone.rs", "loose file.txt"]);
+        assert_eq!(
+            paths(&st.unstaged),
+            ["src/both.rs", "gone.rs", "loose file.txt"]
+        );
         assert_eq!(paths(&st.conflicts), ["clash.rs"]);
         assert_eq!(st.staged[2].kind, ChangeKind::Renamed);
         assert_eq!(st.staged[2].from.as_deref(), Some("old.rs"));
@@ -567,7 +666,14 @@ u UU N... 1 2 3 4 a b c clash.rs\0\
         let kinds: Vec<_> = lines.iter().map(|l| l.kind).collect();
         assert_eq!(
             kinds,
-            [LineKind::Hunk, LineKind::Context, LineKind::Del, LineKind::Add, LineKind::Context, LineKind::Note]
+            [
+                LineKind::Hunk,
+                LineKind::Context,
+                LineKind::Del,
+                LineKind::Add,
+                LineKind::Context,
+                LineKind::Note
+            ]
         );
         assert_eq!((lines[1].old, lines[1].new), (Some(3), Some(3)));
         assert_eq!((lines[2].old, lines[2].new), (Some(4), None));
@@ -603,7 +709,11 @@ u UU N... 1 2 3 4 a b c clash.rs\0\
         assert_eq!(st.staged.len(), 1);
         assert_eq!(st.unstaged.len(), 1);
         let staged_diff = file_diff(&root, &st.staged[0], true).await.unwrap();
-        assert!(parse_diff(&staged_diff).iter().any(|l| l.kind == LineKind::Add && l.text == "one"));
+        assert!(
+            parse_diff(&staged_diff)
+                .iter()
+                .any(|l| l.kind == LineKind::Add && l.text == "one")
+        );
 
         unstage(&root, &["a.txt".to_string()]).await.unwrap();
         assert!(status(&root).await.unwrap().staged.is_empty());
@@ -620,7 +730,10 @@ u UU N... 1 2 3 4 a b c clash.rs\0\
             discard(&root, c).await.unwrap();
         }
         // autocrlf may restore CRLF on Windows.
-        assert_eq!(fs::read_to_string(dir.join("a.txt")).unwrap().trim_end(), "one");
+        assert_eq!(
+            fs::read_to_string(dir.join("a.txt")).unwrap().trim_end(),
+            "one"
+        );
         assert!(!dir.join("fresh.txt").exists());
         assert_eq!(status(&root).await.unwrap().total(), 0);
 
@@ -652,11 +765,18 @@ mod tests {
         let main = root.join("main");
         fs::create_dir_all(&main).unwrap();
         sh(&main, &["init", "-b", "user"]).await;
-        fs::write(main.join("a.txt"), "one
-").unwrap();
+        fs::write(
+            main.join("a.txt"),
+            "one
+",
+        )
+        .unwrap();
         sh(&main, &["add", "-A"]).await;
         sh(&main, &["commit", "-m", "init"]).await;
-        let wt = Worktree { path: root.join("wt"), branch: "agentory/x".into() };
+        let wt = Worktree {
+            path: root.join("wt"),
+            branch: "agentory/x".into(),
+        };
         let p = wt.path.to_string_lossy().into_owned();
         sh(&main, &["worktree", "add", &p, "-b", &wt.branch]).await;
         (main, wt)
@@ -669,10 +789,18 @@ mod tests {
     #[tokio::test]
     async fn diff_includes_new_and_edited_files() {
         let (main, wt) = repo("diff").await;
-        fs::write(wt.path.join("a.txt"), "two
-").unwrap();
-        fs::write(wt.path.join("new.txt"), "fresh
-").unwrap();
+        fs::write(
+            wt.path.join("a.txt"),
+            "two
+",
+        )
+        .unwrap();
+        fs::write(
+            wt.path.join("new.txt"),
+            "fresh
+",
+        )
+        .unwrap();
         let base = merge_base(&wt.path, "user").await.unwrap();
         let diff = diff_since(&wt.path, &base).await.unwrap();
         assert!(diff.contains("+two") && diff.contains("+fresh"), "{diff}");
@@ -682,17 +810,31 @@ mod tests {
     #[tokio::test]
     async fn clean_merge_then_fast_forward_moves_user() {
         let (main, wt) = repo("ff").await;
-        fs::write(main.join("b.txt"), "other
-").unwrap();
+        fs::write(
+            main.join("b.txt"),
+            "other
+",
+        )
+        .unwrap();
         sh(&main, &["add", "-A"]).await;
         sh(&main, &["commit", "-m", "user moved"]).await;
-        fs::write(wt.path.join("a.txt"), "agent
-").unwrap();
+        fs::write(
+            wt.path.join("a.txt"),
+            "agent
+",
+        )
+        .unwrap();
         assert!(commit_all(&wt.path, "change").await.unwrap());
         assert_eq!(merge_branch(&wt.path, "user").await.unwrap(), Merged::Clean);
         fast_forward(&main, &wt.branch).await.unwrap();
-        assert_eq!(head_sha(&main).await.unwrap(), head_sha(&wt.path).await.unwrap());
-        assert_eq!(fs::read_to_string(main.join("a.txt")).unwrap().trim(), "agent");
+        assert_eq!(
+            head_sha(&main).await.unwrap(),
+            head_sha(&wt.path).await.unwrap()
+        );
+        assert_eq!(
+            fs::read_to_string(main.join("a.txt")).unwrap().trim(),
+            "agent"
+        );
         cleanup(&main);
     }
 
@@ -706,18 +848,30 @@ mod tests {
     #[tokio::test]
     async fn conflict_is_reported_and_user_is_untouched() {
         let (main, wt) = repo("conflict").await;
-        fs::write(main.join("a.txt"), "user side
-").unwrap();
+        fs::write(
+            main.join("a.txt"),
+            "user side
+",
+        )
+        .unwrap();
         sh(&main, &["commit", "-am", "user edit"]).await;
         let before = head_sha(&main).await.unwrap();
-        fs::write(wt.path.join("a.txt"), "agent side
-").unwrap();
+        fs::write(
+            wt.path.join("a.txt"),
+            "agent side
+",
+        )
+        .unwrap();
         commit_all(&wt.path, "agent edit").await.unwrap();
         let merged = merge_branch(&wt.path, "user").await.unwrap();
         assert_eq!(merged, Merged::Conflict(vec!["a.txt".into()]));
         // Resolving by hand and committing completes the merge.
-        fs::write(wt.path.join("a.txt"), "both
-").unwrap();
+        fs::write(
+            wt.path.join("a.txt"),
+            "both
+",
+        )
+        .unwrap();
         assert!(commit_all(&wt.path, "resolve").await.unwrap());
         assert!(conflicted_files(&wt.path).await.unwrap().is_empty());
         assert_eq!(head_sha(&main).await.unwrap(), before);
@@ -727,11 +881,19 @@ mod tests {
     #[tokio::test]
     async fn fast_forward_fails_when_user_moved_after_the_merge() {
         let (main, wt) = repo("stale").await;
-        fs::write(wt.path.join("a.txt"), "agent
-").unwrap();
+        fs::write(
+            wt.path.join("a.txt"),
+            "agent
+",
+        )
+        .unwrap();
         commit_all(&wt.path, "change").await.unwrap();
-        fs::write(main.join("b.txt"), "late
-").unwrap();
+        fs::write(
+            main.join("b.txt"),
+            "late
+",
+        )
+        .unwrap();
         sh(&main, &["add", "-A"]).await;
         sh(&main, &["commit", "-m", "late"]).await;
         let before = head_sha(&main).await.unwrap();
@@ -743,11 +905,17 @@ mod tests {
     #[tokio::test]
     async fn removing_leaves_no_worktree_or_branch() {
         let (main, wt) = repo("remove").await;
-        fs::write(wt.path.join("a.txt"), "dirty
-").unwrap();
+        fs::write(
+            wt.path.join("a.txt"),
+            "dirty
+",
+        )
+        .unwrap();
         remove_worktree(&main, &wt).await.unwrap();
         assert!(!wt.path.exists());
-        let branches = capture("git", &["branch", "--list", &wt.branch], &main).await.unwrap();
+        let branches = capture("git", &["branch", "--list", &wt.branch], &main)
+            .await
+            .unwrap();
         assert!(branches.trim().is_empty());
         let list = capture("git", &["worktree", "list"], &main).await.unwrap();
         assert_eq!(list.lines().count(), 1, "{list}");

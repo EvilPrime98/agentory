@@ -6,7 +6,9 @@ use super::paths::Paths;
 
 /// Total size in bytes of the files under `dir` (0 if it does not exist).
 pub fn dir_size(dir: &Path) -> u64 {
-    let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
     entries
         .flatten()
         .map(|e| match e.file_type() {

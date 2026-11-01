@@ -6,9 +6,9 @@ use std::path::PathBuf;
 use gpui::{Context, SharedString};
 
 use crate::backend::spm::{self, AvailableSkill, Hit, Prepared, Review, Snapshot};
+use crate::i18n::{t, t_args};
 use crate::model::DoctorReport;
 use crate::runtime;
-use crate::i18n::{t, t_args};
 use crate::ui::confirm::{self, ConfirmOptions};
 use crate::ui::toast;
 
@@ -160,12 +160,9 @@ impl SkillsStore {
     }
 
     pub fn init(&mut self, repo: Option<String>, cx: &mut Context<Self>) {
-        self.mutate(
-            t("skills.busy.init"),
-            true,
-            cx,
-            move |dir| async move { spm::init(&dir, repo.as_deref(), true).await },
-        );
+        self.mutate(t("skills.busy.init"), true, cx, move |dir| async move {
+            spm::init(&dir, repo.as_deref(), true).await
+        });
     }
 
     /// Turn isolation from global skills on or off by re-running `spm init`.
@@ -231,12 +228,14 @@ impl SkillsStore {
                 if s.generation == generation {
                     match result {
                         Ok(hits) => {
-                            s.search_error = hits.is_empty().then(|| t("skills.market.no_hits").into());
+                            s.search_error =
+                                hits.is_empty().then(|| t("skills.market.no_hits").into());
                             s.hits = hits;
                         }
                         Err(e) => {
                             s.hits.clear();
-                            s.search_error = Some(e.lines().next().unwrap_or_default().to_string().into());
+                            s.search_error =
+                                Some(e.lines().next().unwrap_or_default().to_string().into());
                         }
                     }
                     s.revision += 1;
@@ -249,7 +248,13 @@ impl SkillsStore {
     }
 
     /// Fetch a market skill and ask the user to review it before anything is installed.
-    pub fn review_install(&mut self, market: String, id: String, global: bool, cx: &mut Context<Self>) {
+    pub fn review_install(
+        &mut self,
+        market: String,
+        id: String,
+        global: bool,
+        cx: &mut Context<Self>,
+    ) {
         let label = t_args("skills.busy.review", &[("name", &id)]);
         self.prepare(label, cx, move |dir| async move {
             spm::prepare_install(&dir, &market, &id, global).await
@@ -388,7 +393,10 @@ fn ask_review(cx: &mut gpui::App, store: gpui::WeakEntity<SkillsStore>, review: 
     } else {
         ("skills.review.title", "skills.review.install")
     };
-    let title = t_args(title_key, &[("name", &review.name), ("market", &review.market)]);
+    let title = t_args(
+        title_key,
+        &[("name", &review.name), ("market", &review.market)],
+    );
     let options = ConfirmOptions::new(title, review.text()).labels(t(ok_key), t("common.cancel"));
     confirm::ask(cx, options, move |answer, _, cx| {
         if answer == Some(true) {

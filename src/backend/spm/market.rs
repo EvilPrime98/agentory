@@ -44,7 +44,9 @@ fn is_github(url: &str) -> bool {
     let mut parts = rest.splitn(3, '/');
     let ok = |p: Option<&str>| {
         p.is_some_and(|p| {
-            !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
+            !p.is_empty()
+                && p.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
         })
     };
     ok(parts.next()) && ok(parts.next())
@@ -54,7 +56,9 @@ fn is_github(url: &str) -> bool {
 /// clone path), translated copies of one skill collapsed.
 pub fn hits_from_body(body: &Value) -> Result<Vec<Hit>, String> {
     if body.get("success").and_then(Value::as_bool) != Some(true) {
-        let msg = body["error"]["message"].as_str().unwrap_or("unexpected response");
+        let msg = body["error"]["message"]
+            .as_str()
+            .unwrap_or("unexpected response");
         return Err(format!("skillsmp: {msg}"));
     }
     let skills = body["data"]["skills"]

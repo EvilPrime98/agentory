@@ -6,10 +6,10 @@ use gpui::{
     Context, EventEmitter, IntoElement, ParentElement, Render, Styled, Window, div, prelude::*, px,
 };
 
+use crate::i18n::t;
 use crate::route::{GoBack, Navigate};
 use crate::state::Stores;
 use crate::state::sessions;
-use crate::i18n::t;
 use crate::ui::components::button::{ButtonVariant, button};
 use crate::ui::icons::{Icon, icon};
 use crate::ui::theme;
