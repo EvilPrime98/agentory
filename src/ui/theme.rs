@@ -3,7 +3,9 @@
 //! Every token is a function that reads the global [`mode`], so call sites stay unchanged. Call
 //! [`apply`] when the preference or the OS appearance changes; it re-renders every window.
 
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use gpui::{Pixels, Rgba, WindowAppearance, px, rgb, rgba};
 use serde::{Deserialize, Serialize};
@@ -66,15 +68,79 @@ pub fn mode() -> Mode {
     }
 }
 
-/// Set the palette without re-rendering.
+/// Set the palette instantly, without re-rendering.
 pub fn set_mode(mode: Mode) {
     MODE.store(mode as u8, Ordering::Relaxed);
+    // Settled: no cross-fade in progress.
+    FADE_START_MS.store(NO_FADE, Ordering::Relaxed);
 }
 
-/// Resolve `pref` against the OS appearance, set the palette and re-render every window.
+/// How long a theme change cross-fades.
+const FADE: Duration = Duration::from_millis(280);
+/// Frame interval while fading (~60 fps).
+const FRAME: Duration = Duration::from_millis(16);
+const NO_FADE: u64 = u64::MAX;
+
+/// When the current fade started (ms since [`epoch`]; [`NO_FADE`] when idle).
+static FADE_START_MS: AtomicU64 = AtomicU64::new(NO_FADE);
+
+fn epoch() -> Instant {
+    static EPOCH: OnceLock<Instant> = OnceLock::new();
+    *EPOCH.get_or_init(Instant::now)
+}
+
+fn now_ms() -> u64 {
+    epoch().elapsed().as_millis() as u64
+}
+
+/// Eased progress of the running fade, `None` once it has settled.
+fn fade_progress() -> Option<f32> {
+    let start = FADE_START_MS.load(Ordering::Relaxed);
+    if start == NO_FADE {
+        return None;
+    }
+    let t = now_ms().saturating_sub(start) as f32 / FADE.as_millis() as f32;
+    if t >= 1.0 {
+        return None;
+    }
+    // ease-in-out cubic
+    Some(if t < 0.5 {
+        4.0 * t * t * t
+    } else {
+        1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
+    })
+}
+
+fn lerp(a: Rgba, b: Rgba, t: f32) -> Rgba {
+    let m = |x: f32, y: f32| x + (y - x) * t;
+    let mut out = a;
+    out.red = m(a.red, b.red);
+    out.green = m(a.green, b.green);
+    out.blue = m(a.blue, b.blue);
+    out.alpha = m(a.alpha, b.alpha);
+    out
+}
+
+/// Resolve `pref` against the OS appearance and cross-fade every window to that palette.
 pub fn apply(pref: ThemePref, cx: &mut gpui::App) {
-    set_mode(pref.resolve(cx.window_appearance()));
+    let target = pref.resolve(cx.window_appearance());
+    if mode() == target {
+        cx.refresh_windows();
+        return;
+    }
+    // A change mid-fade restarts from the target the previous fade was heading to.
+    MODE.store(target as u8, Ordering::Relaxed);
+    FADE_START_MS.store(now_ms(), Ordering::Relaxed);
     cx.refresh_windows();
+    cx.spawn(async move |cx| {
+        while fade_progress().is_some() {
+            cx.background_executor().timer(FRAME).await;
+            cx.update(|cx| cx.refresh_windows());
+        }
+        // Final frame at the settled palette.
+        cx.update(|cx| cx.refresh_windows());
+    })
+    .detach();
 }
 
 #[cfg(test)]
@@ -130,9 +196,14 @@ pub fn accent() -> Rgba {
 
 /// Pick the dark or light value for the current [`mode`].
 fn pick(dark: Rgba, light: Rgba) -> Rgba {
-    match mode() {
-        Mode::Dark => dark,
-        Mode::Light => light,
+    let (target, other) = match mode() {
+        Mode::Dark => (dark, light),
+        Mode::Light => (light, dark),
+    };
+    match fade_progress() {
+        // Blend from the previous palette (the only other one) to the current one.
+        Some(t) => lerp(other, target, t),
+        None => target,
     }
 }
 
