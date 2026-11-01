@@ -2,7 +2,7 @@
 
 use gpui::{
     App, ClickEvent, ElementId, InteractiveElement, ParentElement, SharedString, Stateful,
-    StatefulInteractiveElement, Styled, Window, div, px, rgb,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
 
 use crate::ui::theme;
@@ -50,13 +50,13 @@ pub fn button(
         ButtonVariant::Secondary => base
             .bg(theme::bg_panel())
             .border_color(theme::border_subtle())
-            .text_color(rgb(0xf2f2f2))
-            .hover(|s| s.bg(rgb(0x2a2a2a)).border_color(gpui::rgba(0xffffff29)))
-            .active(|s| s.bg(rgb(0x262626))),
+            .text_color(theme::text())
+            .hover(|s| s.bg(theme::btn_hover()).border_color(theme::border_strong()))
+            .active(|s| s.bg(theme::btn_active())),
         ButtonVariant::Ghost => base
-            .text_color(rgb(0xd0d0d0))
-            .hover(|s| s.bg(gpui::rgba(0xffffff0f)).text_color(rgb(0xf2f2f2)))
-            .active(|s| s.bg(gpui::rgba(0xffffff1a))),
+            .text_color(theme::text_secondary())
+            .hover(|s| s.bg(theme::hover_soft()).text_color(theme::text()))
+            .active(|s| s.bg(theme::pressed())),
     }
 }
 
@@ -77,10 +77,10 @@ pub fn small_button(
         .border_1()
         .border_color(theme::border_subtle())
         .text_size(px(12.0))
-        .text_color(rgb(0xd0d0d0))
+        .text_color(theme::text_secondary())
         .whitespace_nowrap()
         .cursor_pointer()
-        .hover(|s| s.bg(theme::hover()).text_color(rgb(0xf2f2f2)))
+        .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
         .on_click(on_click)
         .child(label.into())
 }

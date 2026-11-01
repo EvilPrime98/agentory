@@ -115,7 +115,7 @@ pub fn status_color(status: SessionStatus) -> Rgba {
         SessionStatus::Working => theme::accent(),
         SessionStatus::NeedsInput => theme::warning(),
         SessionStatus::Idle => theme::success(),
-        SessionStatus::Exited => gpui::rgb(0x55555c),
+        SessionStatus::Exited => theme::status_exited(),
     }
 }
 

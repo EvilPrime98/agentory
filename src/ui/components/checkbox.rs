@@ -24,7 +24,7 @@ pub fn checkbox(
         .border_color(if checked {
             theme::accent()
         } else {
-            gpui::rgba(0xffffff4d).into()
+            theme::border_strong()
         });
     if checked {
         tick = tick
@@ -40,7 +40,7 @@ pub fn checkbox(
         .gap(px(8.0))
         .cursor_pointer()
         .text_size(px(13.0))
-        .text_color(gpui::rgb(0xe6e6e6))
+        .text_color(theme::text())
         .on_click(move |_, window, cx| on_toggle(!checked, window, cx))
         .child(tick.mt(px(1.0)))
         .child(div().flex_1().min_w_0().child(label.into()))

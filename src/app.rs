@@ -178,6 +178,16 @@ impl AppRoot {
                 this.navigate(ev.0.clone(), window, cx)
             }),
             cx.observe(&stores.prefs, |_, _, cx| cx.notify()),
+            // With the System theme, an OS light/dark switch flips the palette live.
+            window.observe_window_appearance({
+                let prefs = stores.prefs.clone();
+                move |_, cx| {
+                    let pref = prefs.read(cx).prefs.theme;
+                    if pref == crate::ui::theme::ThemePref::System {
+                        crate::ui::theme::apply(pref, cx);
+                    }
+                }
+            }),
             // The skills store follows the selected project; a Skills page whose project is gone
             // has nothing left to show.
             cx.observe_in(&stores.projects, window, |this, _, window, cx| {

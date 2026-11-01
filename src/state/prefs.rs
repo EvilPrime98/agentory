@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::i18n::LanguagePref;
+use crate::ui::theme::ThemePref;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -27,6 +28,8 @@ pub struct Prefs {
     pub last_shell: String,
     /// Interface language. System follows the OS locale.
     pub language: LanguagePref,
+    /// Light or dark palette. System follows the OS appearance.
+    pub theme: ThemePref,
 }
 
 impl Default for Prefs {
@@ -42,6 +45,7 @@ impl Default for Prefs {
             sidebar_collapsed: false,
             last_shell: String::new(),
             language: LanguagePref::System,
+            theme: ThemePref::System,
         }
     }
 }
@@ -128,6 +132,15 @@ mod tests {
         assert_eq!(Prefs::default().language, LanguagePref::System);
         let p: Prefs = serde_json::from_str(r#"{"language":"spanish"}"#).unwrap();
         assert_eq!(p.language, LanguagePref::Spanish);
+    }
+
+    #[test]
+    fn theme_defaults_to_system_and_round_trips() {
+        assert_eq!(Prefs::default().theme, ThemePref::System);
+        let p: Prefs = serde_json::from_str(r#"{"theme":"light"}"#).unwrap();
+        assert_eq!(p.theme, ThemePref::Light);
+        let json = serde_json::to_string(&Prefs { theme: ThemePref::Dark, ..Default::default() }).unwrap();
+        assert!(json.contains(r#""theme":"dark""#));
     }
 
     #[test]

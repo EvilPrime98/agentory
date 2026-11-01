@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use gpui::{
     Animation, AnimationExt as _, InteractiveElement, IntoElement, ParentElement, SharedString,
-    Styled, div, ease_in_out, px, rgb,
+    Styled, div, ease_in_out, px,
 };
 
 use crate::ui::shell::header::logo;
@@ -56,7 +56,7 @@ pub fn app_loader(message: impl Into<SharedString>) -> impl IntoElement {
         .child(
             div()
                 .text_size(px(13.0))
-                .text_color(rgb(0x8f8f8f))
+                .text_color(theme::text_faint())
                 .child(message.into()),
         )
 }

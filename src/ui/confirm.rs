@@ -171,7 +171,7 @@ impl Render for ConfirmHost {
             .items_center()
             .justify_center()
             .p(px(16.0))
-            .bg(gpui::rgba(0x0000008c))
+            .bg(theme::scrim())
             .occlude()
             .on_mouse_down(
                 MouseButton::Left,
@@ -203,7 +203,7 @@ impl Render for ConfirmHost {
                         div()
                             .text_size(px(13.0))
                             .line_height(px(19.5))
-                            .text_color(gpui::rgb(0xb8b8b8))
+                            .text_color(theme::text_secondary())
                             .child(p.options.message.clone()),
                     )
                     .children(checkbox)

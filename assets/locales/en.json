@@ -1,4 +1,9 @@
 {
+  "settings.theme.title": "Appearance",
+  "settings.theme.hint": "Light or dark interface. System follows your operating system.",
+  "settings.theme.system": "System",
+  "settings.theme.light": "Light",
+  "settings.theme.dark": "Dark",
   "settings.language.title": "Language",
   "settings.language.hint": "Language of the interface. System follows your operating system.",
   "settings.language.system": "System",

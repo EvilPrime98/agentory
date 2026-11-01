@@ -40,6 +40,18 @@ impl Stores {
             }
         })
         .detach();
+        // Same for the theme; System also follows OS appearance changes (see `AppRoot::new`).
+        let initial_theme = prefs.read(cx).prefs.theme;
+        crate::ui::theme::set_mode(initial_theme.resolve(cx.window_appearance()));
+        let mut last_theme = initial_theme;
+        cx.observe(&prefs, move |prefs, cx| {
+            let theme = prefs.read(cx).prefs.theme;
+            if theme != last_theme {
+                last_theme = theme;
+                crate::ui::theme::apply(theme, cx);
+            }
+        })
+        .detach();
         let sessions = cx.new(sessions::SessionsStore::new);
         // Terminals follow the font size preference whichever page is mounted.
         let sessions_for_font = sessions.clone();

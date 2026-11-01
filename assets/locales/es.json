@@ -1,4 +1,9 @@
 {
+  "settings.theme.title": "Apariencia",
+  "settings.theme.hint": "Interfaz clara u oscura. Sistema sigue tu sistema operativo.",
+  "settings.theme.system": "Sistema",
+  "settings.theme.light": "Claro",
+  "settings.theme.dark": "Oscuro",
   "settings.language.title": "Idioma",
   "settings.language.hint": "Idioma de la interfaz. Sistema sigue el idioma de tu sistema operativo.",
   "settings.language.system": "Sistema",
