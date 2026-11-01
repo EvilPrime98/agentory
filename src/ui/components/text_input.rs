@@ -219,7 +219,7 @@ impl Render for TextInput {
         let content = if self.value.is_empty() {
             div().flex().items_center().child(caret).child(
                 div()
-                    .text_color(gpui::rgb(0x8a8a8a))
+                    .text_color(theme::text_faint())
                     .child(self.placeholder.clone()),
             )
         } else if let Some((from, to)) = self.selection() {

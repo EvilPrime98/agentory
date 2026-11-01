@@ -56,6 +56,7 @@ impl SkillEditorPage {
         let subs = vec![cx.subscribe(&area, |this, _, ev: &TextAreaEvent, cx| match ev {
             TextAreaEvent::Changed => cx.notify(),
             TextAreaEvent::Save => this.save(cx),
+            TextAreaEvent::Submit => {}
         })];
         Self {
             name,

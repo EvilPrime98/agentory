@@ -17,6 +17,8 @@ use crate::state::{Stores, sessions};
 use crate::ui::app_loader::app_loader;
 use crate::ui::confirm::{self, ConfirmHost, ConfirmOptions};
 use crate::ui::pages::docs::DocsPage;
+use crate::ui::pages::git::GitPage;
+use crate::ui::pages::session_history::SessionHistoryPage;
 use crate::ui::pages::review::ReviewPage;
 use crate::ui::pages::sessions::SessionsPage;
 use crate::ui::pages::settings::SettingsPage;
@@ -61,6 +63,8 @@ enum Page {
     Settings(Entity<SettingsPage>),
     Skills(Entity<SkillsPage>),
     Docs(Entity<DocsPage>),
+    Git(Entity<GitPage>),
+    SessionHistory(Entity<SessionHistoryPage>),
     SkillEditor(Entity<SkillEditorPage>),
     Review(Entity<ReviewPage>),
 }
@@ -178,11 +182,21 @@ impl AppRoot {
                 this.navigate(ev.0.clone(), window, cx)
             }),
             cx.observe(&stores.prefs, |_, _, cx| cx.notify()),
+            // With the System theme, an OS light/dark switch flips the palette live.
+            window.observe_window_appearance({
+                let prefs = stores.prefs.clone();
+                move |_, cx| {
+                    let pref = prefs.read(cx).prefs.theme;
+                    if pref == crate::ui::theme::ThemePref::System {
+                        crate::ui::theme::apply(pref, cx);
+                    }
+                }
+            }),
             // The skills store follows the selected project; a Skills page whose project is gone
             // has nothing left to show.
             cx.observe_in(&stores.projects, window, |this, _, window, cx| {
                 this.sync_skills_project(cx);
-                if let Route::Skills(id) | Route::Docs(id) = this.history.current() {
+                if let Route::Skills(id) | Route::Docs(id) | Route::Git(id) | Route::SessionHistory(id) = this.history.current() {
                     if this.stores.projects.read(cx).get(id).is_none() {
                         this.history.back_or_home();
                         this.route_changed(window, cx);
@@ -442,6 +456,36 @@ impl AppRoot {
                 ));
                 Page::Docs(page)
             }
+            Route::Git(id) => {
+                self.stores.projects.update(cx, |p, cx| p.select(&id, cx));
+                let page = cx.new(|cx| GitPage::new(self.stores.clone(), id, cx));
+                self._page_subs.push(cx.subscribe_in(
+                    &page,
+                    window,
+                    |this, _, ev: &Navigate, window, cx| this.navigate(ev.0.clone(), window, cx),
+                ));
+                self._page_subs.push(cx.subscribe_in(
+                    &page,
+                    window,
+                    |this, _, _: &GoBack, window, cx| this.go_back(window, cx),
+                ));
+                Page::Git(page)
+            }
+            Route::SessionHistory(id) => {
+                self.stores.projects.update(cx, |p, cx| p.select(&id, cx));
+                let page = cx.new(|cx| SessionHistoryPage::new(self.stores.clone(), id, window, cx));
+                self._page_subs.push(cx.subscribe_in(
+                    &page,
+                    window,
+                    |this, _, ev: &Navigate, window, cx| this.navigate(ev.0.clone(), window, cx),
+                ));
+                self._page_subs.push(cx.subscribe_in(
+                    &page,
+                    window,
+                    |this, _, _: &GoBack, window, cx| this.go_back(window, cx),
+                ));
+                Page::SessionHistory(page)
+            }
             Route::SkillEditor(id, name) => {
                 self.stores.projects.update(cx, |p, cx| p.select(&id, cx));
                 self.sync_skills_project(cx);
@@ -544,6 +588,8 @@ impl Render for AppRoot {
             Page::Settings(page) => AnyView::from(page.clone()).into_any_element(),
             Page::Skills(page) => AnyView::from(page.clone()).into_any_element(),
             Page::Docs(page) => AnyView::from(page.clone()).into_any_element(),
+            Page::Git(page) => AnyView::from(page.clone()).into_any_element(),
+            Page::SessionHistory(page) => AnyView::from(page.clone()).into_any_element(),
             Page::SkillEditor(page) => AnyView::from(page.clone()).into_any_element(),
             Page::Review(page) => AnyView::from(page.clone()).into_any_element(),
         };

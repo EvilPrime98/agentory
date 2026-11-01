@@ -186,6 +186,450 @@ pub async fn remove_worktree(repo: &Path, wt: &Worktree) -> Result<(), String> {
     }
 }
 
+// ---- source control (Git page) -------------------------------------------------------------
+
+/// How a file differs, as one letter of `git status --porcelain=v2`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChangeKind {
+    Modified,
+    Added,
+    Deleted,
+    Renamed,
+    Untracked,
+    Conflicted,
+}
+
+impl ChangeKind {
+    /// The badge letter shown next to the file.
+    pub fn letter(self) -> &'static str {
+        match self {
+            Self::Modified => "M",
+            Self::Added => "A",
+            Self::Deleted => "D",
+            Self::Renamed => "R",
+            Self::Untracked => "U",
+            Self::Conflicted => "!",
+        }
+    }
+
+    fn from_code(c: char) -> Self {
+        match c {
+            'A' | 'C' => Self::Added,
+            'D' => Self::Deleted,
+            'R' => Self::Renamed,
+            _ => Self::Modified,
+        }
+    }
+}
+
+/// One changed file in one group (staged, unstaged or conflicts).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Change {
+    /// Relative to the repo root, `/` separated.
+    pub path: String,
+    pub kind: ChangeKind,
+    /// The previous path of a rename.
+    pub from: Option<String>,
+}
+
+/// The working tree state: current branch, how far it is from its upstream and the changed files.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Status {
+    /// `None` while HEAD is detached.
+    pub branch: Option<String>,
+    pub has_upstream: bool,
+    pub ahead: u32,
+    pub behind: u32,
+    pub staged: Vec<Change>,
+    /// Modified, deleted and untracked files that are not staged.
+    pub unstaged: Vec<Change>,
+    pub conflicts: Vec<Change>,
+}
+
+impl Status {
+    pub fn total(&self) -> usize {
+        self.staged.len() + self.unstaged.len() + self.conflicts.len()
+    }
+}
+
+/// Parse `git status --porcelain=v2 --branch -z --untracked-files=all`.
+pub fn parse_status(out: &str) -> Status {
+    let mut st = Status::default();
+    let mut records = out.split('\0');
+    while let Some(rec) = records.next() {
+        if let Some(h) = rec.strip_prefix("# ") {
+            if let Some(name) = h.strip_prefix("branch.head ") {
+                st.branch = (name != "(detached)").then(|| name.to_string());
+            } else if h.starts_with("branch.upstream ") {
+                st.has_upstream = true;
+            } else if let Some(ab) = h.strip_prefix("branch.ab ") {
+                for part in ab.split_whitespace() {
+                    if let Some(n) = part.strip_prefix('+') {
+                        st.ahead = n.parse().unwrap_or(0);
+                    } else if let Some(n) = part.strip_prefix('-') {
+                        st.behind = n.parse().unwrap_or(0);
+                    }
+                }
+            }
+            continue;
+        }
+        let (tag, rest) = match rec.split_once(' ') {
+            Some(p) => p,
+            None => continue,
+        };
+        match tag {
+            "1" | "2" => {
+                // 1 XY sub mH mI mW hH hI path        2 XY sub mH mI mW hH hI score path \0 orig
+                let fields = if tag == "1" { 8 } else { 9 };
+                let mut it = rest.splitn(fields, ' ');
+                let xy: Vec<char> = it.next().unwrap_or("").chars().collect();
+                let Some(path) = it.last() else { continue };
+                let from = (tag == "2").then(|| records.next().unwrap_or("").to_string());
+                if xy.len() != 2 {
+                    continue;
+                }
+                let make = |c: char| Change {
+                    path: path.to_string(),
+                    kind: ChangeKind::from_code(c),
+                    from: from.clone(),
+                };
+                if xy[0] != '.' {
+                    st.staged.push(make(xy[0]));
+                }
+                if xy[1] != '.' {
+                    st.unstaged.push(make(xy[1]));
+                }
+            }
+            "u" => {
+                // u XY sub m1 m2 m3 mW h1 h2 h3 path
+                if let Some(path) = rest.splitn(10, ' ').last() {
+                    st.conflicts.push(Change {
+                        path: path.to_string(),
+                        kind: ChangeKind::Conflicted,
+                        from: None,
+                    });
+                }
+            }
+            "?" => st.unstaged.push(Change {
+                path: rest.to_string(),
+                kind: ChangeKind::Untracked,
+                from: None,
+            }),
+            _ => {}
+        }
+    }
+    st
+}
+
+/// `git` with literal pathspecs, so a file named `a[1].txt` is that file and not a glob.
+async fn gitl(root: &Path, args: &[&str]) -> Result<String, String> {
+    let mut a = vec!["--literal-pathspecs"];
+    a.extend_from_slice(args);
+    git(root, &a).await
+}
+
+/// The top level of the repo `dir` is inside, or `None` when it is not in one. Every other
+/// function here takes this root, since status paths are relative to it.
+pub async fn repo_root(dir: &Path) -> Result<Option<PathBuf>, String> {
+    match git(dir, &["rev-parse", "--show-toplevel"]).await {
+        Ok(out) => Ok(Some(PathBuf::from(out.trim()))),
+        Err(e) if e.contains("not a git repository") => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+pub async fn init(dir: &Path) -> Result<(), String> {
+    git(dir, &["init"]).await.map(|_| ())
+}
+
+/// `--no-optional-locks` keeps a status poll from rewriting the index.
+pub async fn status(root: &Path) -> Result<Status, String> {
+    let out = git(
+        root,
+        &["--no-optional-locks", "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"],
+    )
+    .await?;
+    Ok(parse_status(&out))
+}
+
+/// Files bigger than this are not read for an untracked-file preview.
+const MAX_PREVIEW_BYTES: u64 = 1_000_000;
+
+/// Unified diff of one file. `staged` selects index vs HEAD, otherwise working tree vs index.
+/// Untracked files have no git diff, so theirs is built by hand with every line added.
+pub async fn file_diff(root: &Path, change: &Change, staged: bool) -> Result<String, String> {
+    if change.kind == ChangeKind::Untracked {
+        return Ok(untracked_diff(&root.join(&change.path)));
+    }
+    let mut args = vec!["--no-optional-locks", "diff", "--no-color", "--no-ext-diff"];
+    if staged {
+        args.push("--cached");
+    }
+    args.push("--");
+    if let Some(from) = &change.from {
+        args.push(from);
+    }
+    args.push(&change.path);
+    gitl(root, &args).await
+}
+
+fn untracked_diff(path: &Path) -> String {
+    let too_big = std::fs::metadata(path).is_ok_and(|m| m.len() > MAX_PREVIEW_BYTES);
+    if too_big {
+        return "Binary files differ\n".to_string();
+    }
+    match std::fs::read(path) {
+        Ok(bytes) if bytes.contains(&0) => "Binary files differ\n".to_string(),
+        Ok(bytes) => {
+            let text = String::from_utf8_lossy(&bytes);
+            let lines: Vec<&str> = text.lines().collect();
+            let mut out = format!("@@ -0,0 +1,{} @@\n", lines.len());
+            for l in lines {
+                out.push('+');
+                out.push_str(l);
+                out.push('\n');
+            }
+            out
+        }
+        Err(e) => format!("could not read the file: {e}\n"),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineKind {
+    Hunk,
+    Add,
+    Del,
+    Context,
+    /// "Binary files differ", "\ No newline at end of file".
+    Note,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffLine {
+    pub kind: LineKind,
+    pub old: Option<u32>,
+    pub new: Option<u32>,
+    pub text: String,
+}
+
+/// `(old start, new start)` of a `@@ -a,b +c,d @@` header.
+fn hunk_starts(header: &str) -> Option<(u32, u32)> {
+    let mut it = header.split_whitespace().skip(1);
+    let old = it.next()?.strip_prefix('-')?;
+    let new = it.next()?.strip_prefix('+')?;
+    let start = |s: &str| s.split(',').next()?.parse().ok();
+    Some((start(old)?, start(new)?))
+}
+
+/// Turn a unified diff into numbered lines. The file header (`diff --git`, `index`, `---`, `+++`)
+/// is dropped: the page already names the file.
+pub fn parse_diff(diff: &str) -> Vec<DiffLine> {
+    let mut out = Vec::new();
+    let (mut old, mut new) = (0u32, 0u32);
+    let mut in_hunk = false;
+    for line in diff.lines() {
+        if line.starts_with("@@") {
+            in_hunk = true;
+            if let Some((o, n)) = hunk_starts(line) {
+                (old, new) = (o, n);
+            }
+            out.push(DiffLine { kind: LineKind::Hunk, old: None, new: None, text: line.to_string() });
+        } else if !in_hunk {
+            if line.starts_with("Binary files") || line.starts_with("GIT binary patch") {
+                out.push(DiffLine { kind: LineKind::Note, old: None, new: None, text: line.to_string() });
+            }
+        } else if let Some(t) = line.strip_prefix('+') {
+            out.push(DiffLine { kind: LineKind::Add, old: None, new: Some(new), text: t.to_string() });
+            new += 1;
+        } else if let Some(t) = line.strip_prefix('-') {
+            out.push(DiffLine { kind: LineKind::Del, old: Some(old), new: None, text: t.to_string() });
+            old += 1;
+        } else if line.starts_with('\\') {
+            out.push(DiffLine { kind: LineKind::Note, old: None, new: None, text: line.to_string() });
+        } else {
+            let t = line.strip_prefix(' ').unwrap_or(line);
+            out.push(DiffLine { kind: LineKind::Context, old: Some(old), new: Some(new), text: t.to_string() });
+            old += 1;
+            new += 1;
+        }
+    }
+    out
+}
+
+pub async fn stage(root: &Path, paths: &[String]) -> Result<(), String> {
+    let mut args = vec!["add", "--"];
+    args.extend(paths.iter().map(String::as_str));
+    gitl(root, &args).await.map(|_| ())
+}
+
+pub async fn stage_everything(root: &Path) -> Result<(), String> {
+    stage_all(root).await
+}
+
+pub async fn unstage(root: &Path, paths: &[String]) -> Result<(), String> {
+    let mut args = vec!["restore", "--staged", "--"];
+    args.extend(paths.iter().map(String::as_str));
+    if gitl(root, &args).await.is_ok() {
+        return Ok(());
+    }
+    // A repo with no commit yet has no HEAD to restore from.
+    let mut args = vec!["rm", "--cached", "-r", "-q", "--"];
+    args.extend(paths.iter().map(String::as_str));
+    gitl(root, &args).await.map(|_| ())
+}
+
+pub async fn unstage_everything(root: &Path) -> Result<(), String> {
+    unstage(root, &[".".to_string()]).await
+}
+
+/// Throw away the working-tree change of one file: restore a tracked one, delete an untracked one.
+pub async fn discard(root: &Path, change: &Change) -> Result<(), String> {
+    if change.kind == ChangeKind::Untracked {
+        gitl(root, &["clean", "-f", "-q", "--", &change.path]).await.map(|_| ())
+    } else {
+        gitl(root, &["restore", "--", &change.path]).await.map(|_| ())
+    }
+}
+
+/// Throw away every unstaged change, untracked files included.
+pub async fn discard_everything(root: &Path) -> Result<(), String> {
+    gitl(root, &["restore", "--", "."]).await?;
+    gitl(root, &["clean", "-f", "-d", "-q"]).await.map(|_| ())
+}
+
+/// Commit what is staged. Hooks run. A machine without a git identity still commits.
+pub async fn commit(root: &Path, message: &str) -> Result<(), String> {
+    let has_identity = git(root, &["config", "user.email"]).await.is_ok_and(|s| !s.trim().is_empty());
+    let mut args = Vec::new();
+    if !has_identity {
+        args.extend(["-c", "user.name=Agentory", "-c", "user.email=agentory@localhost"]);
+    }
+    args.extend(["commit", "-m", message]);
+    git(root, &args).await.map(|_| ())
+}
+
+pub async fn fetch(root: &Path) -> Result<(), String> {
+    git(root, &["fetch"]).await.map(|_| ())
+}
+
+/// Pull, then push (publishing the branch when it has no upstream yet).
+pub async fn sync(root: &Path, status: &Status) -> Result<(), String> {
+    if status.has_upstream {
+        git(root, &["pull"]).await?;
+        git(root, &["push"]).await.map(|_| ())
+    } else {
+        git(root, &["push", "--set-upstream", "origin", "HEAD"]).await.map(|_| ())
+    }
+}
+
+#[cfg(test)]
+mod source_control_tests {
+    use super::*;
+    use crate::backend::sh;
+    use std::fs;
+
+    #[test]
+    fn parses_status_groups_and_branch() {
+        let out = "# branch.oid abc\0# branch.head main\0# branch.upstream origin/main\0# branch.ab +2 -1\0\
+1 MM N... 100644 100644 100644 a b src/both.rs\0\
+1 .D N... 100644 100644 000000 a b gone.rs\0\
+1 A. N... 000000 100644 100644 a b new.rs\0\
+2 R. N... 100644 100644 100644 a b R100 renamed.rs\0old.rs\0\
+u UU N... 1 2 3 4 a b c clash.rs\0\
+? loose file.txt\0";
+        let st = parse_status(out);
+        assert_eq!(st.branch.as_deref(), Some("main"));
+        assert!(st.has_upstream);
+        assert_eq!((st.ahead, st.behind), (2, 1));
+        let paths = |v: &[Change]| v.iter().map(|c| c.path.clone()).collect::<Vec<_>>();
+        assert_eq!(paths(&st.staged), ["src/both.rs", "new.rs", "renamed.rs"]);
+        assert_eq!(paths(&st.unstaged), ["src/both.rs", "gone.rs", "loose file.txt"]);
+        assert_eq!(paths(&st.conflicts), ["clash.rs"]);
+        assert_eq!(st.staged[2].kind, ChangeKind::Renamed);
+        assert_eq!(st.staged[2].from.as_deref(), Some("old.rs"));
+        assert_eq!(st.unstaged[1].kind, ChangeKind::Deleted);
+        assert_eq!(st.unstaged[2].kind, ChangeKind::Untracked);
+        assert_eq!(st.total(), 7);
+    }
+
+    #[test]
+    fn detached_head_has_no_branch() {
+        let st = parse_status("# branch.oid abc\0# branch.head (detached)\0");
+        assert_eq!(st.branch, None);
+        assert!(!st.has_upstream);
+    }
+
+    #[test]
+    fn numbers_diff_lines() {
+        let diff = "diff --git a/f b/f\nindex 1..2 100644\n--- a/f\n+++ b/f\n@@ -3,3 +3,3 @@ fn x\n keep\n-old\n+new\n tail\n\\ No newline at end of file\n";
+        let lines = parse_diff(diff);
+        let kinds: Vec<_> = lines.iter().map(|l| l.kind).collect();
+        assert_eq!(
+            kinds,
+            [LineKind::Hunk, LineKind::Context, LineKind::Del, LineKind::Add, LineKind::Context, LineKind::Note]
+        );
+        assert_eq!((lines[1].old, lines[1].new), (Some(3), Some(3)));
+        assert_eq!((lines[2].old, lines[2].new), (Some(4), None));
+        assert_eq!((lines[3].old, lines[3].new), (None, Some(4)));
+        assert_eq!((lines[4].old, lines[4].new), (Some(5), Some(5)));
+        assert_eq!(lines[3].text, "new");
+    }
+
+    #[test]
+    fn binary_diff_is_a_note() {
+        let lines = parse_diff("diff --git a/x b/x\nBinary files a/x and b/x differ\n");
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].kind, LineKind::Note);
+    }
+
+    #[tokio::test]
+    async fn stage_commit_discard_roundtrip() {
+        let dir = std::env::temp_dir().join(format!("agentory-sc-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        assert_eq!(repo_root(&dir).await.unwrap(), None);
+        init(&dir).await.unwrap();
+        let root = repo_root(&dir).await.unwrap().expect("repo after init");
+
+        fs::write(dir.join("a.txt"), "one\n").unwrap();
+        fs::write(dir.join("w[1].txt"), "x\n").unwrap();
+        let st = status(&root).await.unwrap();
+        assert_eq!(st.unstaged.len(), 2);
+        assert!(st.unstaged.iter().all(|c| c.kind == ChangeKind::Untracked));
+
+        stage(&root, &["a.txt".to_string()]).await.unwrap();
+        let st = status(&root).await.unwrap();
+        assert_eq!(st.staged.len(), 1);
+        assert_eq!(st.unstaged.len(), 1);
+        let staged_diff = file_diff(&root, &st.staged[0], true).await.unwrap();
+        assert!(parse_diff(&staged_diff).iter().any(|l| l.kind == LineKind::Add && l.text == "one"));
+
+        unstage(&root, &["a.txt".to_string()]).await.unwrap();
+        assert!(status(&root).await.unwrap().staged.is_empty());
+
+        stage_everything(&root).await.unwrap();
+        commit(&root, "first").await.unwrap();
+        assert_eq!(status(&root).await.unwrap().total(), 0);
+
+        fs::write(dir.join("a.txt"), "two\n").unwrap();
+        fs::write(dir.join("fresh.txt"), "new\n").unwrap();
+        let st = status(&root).await.unwrap();
+        assert_eq!(st.unstaged.len(), 2);
+        for c in &st.unstaged {
+            discard(&root, c).await.unwrap();
+        }
+        // autocrlf may restore CRLF on Windows.
+        assert_eq!(fs::read_to_string(dir.join("a.txt")).unwrap().trim_end(), "one");
+        assert!(!dir.join("fresh.txt").exists());
+        assert_eq!(status(&root).await.unwrap().total(), 0);
+
+        // `sh` fixtures commit with a throwaway identity; make sure the helper still agrees.
+        sh(&dir, &["status"]).await;
+        let _ = fs::remove_dir_all(&dir);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

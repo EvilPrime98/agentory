@@ -23,7 +23,7 @@ pub fn logo(size: f32) -> impl IntoElement {
         .rounded(px(size * 0.28))
         .border_1()
         .border_color(theme::accent())
-        .bg(gpui::rgb(0x111111))
+        .bg(theme::bg_logo())
         .text_color(theme::accent())
         .text_size(px(size * 0.5))
         .font_weight(gpui::FontWeight::BOLD)

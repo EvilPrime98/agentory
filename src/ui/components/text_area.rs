@@ -27,6 +27,8 @@ pub enum TextAreaEvent {
     Changed,
     /// Ctrl+S.
     Save,
+    /// Ctrl+Enter.
+    Submit,
 }
 
 pub struct TextArea {
@@ -337,6 +339,7 @@ impl TextArea {
                 }
             }
             "s" if command => cx.emit(TextAreaEvent::Save),
+            "enter" if command => cx.emit(TextAreaEvent::Submit),
             "enter" => {
                 self.insert("\n");
                 cx.emit(TextAreaEvent::Changed);

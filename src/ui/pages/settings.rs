@@ -108,6 +108,8 @@ impl Render for SettingsPage {
         let font_stores_up = self.stores.clone();
         let language = prefs.language;
         let language_stores = self.stores.clone();
+        let theme_pref = prefs.theme;
+        let theme_stores = self.stores.clone();
 
         div()
             .id("settings-scroll")
@@ -133,6 +135,31 @@ impl Render for SettingsPage {
                             .child(t("settings.title")),
                     )
                     .child(row().child(section(
+                        &t("settings.theme.title"),
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap(px(10.0))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_size(px(12.5))
+                                    .text_color(theme::text_muted())
+                                    .child(t("settings.theme.hint")),
+                            )
+                            .child(small_button(
+                                "pref-theme",
+                                t(theme_pref.label_key()),
+                                move |_, _, cx| {
+                                    theme_stores.prefs.update(cx, |p, cx| {
+                                        p.update(cx, |p| p.theme = p.theme.next())
+                                    });
+                                },
+                            )),
+                    ))
+                    .child(section(
                         &t("settings.language.title"),
                         div()
                             .flex()

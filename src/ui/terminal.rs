@@ -1073,14 +1073,27 @@ fn same_style(a: &Run, b: &Run) -> bool {
         && a.inverse == b.inverse
 }
 
-const ANSI: [u32; 16] = [
+/// Palette for the dark terminal.
+const ANSI_DARK: [u32; 16] = [
     0x1e1e24, 0xcd3131, 0x0dbc79, 0xe5e510, 0x2472c8, 0xbc3fbc, 0x11a8cd, 0xe5e5e5, 0x666666,
     0xf14c4c, 0x23d18b, 0xf5f543, 0x3b8eea, 0xd670d6, 0x29b8db, 0xffffff,
 ];
 
+/// Palette for the light terminal: the same hues, darkened to stay readable on a light background.
+const ANSI_LIGHT: [u32; 16] = [
+    0x1f1f23, 0xc4302b, 0x1a7f4b, 0x8a6d00, 0x0451a5, 0xa626a4, 0x0e7490, 0x55555c, 0x6b6b73,
+    0xd1242f, 0x16803c, 0x9a6700, 0x1d63d8, 0xbc3fbc, 0x0b7a8c, 0x8a8a90,
+];
+
 fn indexed(i: u8) -> Rgba {
     match i {
-        0..=15 => rgb(ANSI[i as usize]),
+        0..=15 => {
+            let table = match theme::mode() {
+                theme::Mode::Dark => &ANSI_DARK,
+                theme::Mode::Light => &ANSI_LIGHT,
+            };
+            rgb(table[i as usize])
+        }
         16..=231 => {
             let i = i - 16;
             let level = |n: u8| if n == 0 { 0u32 } else { 55 + 40 * n as u32 };

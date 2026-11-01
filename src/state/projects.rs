@@ -47,6 +47,10 @@ impl ProjectsStore {
         self.items.iter().find(|p| p.id == id)
     }
 
+    pub fn path_of(&self, id: &str) -> Option<PathBuf> {
+        self.get(id).map(|p| p.path.clone())
+    }
+
     pub fn selected_project(&self) -> Option<&Project> {
         self.selected.as_deref().and_then(|id| self.get(id))
     }

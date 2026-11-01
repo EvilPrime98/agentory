@@ -10,6 +10,7 @@ use gpui::{
     deferred, div, prelude::*, px, radians,
 };
 
+use crate::backend::git;
 use crate::i18n::{t, t_args, t_n};
 use crate::model::{Project, SessionStatus};
 use crate::platform::shells::{self, Shell};
@@ -115,7 +116,7 @@ pub fn status_color(status: SessionStatus) -> Rgba {
         SessionStatus::Working => theme::accent(),
         SessionStatus::NeedsInput => theme::warning(),
         SessionStatus::Idle => theme::success(),
-        SessionStatus::Exited => gpui::rgb(0x55555c),
+        SessionStatus::Exited => theme::status_exited(),
     }
 }
 
@@ -135,6 +136,8 @@ impl Sidebar {
             .detach();
         cx.observe(&stores.selfbuild, |_, _, cx| cx.notify())
             .detach();
+        cx.observe(&stores.git, |_, _, cx| cx.notify()).detach();
+        Self::poll_git_count(&stores, cx);
         Self {
             stores,
             folds: HashMap::new(),
@@ -143,6 +146,36 @@ impl Sidebar {
             shell_menu_closed_at: None,
             route: Route::home(),
         }
+    }
+
+    /// Keep the badge of the selected project fresh while the Git page is closed.
+    fn poll_git_count(stores: &Stores, cx: &mut Context<Self>) {
+        let stores = stores.clone();
+        cx.spawn(async move |this, cx| {
+            loop {
+                let target = this.update(cx, |_, cx| {
+                    let p = stores.projects.read(cx);
+                    p.selected_project().map(|p| (p.id.clone(), p.path.clone()))
+                });
+                let Ok(target) = target else { break };
+                if let Some((id, path)) = target {
+                    let count = crate::runtime::run(async move {
+                        let root = git::repo_root(&path).await.ok().flatten()?;
+                        git::status(&root).await.ok().map(|s| s.total())
+                    })
+                    .await;
+                    let git_store = stores.git.clone();
+                    let updated = this.update(cx, |_, cx| {
+                        git_store.update(cx, |g, cx| g.set_count(&id, count.unwrap_or(0), cx))
+                    });
+                    if updated.is_err() {
+                        break;
+                    }
+                }
+                cx.background_executor().timer(Duration::from_secs(5)).await;
+            }
+        })
+        .detach();
     }
 
     pub fn set_route(&mut self, route: Route, cx: &mut Context<Self>) {
@@ -400,11 +433,16 @@ impl Sidebar {
 
         let skills_active = self.route == Route::Skills(project.id.clone());
         let docs_active = self.route == Route::Docs(project.id.clone());
+        let git_active = self.route == Route::Git(project.id.clone());
+        let git_count = self.stores.git.read(cx).count(&project.id);
+        let history_active = self.route == Route::SessionHistory(project.id.clone());
         let on_sessions = self.route == Route::Sessions;
         let skills_id = project.id.clone();
         let docs_id = project.id.clone();
+        let git_id = project.id.clone();
+        let history_id = project.id.clone();
 
-        let full_h = ROW_H * 2.0
+        let full_h = ROW_H * 4.0
             + if sessions.is_empty() {
                 0.0
             } else {
@@ -643,6 +681,70 @@ impl Sidebar {
                             .text_size(px(12.5))
                             .text_color(theme::text())
                             .child(t("sidebar.docs")),
+                    ),
+            )
+            .child(
+                div()
+                    .id(gpui::SharedString::from(format!("git-{}", project.id)))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .h(px(ROW_H))
+                    .ml(px(26.0))
+                    .px(px(6.0))
+                    .rounded(px(6.0))
+                    .cursor_pointer()
+                    .when(git_active, |s| s.bg(theme::accent_soft()))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.stores
+                            .projects
+                            .update(cx, |p, cx| p.select(&git_id, cx));
+                        cx.emit(Navigate(Route::Git(git_id.clone())));
+                    }))
+                    .child(icon(Icon::Branch, px(13.0)).text_color(theme::text_muted()))
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_size(px(12.5))
+                            .text_color(theme::text())
+                            .child(t("sidebar.git")),
+                    )
+                    .when(git_count > 0, |s| {
+                        s.child(
+                            div()
+                                .px(px(6.0))
+                                .rounded(px(8.0))
+                                .bg(theme::accent_soft())
+                                .text_size(px(10.5))
+                                .text_color(theme::accent())
+                                .child(git_count.to_string()),
+                        )
+                    }),
+            )
+            .child(
+                div()
+                    .id(gpui::SharedString::from(format!("history-{}", project.id)))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .h(px(ROW_H))
+                    .ml(px(26.0))
+                    .px(px(6.0))
+                    .rounded(px(6.0))
+                    .cursor_pointer()
+                    .when(history_active, |s| s.bg(theme::accent_soft()))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.stores
+                            .projects
+                            .update(cx, |p, cx| p.select(&history_id, cx));
+                        cx.emit(Navigate(Route::SessionHistory(history_id.clone())));
+                    }))
+                    .child(icon(Icon::History, px(13.0)).text_color(theme::text_muted()))
+                    .child(
+                        div()
+                            .text_size(px(12.5))
+                            .text_color(theme::text())
+                            .child(t("sidebar.history")),
                     ),
             )
             .when(!sessions.is_empty(), |s| {

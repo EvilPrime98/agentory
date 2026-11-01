@@ -1,7 +1,9 @@
 pub mod docs;
+pub mod git;
 pub mod sessions;
 pub mod review;
 pub mod selfbuild_section;
+pub mod session_history;
 pub mod settings;
 pub mod skill_editor;
 pub mod skills;

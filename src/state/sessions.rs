@@ -81,6 +81,8 @@ pub struct Session {
     pub name: String,
     pub cwd: PathBuf,
     pub worktree: Option<Worktree>,
+    /// Claude's session id when this session was started with `--resume`.
+    pub resume_id: Option<String>,
     pub status: SessionStatus,
     pub terminal: Entity<Terminal>,
     _exit_sub: Subscription,
@@ -183,6 +185,13 @@ impl SessionsStore {
         self.select(&id, cx);
     }
 
+    /// The live Agentory session that resumed Claude session `resume_id`, if any.
+    pub fn resumed(&self, resume_id: &str) -> Option<&Session> {
+        self.items
+            .iter()
+            .find(|s| s.status != SessionStatus::Exited && s.resume_id.as_deref() == Some(resume_id))
+    }
+
     /// Start a session. `id` is shared with the worktree (if any) so both are easy to correlate.
     pub fn start(
         &mut self,
@@ -192,6 +201,21 @@ impl SessionsStore {
         kind: SessionKind,
         prefs: &Prefs,
         input: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        self.start_resuming(project, id, worktree, kind, prefs, input, None, cx)
+    }
+
+    /// `start`, optionally resuming Claude session `resume_id` (`claude --resume <id>`).
+    pub fn start_resuming(
+        &mut self,
+        project: &Project,
+        id: String,
+        worktree: Option<Worktree>,
+        kind: SessionKind,
+        prefs: &Prefs,
+        input: Option<String>,
+        resume_id: Option<String>,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         let cwd = worktree
@@ -209,13 +233,15 @@ impl SessionsStore {
             })?;
             let settings = status::write_settings(&id)
                 .map_err(|e| format!("could not write the hook settings: {e}"))?;
-            (
-                program.to_string_lossy().into_owned(),
-                vec![
-                    "--settings".to_string(),
-                    settings.to_string_lossy().into_owned(),
-                ],
-            )
+            let mut args = vec![
+                "--settings".to_string(),
+                settings.to_string_lossy().into_owned(),
+            ];
+            if let Some(resume) = &resume_id {
+                args.push("--resume".to_string());
+                args.push(resume.clone());
+            }
+            (program.to_string_lossy().into_owned(), args)
         };
         let (rows, cols) = (30, 100);
         let mut env = vec![("AGENTORY_SESSION".into(), id.clone())];
@@ -259,6 +285,7 @@ impl SessionsStore {
             name,
             cwd,
             worktree,
+            resume_id,
             status: SessionStatus::Starting,
             terminal,
             _exit_sub: exit_sub,
@@ -322,6 +349,7 @@ impl SessionsStore {
             name: shell.label.to_string(),
             cwd,
             worktree: None,
+            resume_id: None,
             status: SessionStatus::Starting,
             terminal,
             _exit_sub: exit_sub,
@@ -509,6 +537,60 @@ pub fn begin_new_with(project_id: &str, worktree: bool, cx: &mut App) {
     };
     let worktree = worktree && project.is_git_repo();
     launch(stores, project, worktree, None, cx);
+}
+
+/// Resume Claude session `resume_id` in `cwd` as a new agent session, or focus the one already
+/// running it. Registered projects are matched by folder; otherwise the session joins `fallback_id`.
+/// Returns whether a session is now active.
+pub fn resume(resume_id: &str, cwd: PathBuf, fallback_id: &str, cx: &mut App) -> bool {
+    let stores = cx.global::<Stores>().clone();
+    let live = stores
+        .sessions
+        .read(cx)
+        .resumed(resume_id)
+        .map(|s| (s.id.clone(), s.project_id.clone()));
+    if let Some((id, project_id)) = live {
+        stores.projects.update(cx, |p, cx| p.select(&project_id, cx));
+        stores.sessions.update(cx, |s, cx| s.select(&id, cx));
+        return true;
+    }
+    let project = {
+        let projects = stores.projects.read(cx);
+        let by_path = projects
+            .items
+            .iter()
+            .find(|p| crate::backend::transcripts::same_dir(&p.path, &cwd));
+        by_path.cloned().or_else(|| {
+            projects
+                .get(fallback_id)
+                .map(|p| Project { path: cwd.clone(), ..p.clone() })
+        })
+    };
+    let Some(project) = project else { return false };
+    let prefs = stores.prefs.read(cx).prefs.clone();
+    let result = stores.sessions.update(cx, |s, cx| {
+        s.start_resuming(
+            &project,
+            new_id("s"),
+            None,
+            SessionKind::Agent,
+            &prefs,
+            None,
+            Some(resume_id.to_string()),
+            cx,
+        )
+    });
+    match result {
+        Ok(()) => {
+            stores.projects.update(cx, |p, cx| p.select(&project.id, cx));
+            true
+        }
+        Err(e) => {
+            tracing::error!("could not resume a session: {e}");
+            toast::error(cx, e);
+            false
+        }
+    }
 }
 
 /// Where a project terminal starts.
