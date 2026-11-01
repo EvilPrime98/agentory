@@ -33,6 +33,10 @@ const POLL: Duration = Duration::from_secs(3);
 /// Diff lines drawn; a bigger diff is cut with a note.
 const MAX_DIFF_LINES: usize = 3000;
 const LEFT_PANE_W: f32 = 340.0;
+const DIFF_ROW_H: f32 = 18.0;
+const DIFF_FONT_SIZE: f32 = 12.0;
+const DIFF_OVERSCAN: usize = 8;
+const DIFF_GUTTER_W: f32 = 44.0 * 2.0 + 14.0 + 8.0;
 
 enum Repo {
     Loading,
@@ -1284,7 +1288,7 @@ impl GitPage {
             .into_any_element()
     }
 
-    fn diff_pane(&self) -> AnyElement {
+    fn diff_pane(&self, window: &Window) -> AnyElement {
         let pane = div()
             .flex()
             .flex_col()
@@ -1302,7 +1306,38 @@ impl GitPage {
                 .child(muted_note(t("git.select_file").into()))
                 .into_any_element();
         };
-        let rows: Vec<AnyElement> = self.diff.iter().map(diff_row).collect();
+        let total = self.diff.len();
+        let ts = window.text_system();
+        let char_w = ts
+            .advance(
+                ts.resolve_font(&gpui::font(theme::FONT)),
+                px(DIFF_FONT_SIZE),
+                'm',
+            )
+            .map(|s| f32::from(s.width))
+            .unwrap_or(7.0);
+        let longest = self
+            .diff
+            .iter()
+            .map(|l| l.text.chars().count())
+            .max()
+            .unwrap_or(0);
+        let content_w = DIFF_GUTTER_W + longest as f32 * char_w;
+
+        let view_h = f32::from(self.diff_scroll.bounds().size.height);
+        let visible = if view_h > 0.0 {
+            (view_h / DIFF_ROW_H).ceil() as usize
+        } else {
+            60
+        };
+        let top = (-f32::from(self.diff_scroll.offset().y)).max(0.0);
+        let first = ((top / DIFF_ROW_H) as usize)
+            .saturating_sub(DIFF_OVERSCAN)
+            .min(total);
+        let end = (first + visible + 2 * DIFF_OVERSCAN).min(total);
+        let rows: Vec<AnyElement> = self.diff[first..end].iter().map(diff_row).collect();
+        let above = div().flex_none().h(px(first as f32 * DIFF_ROW_H));
+        let below = div().flex_none().h(px((total - end) as f32 * DIFF_ROW_H));
         pane.child(
             div()
                 .px(px(12.0))
@@ -1321,13 +1356,22 @@ impl GitPage {
                 .flex_col()
                 .flex_1()
                 .min_h_0()
-                .overflow_y_scroll()
+                .overflow_scroll()
                 .track_scroll(&self.diff_scroll)
                 .py(px(6.0))
-                .when(rows.is_empty(), |s| {
+                .when(total == 0, |s| {
                     s.child(muted_note(t("git.no_diff").into()))
                 })
-                .children(rows)
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_none()
+                        .min_w(px(content_w))
+                        .child(above)
+                        .children(rows)
+                        .child(below),
+                )
                 .when(self.diff_hidden > 0, |s| {
                     s.child(muted_note(
                         t_args("git.diff_cut", &[("n", &self.diff_hidden.to_string())]).into(),
@@ -1365,9 +1409,10 @@ fn diff_row(line: &DiffLine) -> AnyElement {
     div()
         .flex()
         .flex_none()
-        .min_h(px(18.0))
+        .h(px(DIFF_ROW_H))
+        .w_full()
         .font_family(theme::FONT)
-        .text_size(px(12.0))
+        .text_size(px(DIFF_FONT_SIZE))
         .when_some(bg, |s, bg| s.bg(bg))
         .child(num(line.old))
         .child(num(line.new))
@@ -1375,7 +1420,7 @@ fn diff_row(line: &DiffLine) -> AnyElement {
         .child(
             div()
                 .flex_1()
-                .min_w_0()
+                .whitespace_nowrap()
                 .pr(px(8.0))
                 .text_color(color)
                 .child(text),
@@ -1384,7 +1429,7 @@ fn diff_row(line: &DiffLine) -> AnyElement {
 }
 
 impl Render for GitPage {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let body: AnyElement = match &self.repo {
             Repo::Loading => muted_note(t("git.loading").into()).into_any_element(),
             Repo::Failed(e) => {
@@ -1409,7 +1454,7 @@ impl Render for GitPage {
                 .min_h_0()
                 .gap(px(12.0))
                 .child(self.left_pane(cx))
-                .child(self.diff_pane())
+                .child(self.diff_pane(window))
                 .into_any_element(),
         };
         div()
