@@ -1,12 +1,16 @@
 //! Single-line text field. GPUI core has no text input, so this handles typing,
-//! caret movement, selection (shift+arrows, select all, drag-free), copy/cut/paste, backspace/delete
-//! and Enter/Escape.
-//! Known gaps: no IME composition, no mouse-drag selection, caret is char-based (not grapheme-based).
+//! caret movement (keys and click), selection (shift+arrows, drag, double-click word, select all),
+//! word jumps, copy/cut/paste, backspace/delete, horizontal scrolling and Enter/Escape.
+//! The text is shaped and painted by [`TextLine`], so the caret is an overlay (takes no space)
+//! and clicks map to real glyph positions.
+//! Known gaps: no IME composition, caret is char-based (not grapheme-based).
 
 use gpui::{
-    App, ClipboardItem, Context, EventEmitter, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, KeyDownEvent, MouseButton, ParentElement, Render, SharedString, Styled, Window,
-    div, prelude::*, px,
+    App, Bounds, ClipboardItem, Context, Element, ElementId, Entity, EventEmitter, FocusHandle,
+    Focusable, GlobalElementId, InspectorElementId, InteractiveElement, IntoElement, KeyDownEvent,
+    LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, ParentElement,
+    Pixels, Point, Render, ShapedLine, SharedString, Style, Styled, TextAlign, TextRun, Window,
+    div, fill, point, px, relative, size,
 };
 
 use crate::ui::theme;
@@ -25,6 +29,12 @@ pub struct TextInput {
     anchor: Option<usize>,
     placeholder: SharedString,
     focus: FocusHandle,
+    /// Horizontal scroll of the text inside the field, kept in sync by `TextLine`.
+    scroll_x: Pixels,
+    /// Layout of the last paint, used to map mouse positions to chars.
+    last_layout: Option<ShapedLine>,
+    last_bounds: Option<Bounds<Pixels>>,
+    dragging: bool,
 }
 
 impl EventEmitter<TextInputEvent> for TextInput {}
@@ -37,6 +47,10 @@ impl TextInput {
             anchor: None,
             placeholder: placeholder.into(),
             focus: cx.focus_handle(),
+            scroll_x: px(0.0),
+            last_layout: None,
+            last_bounds: None,
+            dragging: false,
         }
     }
 
@@ -73,6 +87,36 @@ impl TextInput {
             .nth(chars)
             .map(|(i, _)| i)
             .unwrap_or(self.value.len())
+    }
+
+    fn char_index(&self, byte: usize) -> usize {
+        self.value[..byte.min(self.value.len())].chars().count()
+    }
+
+    /// Start of the word at or before `from` (skips whitespace first).
+    fn word_start(&self, from: usize) -> usize {
+        let chars: Vec<char> = self.value.chars().collect();
+        let mut i = from.min(chars.len());
+        while i > 0 && chars[i - 1].is_whitespace() {
+            i -= 1;
+        }
+        while i > 0 && !chars[i - 1].is_whitespace() {
+            i -= 1;
+        }
+        i
+    }
+
+    /// End of the word at or after `from` (skips whitespace first).
+    fn word_end(&self, from: usize) -> usize {
+        let chars: Vec<char> = self.value.chars().collect();
+        let mut i = from.min(chars.len());
+        while i < chars.len() && chars[i].is_whitespace() {
+            i += 1;
+        }
+        while i < chars.len() && !chars[i].is_whitespace() {
+            i += 1;
+        }
+        i
     }
 
     /// Selected range in chars, ordered.
@@ -121,6 +165,50 @@ impl TextInput {
         self.caret = to;
     }
 
+    /// Char index under a window position, from the last painted layout.
+    fn index_at(&self, position: Point<Pixels>) -> usize {
+        let (Some(layout), Some(bounds)) = (&self.last_layout, self.last_bounds) else {
+            return self.len();
+        };
+        if self.value.is_empty() {
+            return 0;
+        }
+        let x = position.x - bounds.left() + self.scroll_x;
+        self.char_index(layout.closest_index_for_x(x))
+    }
+
+    fn on_mouse_down(&mut self, e: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        window.focus(&self.focus, cx);
+        let at = self.index_at(e.position);
+        match e.click_count {
+            1 => {
+                self.dragging = true;
+                self.move_caret(at, e.modifiers.shift);
+            }
+            2 => {
+                self.anchor = Some(self.word_start(at));
+                self.caret = self.word_end(at);
+            }
+            _ => {
+                self.anchor = Some(0);
+                self.caret = self.len();
+            }
+        }
+        cx.notify();
+    }
+
+    fn on_mouse_move(&mut self, e: &MouseMoveEvent, cx: &mut Context<Self>) {
+        if self.dragging && e.pressed_button == Some(MouseButton::Left) {
+            let at = self.index_at(e.position);
+            self.move_caret(at, true);
+            cx.notify();
+        }
+    }
+
+    fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>) {
+        self.dragging = false;
+    }
+
     fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let ks = &event.keystroke;
         let len = self.len();
@@ -133,6 +221,9 @@ impl TextInput {
                 window.blur();
             }
             "backspace" => {
+                if command && self.selection().is_none() {
+                    self.anchor = Some(self.word_start(self.caret));
+                }
                 if !self.delete_selection() {
                     if self.caret == 0 {
                         return cx.stop_propagation();
@@ -154,17 +245,19 @@ impl TextInput {
                 cx.emit(TextInputEvent::Changed);
             }
             "left" => match self.selection() {
-                Some((from, _)) if !shift => {
+                Some((from, _)) if !shift && !command => {
                     self.anchor = None;
                     self.caret = from;
                 }
+                _ if command => self.move_caret(self.word_start(self.caret), shift),
                 _ => self.move_caret(self.caret.saturating_sub(1), shift),
             },
             "right" => match self.selection() {
-                Some((_, to)) if !shift => {
+                Some((_, to)) if !shift && !command => {
                     self.anchor = None;
                     self.caret = to;
                 }
+                _ if command => self.move_caret(self.word_end(self.caret), shift),
                 _ => self.move_caret((self.caret + 1).min(len), shift),
             },
             "home" => self.move_caret(0, shift),
@@ -208,53 +301,7 @@ impl Focusable for TextInput {
 }
 
 impl Render for TextInput {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let focused = self.focus.is_focused(window);
-        let caret = div().w(px(1.0)).h(px(15.0)).bg(if focused {
-            theme::accent()
-        } else {
-            gpui::rgba(0x00000000)
-        });
-
-        let content = if self.value.is_empty() {
-            div().flex().items_center().child(caret).child(
-                div()
-                    .text_color(theme::text_faint())
-                    .child(self.placeholder.clone()),
-            )
-        } else if let Some((from, to)) = self.selection() {
-            let (b_from, b_to) = (self.byte_index(from), self.byte_index(to));
-            let selected = div()
-                .bg(theme::accent_soft())
-                .child(self.value[b_from..b_to].to_string());
-            // The caret sits at whichever end of the selection it was moved to.
-            let (before, after) = (
-                self.value[..b_from].to_string(),
-                self.value[b_to..].to_string(),
-            );
-            let at_start = self.caret == from;
-            div()
-                .flex()
-                .items_center()
-                .child(div().child(before))
-                .when(at_start, |s| {
-                    s.child(div().w(px(1.0)).h(px(15.0)).bg(theme::accent()))
-                })
-                .child(selected)
-                .when(!at_start, |s| {
-                    s.child(div().w(px(1.0)).h(px(15.0)).bg(theme::accent()))
-                })
-                .child(div().child(after))
-        } else {
-            let (before, after) = self.value.split_at(self.byte_index(self.caret));
-            div()
-                .flex()
-                .items_center()
-                .child(div().child(before.to_string()))
-                .child(caret)
-                .child(div().child(after.to_string()))
-        };
-
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("text-input")
             .key_context("TextInput")
@@ -262,12 +309,16 @@ impl Render for TextInput {
             .on_key_down(cx.listener(|this, e, window, cx| this.on_key(e, window, cx)))
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|this, _, window, cx| {
-                    window.focus(&this.focus, cx);
-                    this.anchor = None;
-                    this.caret = this.len();
-                    cx.notify();
-                }),
+                cx.listener(|this, e, w, cx| this.on_mouse_down(e, w, cx)),
+            )
+            .on_mouse_move(cx.listener(|this, e, _, cx| this.on_mouse_move(e, cx)))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, e, w, cx| this.on_mouse_up(e, w, cx)),
+            )
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|this, e, w, cx| this.on_mouse_up(e, w, cx)),
             )
             .flex_1()
             .min_w_0()
@@ -278,6 +329,156 @@ impl Render for TextInput {
             .text_size(px(13.0))
             .text_color(theme::text())
             .cursor_text()
-            .child(content)
+            .child(TextLine { input: cx.entity() })
+    }
+}
+
+/// Paints the text, selection and caret of a [`TextInput`] as one shaped line.
+struct TextLine {
+    input: Entity<TextInput>,
+}
+
+struct Prepaint {
+    line: ShapedLine,
+    selection: Option<PaintQuad>,
+    caret: Option<PaintQuad>,
+    scroll_x: Pixels,
+}
+
+impl IntoElement for TextLine {
+    type Element = Self;
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for TextLine {
+    type RequestLayoutState = ();
+    type PrepaintState = Prepaint;
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, ()) {
+        let mut style = Style::default();
+        style.size.width = relative(1.).into();
+        style.size.height = window.line_height().into();
+        (window.request_layout(style, [], cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Prepaint {
+        let input = self.input.read(cx);
+        let empty = input.value.is_empty();
+        let text: SharedString = if empty {
+            input.placeholder.clone()
+        } else {
+            input.value.clone().into()
+        };
+        let style = window.text_style();
+        let run = TextRun {
+            len: text.len(),
+            font: style.font(),
+            color: gpui::rgb_to_hsla(if empty { theme::text_faint() } else { theme::text() }),
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+            letter_spacing: None,
+        };
+        let font_size = style.font_size.to_pixels(window.rem_size());
+        let line = window.text_system().shape_line(text, font_size, &[run], None);
+
+        let x_of = |chars: usize| {
+            if empty {
+                px(0.0)
+            } else {
+                line.x_for_index(input.byte_index(chars))
+            }
+        };
+        let caret_x = x_of(input.caret);
+
+        // Keep the caret inside the field.
+        let mut scroll_x = input.scroll_x;
+        if empty {
+            scroll_x = px(0.0);
+        } else {
+            if caret_x - scroll_x > bounds.size.width - px(2.0) {
+                scroll_x = caret_x - bounds.size.width + px(2.0);
+            }
+            if caret_x < scroll_x {
+                scroll_x = caret_x;
+            }
+            scroll_x = scroll_x
+                .min(line.width - bounds.size.width + px(2.0))
+                .max(px(0.0));
+        }
+
+        let at = |x: Pixels, w: Pixels| {
+            Bounds::new(
+                point(bounds.left() + x - scroll_x, bounds.top()),
+                size(w, bounds.size.height),
+            )
+        };
+        let selection = input
+            .selection()
+            .map(|(from, to)| fill(at(x_of(from), x_of(to) - x_of(from)), theme::accent_soft()));
+        let caret = input
+            .focus
+            .is_focused(window)
+            .then(|| fill(at(caret_x, px(1.0)), theme::accent()));
+
+        Prepaint {
+            line,
+            selection,
+            caret,
+            scroll_x,
+        }
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _: &mut (),
+        prepaint: &mut Prepaint,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if let Some(selection) = prepaint.selection.take() {
+            window.paint_quad(selection);
+        }
+        let origin = point(bounds.left() - prepaint.scroll_x, bounds.top());
+        let _ = prepaint
+            .line
+            .paint(origin, window.line_height(), TextAlign::Left, None, window, cx);
+        if let Some(caret) = prepaint.caret.take() {
+            window.paint_quad(caret);
+        }
+        let line = prepaint.line.clone();
+        let scroll_x = prepaint.scroll_x;
+        self.input.update(cx, |input, _| {
+            input.last_layout = Some(line);
+            input.last_bounds = Some(bounds);
+            input.scroll_x = scroll_x;
+        });
     }
 }

@@ -5,14 +5,14 @@
   "skills": {
     "domain-modeling": {
       "repo": "https://github.com/mattpocock/skills/tree/main/skills/engineering/domain-modeling",
-      "ref": "5ae481693d13b37d4d2c2c92d0b66d299c93e695",
+      "ref": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
       "market": "skillsmp"
     },
     "git-commit-doctor": "https://github.com/EvilPrime98/mySkills",
     "gpui-desktop": "https://github.com/EvilPrime98/mySkills",
     "grill-with-docs": {
       "repo": "https://github.com/mattpocock/skills/tree/main/skills/engineering/grill-with-docs",
-      "ref": "5ae481693d13b37d4d2c2c92d0b66d299c93e695",
+      "ref": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
       "market": "skillsmp"
     },
     "less-is-more": "https://github.com/EvilPrime98/mySkills",
