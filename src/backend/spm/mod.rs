@@ -231,7 +231,11 @@ pub async fn install(project: &Path, skills: &[String]) -> Result<String, String
 fn also_in(name: &str, candidates: Option<&Vec<Candidate>>, used: &Candidate) -> Option<String> {
     let others = candidates?.get(1..).filter(|o| !o.is_empty())?;
     let repos: Vec<&str> = others.iter().map(|c| c.repo.as_str()).collect();
-    Some(format!("! {name}: also in {}; using {}", repos.join(", "), used.repo))
+    Some(format!(
+        "! {name}: also in {}; using {}",
+        repos.join(", "),
+        used.repo
+    ))
 }
 
 fn install_sync(project: &Path, names: &[String]) -> Result<String, String> {
@@ -264,7 +268,11 @@ fn install_sync(project: &Path, names: &[String]) -> Result<String, String> {
     for name in &targets {
         let candidates = pool.get(name);
         // Reinstalling from spm.json keeps the repo each skill came from.
-        let wanted = if names.is_empty() { pinned_repo(&cfg.manifest, name) } else { None };
+        let wanted = if names.is_empty() {
+            pinned_repo(&cfg.manifest, name)
+        } else {
+            None
+        };
         let Some(found) = pick_candidate(candidates, wanted.as_deref()) else {
             failed.push(format!(
                 "✗ {name}: not found in {}{}",
@@ -278,22 +286,28 @@ fn install_sync(project: &Path, names: &[String]) -> Result<String, String> {
         }
         let current = cfg.manifest.skills.get(name).cloned();
         if spm_repo_set() {
-            cfg.manifest.skills.insert(name.clone(), current.unwrap_or(Value::Null));
+            cfg.manifest
+                .skills
+                .insert(name.clone(), current.unwrap_or(Value::Null));
         } else if !names.is_empty() || !is_market(current.as_ref()) {
-            cfg.manifest.skills.insert(name.clone(), Value::String(found.repo.clone()));
+            cfg.manifest
+                .skills
+                .insert(name.clone(), Value::String(found.repo.clone()));
         }
         let dest = p.skills.join(name);
         if dest.exists() {
             log.push(format!("• {name}: already installed"));
             if !cfg.state.contains_key(name) {
                 let hash = store::hash_dir(&dest).map_err(io)?;
-                cfg.state.insert(name.clone(), store::state_entry(&hash, &found.sha));
+                cfg.state
+                    .insert(name.clone(), store::state_entry(&hash, &found.sha));
             }
             continue;
         }
         store::copy_skill(&found.src, &dest).map_err(io)?;
         let hash = store::hash_dir(&dest).map_err(io)?;
-        cfg.state.insert(name.clone(), store::state_entry(&hash, &found.sha));
+        cfg.state
+            .insert(name.clone(), store::state_entry(&hash, &found.sha));
         log.push(format!("✓ {name}"));
     }
     save(&p, &cfg)?;
@@ -404,11 +418,19 @@ fn build_review(
 
 /// First phase of `install <market>:<id>`: resolve it on the market, fetch the repo at its
 /// current commit and inspect the skill.
-pub async fn prepare_install(project: &Path, market: &str, id: &str, global: bool) -> Result<Prepared, String> {
+pub async fn prepare_install(
+    project: &Path,
+    market: &str,
+    id: &str,
+    global: bool,
+) -> Result<Prepared, String> {
     let (project, market, id) = (project.to_path_buf(), market.to_string(), id.to_string());
     blocking(move || {
         if market != market::SKILLSMP {
-            return Err(format!("unknown market \"{market}\" (available: {})", market::SKILLSMP));
+            return Err(format!(
+                "unknown market \"{market}\" (available: {})",
+                market::SKILLSMP
+            ));
         }
         let hit = market::resolve(&id)?;
         prepare_install_hit(&project, &hit, &market, global)
@@ -416,14 +438,25 @@ pub async fn prepare_install(project: &Path, market: &str, id: &str, global: boo
     .await
 }
 
-fn prepare_install_hit(project: &Path, hit: &Hit, market: &str, global: bool) -> Result<Prepared, String> {
+fn prepare_install_hit(
+    project: &Path,
+    hit: &Hit,
+    market: &str,
+    global: bool,
+) -> Result<Prepared, String> {
     let pool = load_pool(std::slice::from_ref(&hit.repo))?;
     let (name, found) = market_entry(&pool, &hit.name, &hit.repo)?;
-    let skills_dir = if global { global_skills_dir() } else { Paths::of(project).skills };
+    let skills_dir = if global {
+        global_skills_dir()
+    } else {
+        Paths::of(project).skills
+    };
     if skills_dir.join(&name).exists() {
         return Ok(Prepared::Done(format!("• {name}: already installed")));
     }
-    Ok(Prepared::Review(Box::new(build_review(&name, &found, market, None, global)?)))
+    Ok(Prepared::Review(Box::new(build_review(
+        &name, &found, market, None, global,
+    )?)))
 }
 
 /// First phase of `update --latest` for one market skill: fetch the newest commit of its repo.
@@ -437,7 +470,10 @@ pub async fn prepare_update_latest(project: &Path, skill: &str) -> Result<Prepar
             Some(Value::Object(o)) => (
                 o.get("repo").and_then(Value::as_str).map(str::to_string),
                 o.get("ref").and_then(Value::as_str).map(str::to_string),
-                o.get("market").and_then(Value::as_str).unwrap_or(market::SKILLSMP).to_string(),
+                o.get("market")
+                    .and_then(Value::as_str)
+                    .unwrap_or(market::SKILLSMP)
+                    .to_string(),
             ),
             Some(_) => return Err(format!("✗ {skill}: not installed from a market")),
             None => return Err(format!("✗ {skill}: not installed")),
@@ -449,7 +485,11 @@ pub async fn prepare_update_latest(project: &Path, skill: &str) -> Result<Prepar
         };
         let dest = p.skills.join(&skill);
         let repo_hash = store::hash_dir(&found.src).map_err(io)?;
-        let local_hash = dest.exists().then(|| store::hash_dir(&dest)).transpose().map_err(io)?;
+        let local_hash = dest
+            .exists()
+            .then(|| store::hash_dir(&dest))
+            .transpose()
+            .map_err(io)?;
         let moved = pinned.as_deref() != Some(found.sha.as_str());
         if local_hash.as_deref() == Some(repo_hash.as_str()) {
             if moved {
@@ -457,7 +497,8 @@ pub async fn prepare_update_latest(project: &Path, skill: &str) -> Result<Prepar
                     o.insert("ref".into(), Value::String(found.sha.clone()));
                 }
             }
-            cfg.state.insert(skill.clone(), store::state_entry(&repo_hash, &found.sha));
+            cfg.state
+                .insert(skill.clone(), store::state_entry(&repo_hash, &found.sha));
             save(&p, &cfg)?;
             return Ok(Prepared::Done(format!("• {skill}: up to date")));
         }
@@ -466,7 +507,9 @@ pub async fn prepare_update_latest(project: &Path, skill: &str) -> Result<Prepar
                 "• {skill}: already at the latest commit (use Update all to restore local edits)"
             )));
         }
-        Ok(Prepared::Review(Box::new(build_review(&skill, &found, &market, pinned, false)?)))
+        Ok(Prepared::Review(Box::new(build_review(
+            &skill, &found, &market, pinned, false,
+        )?)))
     })
     .await
 }
@@ -596,21 +639,33 @@ pub async fn update(project: &Path) -> Result<String, String> {
             };
             let market = is_market(cfg.manifest.skills.get(name));
             if !spm_repo_set() && !market {
-                cfg.manifest.skills.insert(name.clone(), Value::String(found.repo.clone()));
+                cfg.manifest
+                    .skills
+                    .insert(name.clone(), Value::String(found.repo.clone()));
             }
             let repo_hash = store::hash_dir(&found.src).map_err(io)?;
-            let local_hash = dest.exists().then(|| store::hash_dir(&dest)).transpose().map_err(io)?;
+            let local_hash = dest
+                .exists()
+                .then(|| store::hash_dir(&dest))
+                .transpose()
+                .map_err(io)?;
             if local_hash.as_deref() == Some(repo_hash.as_str()) {
-                cfg.state.insert(name.clone(), store::state_entry(&repo_hash, &found.sha));
+                cfg.state
+                    .insert(name.clone(), store::state_entry(&repo_hash, &found.sha));
                 log.push(format!("• {name}: up to date"));
                 continue;
             }
             let edited = local_hash.is_some() && local_hash != store::state_hash(&cfg.state, name);
             store::copy_skill(&found.src, &dest).map_err(io)?;
-            cfg.state.insert(name.clone(), store::state_entry(&repo_hash, &found.sha));
+            cfg.state
+                .insert(name.clone(), store::state_entry(&repo_hash, &found.sha));
             log.push(format!(
                 "✓ {name}: updated{}",
-                if edited { " (local edits overwritten)" } else { "" }
+                if edited {
+                    " (local edits overwritten)"
+                } else {
+                    ""
+                }
             ));
         }
         save(&p, &cfg)?;
@@ -741,17 +796,23 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             // Review first: nothing is copied until it is confirmed.
-            let Prepared::Review(review) = prepare_install_hit(&project, &hit, "skillsmp", false).unwrap()
+            let Prepared::Review(review) =
+                prepare_install_hit(&project, &hit, "skillsmp", false).unwrap()
             else {
                 panic!("expected a review");
             };
             assert!(!project.join(".claude/skills/alpha").exists());
-            assert!(review.text().contains("script or binary: run.sh"), "{}", review.text());
+            assert!(
+                review.text().contains("script or binary: run.sh"),
+                "{}",
+                review.text()
+            );
             let first_sha = review.sha.clone();
             confirm(&project, (*review).clone()).await.unwrap();
             assert!(project.join(".claude/skills/alpha/run.sh").is_file());
             let manifest: Value =
-                serde_json::from_str(&fs::read_to_string(project.join("spm.json")).unwrap()).unwrap();
+                serde_json::from_str(&fs::read_to_string(project.join("spm.json")).unwrap())
+                    .unwrap();
             assert_eq!(
                 manifest["skills"]["alpha"],
                 serde_json::json!({"repo": spec, "ref": first_sha, "market": "skillsmp"})
@@ -767,7 +828,8 @@ mod tests {
             ));
 
             // Nothing new upstream.
-            let Prepared::Done(msg) = prepare_update_latest(&project, "alpha").await.unwrap() else {
+            let Prepared::Done(msg) = prepare_update_latest(&project, "alpha").await.unwrap()
+            else {
                 panic!("expected up to date");
             };
             assert!(msg.contains("up to date"), "{msg}");
@@ -776,7 +838,8 @@ mod tests {
             fs::write(upstream.join("skills/alpha/extra.md"), "more").unwrap();
             git(&upstream, &["add", "."]);
             git(&upstream, &["commit", "-q", "-m", "two"]);
-            let Prepared::Review(next) = prepare_update_latest(&project, "alpha").await.unwrap() else {
+            let Prepared::Review(next) = prepare_update_latest(&project, "alpha").await.unwrap()
+            else {
                 panic!("expected a review");
             };
             assert_eq!(next.from.as_deref(), Some(first_sha.as_str()));
@@ -786,16 +849,23 @@ mod tests {
             assert!(out.contains("alpha: updated"), "{out}");
             assert!(project.join(".claude/skills/alpha/extra.md").is_file());
             let manifest: Value =
-                serde_json::from_str(&fs::read_to_string(project.join("spm.json")).unwrap()).unwrap();
+                serde_json::from_str(&fs::read_to_string(project.join("spm.json")).unwrap())
+                    .unwrap();
             assert_eq!(manifest["skills"]["alpha"]["ref"], next.sha.as_str());
 
             // A plain update stays on the pinned commit; a pool skill is not a market skill.
-            assert!(update(&project).await.unwrap().contains("alpha: up to date"));
+            assert!(
+                update(&project)
+                    .await
+                    .unwrap()
+                    .contains("alpha: up to date")
+            );
             let err = prepare_update_latest(&project, "nope").await.unwrap_err();
             assert!(err.contains("not installed"), "{err}");
 
             // Global installs: reviewed market ones and pool ones, nothing recorded.
-            let Prepared::Review(g) = prepare_install_hit(&project, &hit, "skillsmp", true).unwrap()
+            let Prepared::Review(g) =
+                prepare_install_hit(&project, &hit, "skillsmp", true).unwrap()
             else {
                 panic!("expected a review");
             };
@@ -806,10 +876,19 @@ mod tests {
             let out = install_global(&project, &["alpha".into()]).await.unwrap();
             assert!(out.contains("alpha (global)"), "{out}");
             assert!(global.join("alpha/SKILL.md").is_file());
-            assert!(install_global(&project, &["zzz".into()]).await.unwrap_err().contains("not found"));
+            assert!(
+                install_global(&project, &["zzz".into()])
+                    .await
+                    .unwrap_err()
+                    .contains("not found")
+            );
             let manifest: Value =
-                serde_json::from_str(&fs::read_to_string(project.join("spm.json")).unwrap()).unwrap();
-            assert!(manifest["skills"]["alpha"].is_object(), "global installs record nothing");
+                serde_json::from_str(&fs::read_to_string(project.join("spm.json")).unwrap())
+                    .unwrap();
+            assert!(
+                manifest["skills"]["alpha"].is_object(),
+                "global installs record nothing"
+            );
         });
         let _ = fs::remove_dir_all(&root);
     }
@@ -843,7 +922,8 @@ mod tests {
         rt.block_on(async {
             init(&project, Some(&spec), true).await.unwrap();
             let manifest: Value =
-                serde_json::from_str(&fs::read_to_string(project.join("spm.json")).unwrap()).unwrap();
+                serde_json::from_str(&fs::read_to_string(project.join("spm.json")).unwrap())
+                    .unwrap();
             assert_eq!(manifest["repos"][0], spec.as_str());
             assert_eq!(manifest["isolate"], true);
             let settings: Value = serde_json::from_str(
@@ -865,9 +945,17 @@ mod tests {
             // A skill edited by hand is reported when update overwrites it.
             fs::write(project.join(".claude/skills/alpha/extra.txt"), "mine").unwrap();
             let out = update(&project).await.unwrap();
-            assert!(out.contains("alpha: updated (local edits overwritten)"), "{out}");
+            assert!(
+                out.contains("alpha: updated (local edits overwritten)"),
+                "{out}"
+            );
             assert!(!project.join(".claude/skills/alpha/extra.txt").exists());
-            assert!(update(&project).await.unwrap().contains("alpha: up to date"));
+            assert!(
+                update(&project)
+                    .await
+                    .unwrap()
+                    .contains("alpha: up to date")
+            );
 
             // Reinstalling from spm.json recreates a deleted folder.
             fs::remove_dir_all(project.join(".claude/skills/alpha")).unwrap();

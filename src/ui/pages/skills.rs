@@ -17,23 +17,33 @@ use crate::ui::components::text_input::{TextInput, TextInputEvent};
 use crate::ui::icons::{Icon, icon};
 use crate::ui::theme;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SkillsTab {
+    Installed,
+    Discover,
+    Sources,
+}
+
 pub struct SkillsPage {
     stores: Stores,
-    install_input: Entity<TextInput>,
+    tab: SkillsTab,
     repo_input: Entity<TextInput>,
     init_repo_input: Entity<TextInput>,
-    filter_input: Entity<TextInput>,
-    market_input: Entity<TextInput>,
-    /// Install pool skills into the global skills folder instead of the project.
+    search_input: Entity<TextInput>,
     install_global: bool,
+    confirm_remove: Option<String>,
     installed_scroll: SmoothScroll,
-    available_scroll: SmoothScroll,
     market_scroll: SmoothScroll,
+    pool_scroll: SmoothScroll,
     _subs: Vec<Subscription>,
 }
 
 /// Narrowest a card gets before the row wraps and the cards stack.
 const CARD_MIN_W: f32 = 340.0;
+
+const LIST_MAX_H: f32 = 360.0;
+
+const INSTALLED_MAX_H: f32 = 560.0;
 
 fn field(input: &Entity<TextInput>) -> impl IntoElement {
     div()
@@ -140,33 +150,94 @@ pub(super) fn muted_note(text: gpui::SharedString) -> impl IntoElement {
         .child(text)
 }
 
+fn segment(
+    id: impl Into<gpui::ElementId>,
+    label: impl Into<gpui::SharedString>,
+    active: bool,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .h(px(26.0))
+        .px(px(12.0))
+        .rounded(px(4.0))
+        .text_size(px(12.5))
+        .cursor_pointer()
+        .when(active, |s| {
+            s.bg(theme::hover())
+                .text_color(theme::text())
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+        })
+        .when(!active, |s| {
+            s.text_color(theme::text_muted())
+                .hover(|s| s.text_color(theme::text()))
+        })
+        .on_click(on_click)
+        .child(label.into())
+}
+
+fn group_heading(title: String, count: usize) -> impl IntoElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(6.0))
+        .mt(px(6.0))
+        .child(
+            div()
+                .text_size(px(12.0))
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .child(title),
+        )
+        .child(
+            div()
+                .px(px(6.0))
+                .rounded(px(8.0))
+                .bg(theme::hover())
+                .text_size(px(11.0))
+                .text_color(theme::text_muted())
+                .child(count.to_string()),
+        )
+}
+
+fn result_text(name: String, lines: Vec<String>) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w_0()
+        .child(
+            div()
+                .truncate()
+                .text_size(px(13.0))
+                .text_color(theme::text())
+                .child(name),
+        )
+        .children(lines.into_iter().filter(|l| !l.is_empty()).map(|l| {
+            div()
+                .truncate()
+                .text_size(px(11.0))
+                .text_color(theme::text_muted())
+                .child(l)
+        }))
+}
+
 impl EventEmitter<Navigate> for SkillsPage {}
 impl EventEmitter<GoBack> for SkillsPage {}
 
 impl SkillsPage {
     pub fn new(stores: Stores, cx: &mut Context<Self>) -> Self {
-        let install_input = cx.new(|cx| TextInput::new(t("skills.install_placeholder"), cx));
         let repo_input = cx.new(|cx| TextInput::new("owner/repo", cx));
         let init_repo_input = cx.new(|cx| TextInput::new(t("skills.init_placeholder"), cx));
-        let filter_input = cx.new(|cx| TextInput::new(t("skills.filter_placeholder"), cx));
-        let market_input = cx.new(|cx| TextInput::new(t("skills.market.placeholder"), cx));
+        let search_input = cx.new(|cx| TextInput::new(t("skills.search_placeholder"), cx));
         let subs = vec![
             cx.observe(&stores.skills, |_, _, cx| cx.notify()),
             cx.observe(&stores.projects, |_, _, cx| cx.notify()),
-            cx.subscribe(&install_input, |this, _, ev: &TextInputEvent, cx| {
-                if matches!(ev, TextInputEvent::Submit) {
-                    this.submit_install(cx);
-                }
-            }),
-            cx.subscribe(&market_input, |this, _, ev: &TextInputEvent, cx| {
-                if matches!(ev, TextInputEvent::Submit) {
-                    this.submit_search(cx);
-                }
-            }),
-            cx.subscribe(&filter_input, |_, _, ev: &TextInputEvent, cx| {
-                if matches!(ev, TextInputEvent::Changed) {
-                    cx.notify();
-                }
+            cx.subscribe(&search_input, |this, _, ev: &TextInputEvent, cx| match ev {
+                TextInputEvent::Changed => cx.notify(),
+                TextInputEvent::Submit => this.submit_search(cx),
+                _ => {}
             }),
             cx.subscribe(&init_repo_input, |this, _, ev: &TextInputEvent, cx| {
                 if matches!(ev, TextInputEvent::Submit) {
@@ -181,38 +252,27 @@ impl SkillsPage {
         ];
         Self {
             stores,
-            install_input,
+            tab: SkillsTab::Installed,
             repo_input,
             init_repo_input,
-            filter_input,
-            market_input,
+            search_input,
             install_global: false,
+            confirm_remove: None,
             installed_scroll: SmoothScroll::new(),
-            available_scroll: SmoothScroll::new(),
             market_scroll: SmoothScroll::new(),
+            pool_scroll: SmoothScroll::new(),
             _subs: subs,
         }
     }
 
-    fn submit_install(&mut self, cx: &mut Context<Self>) {
-        let names: Vec<String> = self
-            .install_input
-            .read(cx)
-            .value()
-            .split_whitespace()
-            .map(str::to_string)
-            .collect();
-        if names.is_empty() {
+    fn submit_search(&mut self, cx: &mut Context<Self>) {
+        let term = self.search_input.read(cx).value().trim().to_string();
+        if term.is_empty() {
             return;
         }
-        self.install_input.update(cx, |i, cx| i.set_value("", cx));
-        let global = self.install_global;
-        self.stores.skills.update(cx, |s, cx| s.install(names, global, cx));
-    }
-
-    fn submit_search(&mut self, cx: &mut Context<Self>) {
-        let term = self.market_input.read(cx).value().trim().to_string();
-        self.stores.skills.update(cx, |s, cx| s.search_market(term, cx));
+        self.stores
+            .skills
+            .update(cx, |s, cx| s.search_market(term, cx));
     }
 
     fn submit_init(&mut self, cx: &mut Context<Self>) {
@@ -230,37 +290,44 @@ impl SkillsPage {
         self.repo_input.update(cx, |i, cx| i.set_value("", cx));
         self.stores.skills.update(cx, |s, cx| s.add_repo(repo, cx));
     }
-}
 
-impl Render for SkillsPage {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // Hints are cached by the inputs, so refresh them on every render to follow the language.
-        for (input, key) in [
-            (&self.install_input, "skills.install_placeholder"),
-            (&self.init_repo_input, "skills.init_placeholder"),
-            (&self.filter_input, "skills.filter_placeholder"),
-            (&self.market_input, "skills.market.placeholder"),
-        ] {
-            input.update(cx, |i, _| i.set_placeholder(t(key)));
-        }
+    fn tab_button(
+        &self,
+        id: &'static str,
+        label: String,
+        tab: SkillsTab,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        segment(
+            id,
+            label,
+            self.tab == tab,
+            cx.listener(move |this, _, _, cx| {
+                this.tab = tab;
+                this.confirm_remove = None;
+                cx.notify();
+            }),
+        )
+    }
+
+    fn installed_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let skills = self.stores.skills.read(cx);
-        let has_project = skills.project.is_some();
-        let busy = skills.busy.clone();
         let manifest = skills.snapshot.manifest.clone();
         let doctor = skills.doctor.clone();
-
+        let on_disk_set: BTreeSet<String> = skills.snapshot.installed.iter().cloned().collect();
         // Declared in spm.json plus anything on disk.
-        let mut names: BTreeSet<String> = skills.snapshot.installed.iter().cloned().collect();
+        let mut names = on_disk_set.clone();
         if let Some(m) = &manifest {
             names.extend(m.skills.keys().cloned());
         }
-        let installed_names = names.clone();
         let project_id = self.stores.projects.read(cx).selected.clone();
+        let confirming = self.confirm_remove.clone();
+
         let rows: Vec<AnyElement> = names
             .into_iter()
             .enumerate()
             .map(|(i, name)| {
-                let on_disk = skills.snapshot.installed.contains(&name);
+                let on_disk = on_disk_set.contains(&name);
                 let source = manifest.as_ref().and_then(|m| m.source_of(&name));
                 let cost = doctor.as_ref().and_then(|d| {
                     d.skills
@@ -268,17 +335,55 @@ impl Render for SkillsPage {
                         .find(|s| s.name == name)
                         .map(|s| s.description_tokens)
                 });
-                let remove_name = name.clone();
-                let latest_name = name.clone();
                 let is_market = manifest
                     .as_ref()
                     .and_then(|m| m.skills.get(&name))
                     .is_some_and(serde_json::Value::is_object);
-                let edit_route = project_id
+                let route = project_id
                     .clone()
                     .filter(|_| on_disk)
                     .map(|id| Route::SkillEditor(id, name.clone()));
-                let name_route = edit_route.clone();
+                let latest_name = name.clone();
+                let is_confirming = confirming.as_deref() == Some(name.as_str());
+
+                let actions: AnyElement = if is_confirming {
+                    let remove_name = name.clone();
+                    div()
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .gap(px(6.0))
+                        .child(small_button(
+                            gpui::SharedString::from(format!("rm-confirm-{name}")),
+                            t("common.remove"),
+                            cx.listener(move |this, _, _, cx| {
+                                this.confirm_remove = None;
+                                let n = remove_name.clone();
+                                this.stores.skills.update(cx, |s, cx| s.uninstall(n, cx));
+                            }),
+                        ))
+                        .child(small_button(
+                            gpui::SharedString::from(format!("rm-cancel-{name}")),
+                            t("common.cancel"),
+                            cx.listener(|this, _, _, cx| {
+                                this.confirm_remove = None;
+                                cx.notify();
+                            }),
+                        ))
+                        .into_any_element()
+                } else {
+                    let ask_name = name.clone();
+                    icon_button(
+                        gpui::SharedString::from(format!("rm-skill-{name}")),
+                        Icon::Trash,
+                        cx.listener(move |this, _, _, cx| {
+                            this.confirm_remove = Some(ask_name.clone());
+                            cx.notify();
+                        }),
+                    )
+                    .into_any_element()
+                };
+
                 row_base(i)
                     .when(!on_disk, |s| {
                         s.child(
@@ -296,10 +401,13 @@ impl Render for SkillsPage {
                             .flex_col()
                             .flex_1()
                             .min_w_0()
-                            .when_some(name_route, |s, route| {
-                                s.cursor_pointer().on_click(cx.listener(move |_, _, _, cx| {
-                                    cx.emit(Navigate(route.clone()));
-                                }))
+                            .rounded(px(4.0))
+                            .when_some(route, |s, route| {
+                                s.cursor_pointer().hover(|s| s.bg(theme::hover())).on_click(
+                                    cx.listener(move |_, _, _, cx| {
+                                        cx.emit(Navigate(route.clone()));
+                                    }),
+                                )
                             })
                             .child(
                                 div()
@@ -335,7 +443,10 @@ impl Render for SkillsPage {
                                 .bg(theme::hover())
                                 .text_size(px(11.0))
                                 .text_color(theme::text_muted())
-                                .child(t_args("skills.tokens_short", &[("n", &tokens.to_string())])),
+                                .child(t_args(
+                                    "skills.tokens_short",
+                                    &[("n", &tokens.to_string())],
+                                )),
                         )
                     })
                     .when(is_market, |s| {
@@ -344,76 +455,97 @@ impl Render for SkillsPage {
                             t("skills.update_latest"),
                             cx.listener(move |this, _, _, cx| {
                                 let n = latest_name.clone();
-                                this.stores.skills.update(cx, |s, cx| s.update_latest(n, cx));
+                                this.stores
+                                    .skills
+                                    .update(cx, |s, cx| s.update_latest(n, cx));
                             }),
                         ))
                     })
-                    .when_some(edit_route, |s, route| {
-                        s.child(icon_button(
-                            gpui::SharedString::from(format!("edit-skill-{name}")),
-                            Icon::Pencil,
-                            cx.listener(move |_, _, _, cx| cx.emit(Navigate(route.clone()))),
-                        ))
-                    })
-                    .child(icon_button(
-                        gpui::SharedString::from(format!("rm-skill-{}", name.clone())),
-                        Icon::Trash,
-                        cx.listener(move |this, _, _, cx| {
-                            let n = remove_name.clone();
-                            this.stores.skills.update(cx, |s, cx| s.uninstall(n, cx));
-                        }),
-                    ))
+                    .child(actions)
                     .into_any_element()
             })
             .collect();
-        let filter = self.filter_input.read(cx).value().trim().to_lowercase();
+
+        let count = rows.len();
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.0))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(group_heading(t("skills.tab.installed"), count))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.0))
+                            .child(small_button(
+                                "run-doctor",
+                                t("skills.measure"),
+                                cx.listener(|this, _, _, cx| {
+                                    this.stores.skills.update(cx, |s, cx| s.run_doctor(cx));
+                                }),
+                            ))
+                            .child(small_button(
+                                "update-skills",
+                                t("skills.update_all"),
+                                cx.listener(|this, _, _, cx| {
+                                    this.stores.skills.update(cx, |s, cx| s.update_all(cx));
+                                }),
+                            )),
+                    ),
+            )
+            .when(count == 0, |s| {
+                s.child(muted_note(t("skills.none_installed").into()))
+            })
+            .child(
+                self.installed_scroll.framed(
+                    div()
+                        .id("skills-installed")
+                        .flex()
+                        .flex_col()
+                        .max_h(px(INSTALLED_MAX_H))
+                        .children(rows),
+                    window,
+                ),
+            )
+            .into_any_element()
+    }
+
+    fn discover_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let skills = self.stores.skills.read(cx);
+        let mut installed: BTreeSet<String> = skills.snapshot.installed.iter().cloned().collect();
+        if let Some(m) = &skills.snapshot.manifest {
+            installed.extend(m.skills.keys().cloned());
+        }
+        let filter = self.search_input.read(cx).value().trim().to_lowercase();
         let pool: Vec<_> = skills
             .available
             .iter()
-            .filter(|a| !installed_names.contains(&a.name))
-            .cloned()
-            .collect();
-        let available_error = skills.available_error.clone();
-        let has_available_error = available_error.is_some();
-        let nothing_new = pool.is_empty();
-        let matches: Vec<_> = pool
-            .into_iter()
+            .filter(|a| !installed.contains(&a.name))
             .filter(|a| {
                 filter.is_empty()
                     || a.name.to_lowercase().contains(&filter)
                     || a.description.to_lowercase().contains(&filter)
             })
+            .cloned()
             .collect();
-        let no_match = !nothing_new && matches.is_empty();
-        let available_rows: Vec<AnyElement> = matches
+        let available_error = skills.available_error.clone();
+        let hits = skills.hits.clone();
+        let search_error = skills.search_error.clone();
+        let searching = skills.searching;
+        let install_global = self.install_global;
+
+        let pool_rows: Vec<AnyElement> = pool
             .into_iter()
             .enumerate()
             .map(|(i, a)| {
                 let install_name = a.name.clone();
                 row_base(i)
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .truncate()
-                                    .text_size(px(13.0))
-                                    .text_color(theme::text())
-                                    .child(a.name.clone()),
-                            )
-                            .when(!a.description.is_empty(), |s| {
-                                s.child(
-                                    div()
-                                        .truncate()
-                                        .text_size(px(11.0))
-                                        .text_color(theme::text_muted())
-                                        .child(a.description.clone()),
-                                )
-                            }),
-                    )
+                    .child(result_text(a.name.clone(), vec![a.description.clone()]))
                     .child(icon_button(
                         gpui::SharedString::from(format!("add-skill-{}", a.name)),
                         Icon::Plus,
@@ -428,10 +560,10 @@ impl Render for SkillsPage {
                     .into_any_element()
             })
             .collect();
-        let market_hits = skills.hits.clone();
-        let search_error = skills.search_error.clone();
-        let searching = skills.searching;
-        let hit_rows: Vec<AnyElement> = market_hits
+        let pool_count = pool_rows.len();
+
+        let hit_count = hits.len();
+        let hit_rows: Vec<AnyElement> = hits
             .into_iter()
             .enumerate()
             .map(|(i, h)| {
@@ -443,36 +575,10 @@ impl Render for SkillsPage {
                     id.clone()
                 };
                 row_base(i)
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .truncate()
-                                    .text_size(px(13.0))
-                                    .text_color(theme::text())
-                                    .child(h.name.clone()),
-                            )
-                            .child(
-                                div()
-                                    .truncate()
-                                    .text_size(px(11.0))
-                                    .text_color(theme::text_muted())
-                                    .child(meta),
-                            )
-                            .when(!h.description.is_empty(), |s| {
-                                s.child(
-                                    div()
-                                        .truncate()
-                                        .text_size(px(11.0))
-                                        .text_color(theme::text_muted())
-                                        .child(h.description.clone()),
-                                )
-                            }),
-                    )
+                    .child(result_text(
+                        h.name.clone(),
+                        vec![meta, h.description.clone()],
+                    ))
                     .child(icon_button(
                         gpui::SharedString::from(format!("add-hit-{id}")),
                         Icon::Plus,
@@ -487,6 +593,93 @@ impl Render for SkillsPage {
                     .into_any_element()
             })
             .collect();
+        let show_market = hit_count > 0 || searching || search_error.is_some();
+        let has_filter = !filter.is_empty();
+
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.0))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(10.0))
+                    .child(field(&self.search_input))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_none()
+                            .items_center()
+                            .p(px(2.0))
+                            .rounded(px(6.0))
+                            .border_1()
+                            .border_color(theme::border_subtle())
+                            .child(segment(
+                                "target-project",
+                                t("skills.target.project"),
+                                !install_global,
+                                cx.listener(|this, _, _, cx| {
+                                    this.install_global = false;
+                                    cx.notify();
+                                }),
+                            ))
+                            .child(segment(
+                                "target-global",
+                                t("skills.target.global"),
+                                install_global,
+                                cx.listener(|this, _, _, cx| {
+                                    this.install_global = true;
+                                    cx.notify();
+                                }),
+                            )),
+                    ),
+            )
+            .child(muted_note(t("skills.search_hint").into()))
+            .child(group_heading(t("skills.group.repos"), pool_count))
+            .when_some(available_error, |s, e| s.child(muted_note(e)))
+            .when(pool_count == 0 && !has_filter, |s| {
+                s.child(muted_note(t("skills.nothing_to_install").into()))
+            })
+            .when(pool_count == 0 && has_filter, |s| {
+                s.child(muted_note(t("skills.no_match").into()))
+            })
+            .child(
+                self.pool_scroll.framed(
+                    div()
+                        .id("skills-pool")
+                        .flex()
+                        .flex_col()
+                        .max_h(px(LIST_MAX_H))
+                        .children(pool_rows),
+                    window,
+                ),
+            )
+            .when(show_market, |s| {
+                s.child(group_heading(t("skills.group.market"), hit_count))
+                    .when(searching, |s| {
+                        s.child(muted_note(t("skills.market.searching").into()))
+                    })
+                    .when_some(search_error, |s, e| s.child(muted_note(e)))
+                    .child(
+                        self.market_scroll.framed(
+                            div()
+                                .id("skills-market")
+                                .flex()
+                                .flex_col()
+                                .max_h(px(LIST_MAX_H))
+                                .children(hit_rows),
+                            window,
+                        ),
+                    )
+            })
+            .into_any_element()
+    }
+
+    fn sources_tab(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let skills = self.stores.skills.read(cx);
+        let manifest = skills.snapshot.manifest.clone();
+        let is_busy = skills.busy.is_some();
         let repos: Vec<AnyElement> = manifest
             .as_ref()
             .map(|m| m.repos.clone())
@@ -506,7 +699,7 @@ impl Render for SkillsPage {
                             .child(repo.clone()),
                     )
                     .child(icon_button(
-                        gpui::SharedString::from(format!("rm-repo-{}", repo)),
+                        gpui::SharedString::from(format!("rm-repo-{repo}")),
                         Icon::Close,
                         cx.listener(move |this, _, _, cx| {
                             let r = remove_repo.clone();
@@ -516,9 +709,93 @@ impl Render for SkillsPage {
                     .into_any_element()
             })
             .collect();
-        let install_global = self.install_global;
-        let total = doctor.as_ref().map(|d| d.description_tokens());
-        let no_manifest = has_project && manifest.is_none();
+        let repo_count = repos.len();
+        let skills_store = self.stores.skills.clone();
+
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.0))
+            .child(group_heading(t("skills.group.sources"), repo_count))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.0))
+                    .child(field(&self.repo_input))
+                    .child(small_button(
+                        "add-repo",
+                        t("skills.add_repo"),
+                        cx.listener(|this, _, _, cx| this.submit_repo(cx)),
+                    )),
+            )
+            .children(repos)
+            .when_some(manifest.as_ref().map(|m| m.isolate), |s, isolate| {
+                s.child(
+                    div()
+                        .mt(px(10.0))
+                        .when(is_busy, |d| d.opacity(0.5))
+                        .child(checkbox(
+                            "skills-isolate",
+                            t("skills.isolate"),
+                            isolate,
+                            move |on, _, cx| {
+                                if !is_busy {
+                                    skills_store.update(cx, |s, cx| s.set_isolate(on, cx));
+                                }
+                            },
+                        )),
+                )
+            })
+            .into_any_element()
+    }
+}
+
+impl Render for SkillsPage {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        for (input, key) in [
+            (&self.init_repo_input, "skills.init_placeholder"),
+            (&self.search_input, "skills.search_placeholder"),
+        ] {
+            input.update(cx, |i, _| i.set_placeholder(t(key)));
+        }
+        let skills = self.stores.skills.read(cx);
+        let has_project = skills.project.is_some();
+        let busy = skills.busy.clone();
+        let has_manifest = skills.snapshot.manifest.is_some();
+        let total = skills.doctor.as_ref().map(|d| d.description_tokens());
+        let no_manifest = has_project && !has_manifest;
+        let ready = has_project && has_manifest;
+
+        let tabs = ready.then(|| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(2.0))
+                .child(self.tab_button(
+                    "tab-installed",
+                    t("skills.tab.installed"),
+                    SkillsTab::Installed,
+                    cx,
+                ))
+                .child(self.tab_button(
+                    "tab-discover",
+                    t("skills.tab.discover"),
+                    SkillsTab::Discover,
+                    cx,
+                ))
+                .child(self.tab_button(
+                    "tab-sources",
+                    t("skills.tab.sources"),
+                    SkillsTab::Sources,
+                    cx,
+                ))
+        });
+        let content = ready.then(|| match self.tab {
+            SkillsTab::Installed => self.installed_tab(window, cx),
+            SkillsTab::Discover => self.discover_tab(window, cx),
+            SkillsTab::Sources => self.sources_tab(cx),
+        });
 
         div()
             .id("skills-scroll")
@@ -544,35 +821,36 @@ impl Render for SkillsPage {
                             .justify_between()
                             .child(
                                 div()
-                                    .text_size(px(20.0))
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .child(t("skills.title")),
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(10.0))
+                                    .child(
+                                        div()
+                                            .text_size(px(20.0))
+                                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                                            .child(t("skills.title")),
+                                    )
+                                    .when_some(total, |s, tokens| {
+                                        s.child(
+                                            div()
+                                                .px(px(8.0))
+                                                .py(px(2.0))
+                                                .rounded(px(10.0))
+                                                .bg(theme::hover())
+                                                .text_size(px(11.5))
+                                                .text_color(theme::text_muted())
+                                                .child(format!(
+                                                    "{tokens} {}",
+                                                    t("skills.tokens_in_descriptions")
+                                                )),
+                                        )
+                                    }),
                             )
                             .child(
                                 div()
                                     .flex()
                                     .items_center()
                                     .gap(px(12.0))
-                                    .when_some(manifest.as_ref().map(|m| m.isolate), |s, isolate| {
-                                        let skills = self.stores.skills.clone();
-                                        let is_busy = busy.is_some();
-                                        s.child(
-                                            div()
-                                                .when(is_busy, |d| d.opacity(0.5))
-                                                .child(checkbox(
-                                                    "skills-isolate",
-                                                    t("skills.isolate"),
-                                                    isolate,
-                                                    move |on, _, cx| {
-                                                        if !is_busy {
-                                                            skills.update(cx, |s, cx| {
-                                                                s.set_isolate(on, cx)
-                                                            });
-                                                        }
-                                                    },
-                                                )),
-                                        )
-                                    })
                                     .when_some(busy, |s, label| {
                                         s.child(
                                             div()
@@ -592,7 +870,9 @@ impl Render for SkillsPage {
                                             .cursor_pointer()
                                             .hover(|s| s.bg(theme::hover()))
                                             .on_click(cx.listener(|this, _, _, cx| {
-                                                this.stores.skills.update(cx, |s, cx| s.refresh(cx));
+                                                this.stores
+                                                    .skills
+                                                    .update(cx, |s, cx| s.refresh(cx));
                                             }))
                                             .child(
                                                 icon(Icon::Refresh, px(15.0))
@@ -601,26 +881,33 @@ impl Render for SkillsPage {
                                     ),
                             ),
                     )
+                    .when(!has_project, |s| {
+                        s.child(muted_note(t("skills.no_project").into()))
+                    })
                     .when(no_manifest, |s| {
                         s.child(
                             div()
                                 .flex()
                                 .flex_col()
                                 .gap(px(8.0))
+                                .max_w(px(520.0))
+                                .child(
+                                    div()
+                                        .text_size(px(14.0))
+                                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                                        .child(t("skills.setup_title")),
+                                )
                                 .child(
                                     div()
                                         .text_size(px(12.5))
                                         .text_color(theme::text_muted())
-                                        .child(
-                                            t("skills.no_manifest"),
-                                        ),
+                                        .child(t("skills.no_manifest")),
                                 )
                                 .child(
                                     div()
                                         .flex()
                                         .items_center()
                                         .gap(px(6.0))
-                                        .max_w(px(480.0))
                                         .child(field(&self.init_repo_input))
                                         .child(small_button(
                                             "init-skills",
@@ -630,183 +917,8 @@ impl Render for SkillsPage {
                                 ),
                         )
                     })
-                    .when(has_project && !no_manifest, |s| {
-                        let cost_actions = div()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.0))
-                            .child(small_button(
-                                "run-doctor",
-                                t("skills.measure"),
-                                cx.listener(|this, _, _, cx| {
-                                    this.stores.skills.update(cx, |s, cx| s.run_doctor(cx));
-                                }),
-                            ))
-                            .child(small_button(
-                                "update-skills",
-                                t("skills.update_all"),
-                                cx.listener(|this, _, _, cx| {
-                                    this.stores.skills.update(cx, |s, cx| s.update_all(cx));
-                                }),
-                            ))
-                            .into_any_element();
-                        let cost_body: Vec<AnyElement> = total
-                            .map(|tokens| {
-                                div()
-                                    .flex()
-                                    .items_baseline()
-                                    .gap(px(6.0))
-                                    .child(
-                                        div()
-                                            .text_size(px(24.0))
-                                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                                            .child(tokens.to_string()),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_size(px(12.0))
-                                            .text_color(theme::text_muted())
-                                            .child(t("skills.tokens_in_descriptions")),
-                                    )
-                                    .into_any_element()
-                            })
-                            .into_iter()
-                            .collect();
-
-                        let installed_count = rows.len();
-                        let mut installed_body: Vec<AnyElement> = vec![
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(6.0))
-                                .child(field(&self.install_input))
-                                .child(small_button(
-                                    "install-skill",
-                                    t("skills.install"),
-                                    cx.listener(|this, _, _, cx| this.submit_install(cx)),
-                                ))
-                                .child(checkbox(
-                                    "skills-install-global",
-                                    t("skills.global"),
-                                    install_global,
-                                    {
-                                        let page = cx.entity().downgrade();
-                                        move |on, _, cx| {
-                                            page.update(cx, |p, cx| {
-                                                p.install_global = on;
-                                                cx.notify();
-                                            })
-                                            .ok();
-                                        }
-                                    },
-                                ))
-                                .into_any_element(),
-                        ];
-                        installed_body.push(
-                            self.installed_scroll
-                                .attach(
-                                    div()
-                                        .id("skills-installed")
-                                        .flex()
-                                        .flex_col()
-                                        .max_h(px(360.0))
-                                        .children(rows),
-                                    window,
-                                )
-                                .into_any_element(),
-                        );
-
-                        let available_count = available_rows.len();
-                        let mut available_body: Vec<AnyElement> =
-                            vec![div().flex().child(field(&self.filter_input)).into_any_element()];
-                        if let Some(e) = available_error {
-                            available_body.push(muted_note(e).into_any_element());
-                        }
-                        if nothing_new && !has_available_error {
-                            available_body.push(muted_note(t("skills.nothing_to_install").into()).into_any_element());
-                        }
-                        if no_match {
-                            available_body.push(muted_note(t("skills.no_match").into()).into_any_element());
-                        }
-                        available_body.push(
-                            self.available_scroll
-                                .attach(
-                                    div()
-                                        .id("skills-available")
-                                        .flex()
-                                        .flex_col()
-                                        .max_h(px(360.0))
-                                        .children(available_rows),
-                                    window,
-                                )
-                                .into_any_element(),
-                        );
-
-                        let hit_count = hit_rows.len();
-                        let mut market_body: Vec<AnyElement> = vec![
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(6.0))
-                                .child(field(&self.market_input))
-                                .child(small_button(
-                                    "search-market",
-                                    t("skills.market.search"),
-                                    cx.listener(|this, _, _, cx| this.submit_search(cx)),
-                                ))
-                                .into_any_element(),
-                        ];
-                        if searching {
-                            market_body.push(muted_note(t("skills.market.searching").into()).into_any_element());
-                        }
-                        if let Some(e) = search_error {
-                            market_body.push(muted_note(e).into_any_element());
-                        }
-                        market_body.push(
-                            self.market_scroll
-                                .attach(
-                                    div()
-                                        .id("skills-market")
-                                        .flex()
-                                        .flex_col()
-                                        .max_h(px(360.0))
-                                        .children(hit_rows),
-                                    window,
-                                )
-                                .into_any_element(),
-                        );
-
-                        let repo_count = repos.len();
-                        let mut repo_body: Vec<AnyElement> = vec![
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(6.0))
-                                .child(field(&self.repo_input))
-                                .child(small_button(
-                                    "add-repo",
-                                    t("skills.add_repo"),
-                                    cx.listener(|this, _, _, cx| this.submit_repo(cx)),
-                                ))
-                                .into_any_element(),
-                        ];
-                        repo_body.extend(repos);
-
-                        // Summary and sources on top, the two long lists side by side below;
-                        // each row wraps into a stack when the window is narrow.
-                        let row = || div().flex().flex_wrap().items_start().gap(px(12.0));
-                        s.child(
-                            row()
-                                .child(card(&t("skills.card.cost"), None, Some(cost_actions), cost_body))
-                                .child(card(&t("skills.card.repos"), Some(repo_count), None, repo_body)),
-                        )
-                        .child(
-                            row()
-                                .child(card(&t("skills.card.installed"), Some(installed_count), None, installed_body))
-                                .child(card(&t("skills.card.available"), Some(available_count), None, available_body)),
-                        )
-                        .child(row().child(card(&t("skills.card.market"), Some(hit_count), None, market_body)))
-                    }),
+                    .children(tabs)
+                    .children(content),
             )
     }
 }
