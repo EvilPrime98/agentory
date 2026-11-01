@@ -71,7 +71,13 @@ impl Tool {
         let args = self.install_args();
         let quoted: Vec<String> = args
             .iter()
-            .map(|a| if a.contains(' ') { format!("\"{a}\"") } else { a.clone() })
+            .map(|a| {
+                if a.contains(' ') {
+                    format!("\"{a}\"")
+                } else {
+                    a.clone()
+                }
+            })
             .collect();
         format!("winget {}", quoted.join(" "))
     }
@@ -122,7 +128,11 @@ impl Checklist {
 /// `vswhere -property installationPath` prints one path per matching install; any line means the
 /// C++ tools are there.
 pub fn parse_vswhere(output: &str) -> Option<String> {
-    output.lines().map(str::trim).find(|l| !l.is_empty()).map(String::from)
+    output
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(String::from)
 }
 
 /// First non-empty line of a `--version` output, e.g. `cargo 1.85.0 (…)`.
@@ -187,7 +197,11 @@ pub fn which_in(name: &str, path: &std::ffi::OsStr) -> Option<PathBuf> {
     if direct.components().count() > 1 {
         return direct.is_file().then(|| direct.to_path_buf());
     }
-    let exts: &[&str] = if cfg!(windows) { &["exe", "cmd", "bat"] } else { &[""] };
+    let exts: &[&str] = if cfg!(windows) {
+        &["exe", "cmd", "bat"]
+    } else {
+        &[""]
+    };
     for dir in std::env::split_paths(path) {
         for ext in exts {
             let mut candidate = dir.join(name);
@@ -205,7 +219,8 @@ pub fn which_in(name: &str, path: &std::ffi::OsStr) -> Option<PathBuf> {
 // ---- probes ----------------------------------------------------------------------------------
 
 fn vswhere_path() -> Option<PathBuf> {
-    let base = std::env::var_os("ProgramFiles(x86)").or_else(|| std::env::var_os("ProgramFiles"))?;
+    let base =
+        std::env::var_os("ProgramFiles(x86)").or_else(|| std::env::var_os("ProgramFiles"))?;
     let p = PathBuf::from(base)
         .join("Microsoft Visual Studio")
         .join("Installer")
@@ -224,19 +239,29 @@ async fn run_capture(exe: &Path, args: &[&str]) -> Option<String> {
     #[cfg(windows)]
     cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     let out = cmd.output().await.ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 async fn probe_version(name: &str) -> State {
-    let Some(exe) = which(name) else { return State::Missing };
-    match run_capture(&exe, &["--version"]).await.as_deref().and_then(parse_version) {
+    let Some(exe) = which(name) else {
+        return State::Missing;
+    };
+    match run_capture(&exe, &["--version"])
+        .await
+        .as_deref()
+        .and_then(parse_version)
+    {
         Some(v) => State::Found(v),
         None => State::Missing,
     }
 }
 
 async fn probe_msvc() -> State {
-    let Some(vswhere) = vswhere_path() else { return State::Missing };
+    let Some(vswhere) = vswhere_path() else {
+        return State::Missing;
+    };
     let args = [
         "-latest",
         "-products",
@@ -246,7 +271,11 @@ async fn probe_msvc() -> State {
         "-property",
         "installationPath",
     ];
-    match run_capture(&vswhere, &args).await.as_deref().and_then(parse_vswhere) {
+    match run_capture(&vswhere, &args)
+        .await
+        .as_deref()
+        .and_then(parse_vswhere)
+    {
         Some(path) => State::Found(path),
         None => State::Missing,
     }
@@ -271,10 +300,22 @@ pub async fn check(agent_command: &str) -> Checklist {
     );
     Checklist {
         items: vec![
-            Item { tool: Tool::Rust, state: rust },
-            Item { tool: Tool::Msvc, state: msvc },
-            Item { tool: Tool::Git, state: git },
-            Item { tool: Tool::Agent, state: agent },
+            Item {
+                tool: Tool::Rust,
+                state: rust,
+            },
+            Item {
+                tool: Tool::Msvc,
+                state: msvc,
+            },
+            Item {
+                tool: Tool::Git,
+                state: git,
+            },
+            Item {
+                tool: Tool::Agent,
+                state: agent,
+            },
         ],
     }
 }
@@ -296,7 +337,8 @@ mod tests {
 
     #[test]
     fn vswhere_takes_first_path() {
-        let out = "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\r\nD:\\other\r\n";
+        let out =
+            "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\r\nD:\\other\r\n";
         assert_eq!(
             parse_vswhere(out).as_deref(),
             Some("C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools")
@@ -315,26 +357,55 @@ mod tests {
     #[test]
     fn agent_candidates_prefer_configured_and_dedupe() {
         assert_eq!(agent_candidates(""), ["claude", "codex", "gemini"]);
-        assert_eq!(agent_candidates(" aider "), ["aider", "claude", "codex", "gemini"]);
+        assert_eq!(
+            agent_candidates(" aider "),
+            ["aider", "claude", "codex", "gemini"]
+        );
         assert_eq!(agent_candidates("claude"), ["claude", "codex", "gemini"]);
     }
 
     #[test]
     fn install_commands_show_the_winget_id() {
-        assert!(Tool::Git.install_command().starts_with("winget install --id Git.Git"));
+        assert!(
+            Tool::Git
+                .install_command()
+                .starts_with("winget install --id Git.Git")
+        );
         let msvc = Tool::Msvc.install_command();
         assert!(msvc.contains("Microsoft.VisualStudio.2022.BuildTools"));
-        assert!(msvc.contains("--override \"--wait --quiet --add Microsoft.VisualStudio.Workload.VCTools"));
+        assert!(
+            msvc.contains(
+                "--override \"--wait --quiet --add Microsoft.VisualStudio.Workload.VCTools"
+            )
+        );
     }
 
     fn list(rust: bool, msvc: bool, git: bool, agent: bool) -> Checklist {
-        let s = |b: bool| if b { State::Found("x".into()) } else { State::Missing };
+        let s = |b: bool| {
+            if b {
+                State::Found("x".into())
+            } else {
+                State::Missing
+            }
+        };
         Checklist {
             items: vec![
-                Item { tool: Tool::Rust, state: s(rust) },
-                Item { tool: Tool::Msvc, state: s(msvc) },
-                Item { tool: Tool::Git, state: s(git) },
-                Item { tool: Tool::Agent, state: s(agent) },
+                Item {
+                    tool: Tool::Rust,
+                    state: s(rust),
+                },
+                Item {
+                    tool: Tool::Msvc,
+                    state: s(msvc),
+                },
+                Item {
+                    tool: Tool::Git,
+                    state: s(git),
+                },
+                Item {
+                    tool: Tool::Agent,
+                    state: s(agent),
+                },
             ],
         }
     }
@@ -351,7 +422,11 @@ mod tests {
     fn which_in_finds_files_in_given_dirs() {
         let dir = std::env::temp_dir().join(format!("agentory-which-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let name = if cfg!(windows) { "faketool.exe" } else { "faketool" };
+        let name = if cfg!(windows) {
+            "faketool.exe"
+        } else {
+            "faketool"
+        };
         std::fs::write(dir.join(name), "").unwrap();
         let path = std::env::join_paths([&dir]).unwrap();
         assert!(which_in("faketool", &path).is_some());

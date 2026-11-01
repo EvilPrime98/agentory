@@ -57,7 +57,11 @@ fn parse(diff: &str) -> Loaded {
     Loaded {
         files: review::files(diff),
         flags: review::flags(diff),
-        lines: all.into_iter().take(MAX_DIFF_LINES).map(str::to_string).collect(),
+        lines: all
+            .into_iter()
+            .take(MAX_DIFF_LINES)
+            .map(str::to_string)
+            .collect(),
         hidden_lines,
     }
 }
@@ -99,7 +103,10 @@ fn mono_block(lines: Vec<(String, gpui::Rgba)>) -> AnyElement {
 }
 
 fn heading(text: String) -> gpui::Div {
-    div().text_size(px(13.0)).font_weight(gpui::FontWeight::SEMIBOLD).child(text)
+    div()
+        .text_size(px(13.0))
+        .font_weight(gpui::FontWeight::SEMIBOLD)
+        .child(text)
 }
 
 impl ReviewPage {
@@ -111,14 +118,26 @@ impl ReviewPage {
             .map(|s| s.name.clone())
             .unwrap_or_default();
         let sub = cx.observe(&stores.review, |_, _, cx| cx.notify());
-        let mut page = Self { stores, session_id, name, load: Load::Loading, show_log: false, _sub: sub };
+        let mut page = Self {
+            stores,
+            session_id,
+            name,
+            load: Load::Loading,
+            show_log: false,
+            _sub: sub,
+        };
         page.reload(cx);
         page
     }
 
     /// Re-read the diff of the worktree against `user`.
     fn reload(&mut self, cx: &mut Context<Self>) {
-        let wt = self.stores.sessions.read(cx).get(&self.session_id).and_then(|s| s.worktree.clone());
+        let wt = self
+            .stores
+            .sessions
+            .read(cx)
+            .get(&self.session_id)
+            .and_then(|s| s.worktree.clone());
         let Some(wt) = wt else {
             self.load = Load::Gone;
             cx.notify();
@@ -150,8 +169,11 @@ impl ReviewPage {
     }
 
     fn ask_discard(&self, cx: &mut Context<Self>) {
-        let options = ConfirmOptions::new(t("review.discard.title"), t_args("review.discard.body", &[("name", &self.name)]))
-            .labels(t("review.discard.confirm"), t("common.cancel"));
+        let options = ConfirmOptions::new(
+            t("review.discard.title"),
+            t_args("review.discard.body", &[("name", &self.name)]),
+        )
+        .labels(t("review.discard.confirm"), t("common.cancel"));
         let (stores, id) = (self.stores.clone(), self.session_id.clone());
         let page = cx.entity();
         confirm::ask(cx, options, move |answer, _, cx| {
@@ -203,16 +225,22 @@ impl ReviewPage {
                 .text_color(color)
                 .child(format!("{mark} {}", stage_label(stage)))
         });
-        div().flex().flex_wrap().gap(px(6.0)).children(chips).into_any_element()
+        div()
+            .flex()
+            .flex_wrap()
+            .gap(px(6.0))
+            .children(chips)
+            .into_any_element()
     }
 
     fn status_text(run: Option<&Run>) -> Option<(String, gpui::Rgba)> {
         let run = run?;
         Some(match &run.phase {
             RunPhase::Running => (t("review.status.running"), theme::text()),
-            RunPhase::Conflict(files) => {
-                (t_args("review.status.conflict", &[("files", &files.join(", "))]), theme::warning())
-            }
+            RunPhase::Conflict(files) => (
+                t_args("review.status.conflict", &[("files", &files.join(", "))]),
+                theme::warning(),
+            ),
             RunPhase::Failed(f) => {
                 let text = match f {
                     Failure::Build => t("review.status.build_failed"),
@@ -250,8 +278,20 @@ impl ReviewPage {
                     .flex()
                     .gap(px(8.0))
                     .text_size(px(12.0))
-                    .child(div().w(px(190.0)).flex_none().font_weight(gpui::FontWeight::SEMIBOLD).child(t(f.kind.label_key())))
-                    .child(div().min_w_0().truncate().font_family(theme::FONT).child(f.file.clone()))
+                    .child(
+                        div()
+                            .w(px(190.0))
+                            .flex_none()
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .child(t(f.kind.label_key())),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .font_family(theme::FONT)
+                            .child(f.file.clone()),
+                    )
             }))
             .into_any_element()
     }
@@ -266,9 +306,24 @@ impl ReviewPage {
                     .flex()
                     .gap(px(10.0))
                     .text_size(px(12.0))
-                    .child(div().flex_1().min_w_0().truncate().font_family(theme::FONT).child(f.path.clone()))
-                    .child(div().text_color(theme::success()).child(format!("+{}", f.added)))
-                    .child(div().text_color(theme::error()).child(format!("-{}", f.removed)))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .font_family(theme::FONT)
+                            .child(f.path.clone()),
+                    )
+                    .child(
+                        div()
+                            .text_color(theme::success())
+                            .child(format!("+{}", f.added)),
+                    )
+                    .child(
+                        div()
+                            .text_color(theme::error())
+                            .child(format!("-{}", f.removed)),
+                    )
             }))
             .into_any_element()
     }
@@ -279,7 +334,12 @@ impl Render for ReviewPage {
         let store = self.stores.review.read(cx);
         let run = store.for_session(&self.session_id);
         let busy = store.running();
-        let session_alive = self.stores.sessions.read(cx).get(&self.session_id).is_some();
+        let session_alive = self
+            .stores
+            .sessions
+            .read(cx)
+            .get(&self.session_id)
+            .is_some();
         let has_changes = matches!(&self.load, Load::Loaded(l) if !l.files.is_empty());
         let can_apply = session_alive && !busy && has_changes;
 
@@ -292,31 +352,63 @@ impl Render for ReviewPage {
         let log_lines: Vec<(String, gpui::Rgba)> = run
             .map(|r| {
                 let skip = r.log.len().saturating_sub(MAX_LOG_SHOWN);
-                r.log.iter().skip(skip).map(|l| (l.clone(), theme::text_muted())).collect()
+                r.log
+                    .iter()
+                    .skip(skip)
+                    .map(|l| (l.clone(), theme::text_muted()))
+                    .collect()
             })
             .unwrap_or_default();
         let pill = Self::status_pill(run);
 
         let body: Vec<AnyElement> = match &self.load {
-            Load::Loading => vec![div().text_color(theme::text_muted()).child(t("review.loading")).into_any_element()],
+            Load::Loading => vec![
+                div()
+                    .text_color(theme::text_muted())
+                    .child(t("review.loading"))
+                    .into_any_element(),
+            ],
             Load::Gone if ready => Vec::new(),
-            Load::Gone => vec![div().text_color(theme::text_muted()).child(t("review.session_gone")).into_any_element()],
+            Load::Gone => vec![
+                div()
+                    .text_color(theme::text_muted())
+                    .child(t("review.session_gone"))
+                    .into_any_element(),
+            ],
             Load::Failed(e) => vec![
-                div().text_color(theme::error()).child(t_args("review.load_failed", &[("error", e)])).into_any_element(),
+                div()
+                    .text_color(theme::error())
+                    .child(t_args("review.load_failed", &[("error", e)]))
+                    .into_any_element(),
             ],
             Load::Loaded(l) if l.files.is_empty() => {
-                vec![div().text_color(theme::text_muted()).child(t("review.no_changes")).into_any_element()]
+                vec![
+                    div()
+                        .text_color(theme::text_muted())
+                        .child(t("review.no_changes"))
+                        .into_any_element(),
+                ]
             }
             Load::Loaded(l) => {
                 let mut out = Vec::new();
                 if !l.flags.is_empty() {
                     out.push(Self::flags_banner(&l.flags));
                 }
-                out.push(heading(t_args("review.files", &[("count", &l.files.len().to_string())])).into_any_element());
+                out.push(
+                    heading(t_args(
+                        "review.files",
+                        &[("count", &l.files.len().to_string())],
+                    ))
+                    .into_any_element(),
+                );
                 out.push(Self::files_list(&l.files));
-                let mut lines: Vec<_> = l.lines.iter().map(|x| (x.clone(), line_color(x))).collect();
+                let mut lines: Vec<_> =
+                    l.lines.iter().map(|x| (x.clone(), line_color(x))).collect();
                 if l.hidden_lines > 0 {
-                    lines.push((t_args("review.truncated", &[("n", &l.hidden_lines.to_string())]), theme::warning()));
+                    lines.push((
+                        t_args("review.truncated", &[("n", &l.hidden_lines.to_string())]),
+                        theme::warning(),
+                    ));
                 }
                 out.push(mono_block(lines));
                 out
@@ -332,7 +424,11 @@ impl Render for ReviewPage {
                 button(
                     "review-apply",
                     t("review.apply"),
-                    if can_apply { ButtonVariant::Classic } else { ButtonVariant::Secondary },
+                    if can_apply {
+                        ButtonVariant::Classic
+                    } else {
+                        ButtonVariant::Secondary
+                    },
                     cx.listener(|this, _, _, cx| this.apply(cx)),
                 )
                 .opacity(if can_apply { 1.0 } else { 0.5 }),
@@ -346,7 +442,11 @@ impl Render for ReviewPage {
                 ))
             })
             .when(conflict && session_alive, |s| {
-                s.child(small_button("review-open", t("review.open_session"), cx.listener(|this, _, _, cx| this.open_session(cx))))
+                s.child(small_button(
+                    "review-open",
+                    t("review.open_session"),
+                    cx.listener(|this, _, _, cx| this.open_session(cx)),
+                ))
             })
             .when(failed && session_alive, |s| {
                 s.child(small_button(
@@ -356,24 +456,34 @@ impl Render for ReviewPage {
                         let id = this.session_id.clone();
                         this.stores.review.update(cx, |s, cx| s.send_log(&id, cx));
                         this.open_session(cx);
-                    })
-                    ,
+                    }),
                 ))
             })
             .when(has_log, |s| {
                 s.child(small_button(
                     "review-log",
-                    if self.show_log { t("review.log.hide") } else { t("review.log.show") },
+                    if self.show_log {
+                        t("review.log.hide")
+                    } else {
+                        t("review.log.show")
+                    },
                     cx.listener(|this, _, _, cx| {
                         this.show_log = !this.show_log;
                         cx.notify();
-                    })
-                    ,
+                    }),
                 ))
             })
             .when(session_alive && !busy, |s| {
-                s.child(small_button("review-refresh", t("review.refresh"), cx.listener(|this, _, _, cx| this.reload(cx))))
-                    .child(small_button("review-discard", t("review.discard"), cx.listener(|this, _, _, cx| this.ask_discard(cx))))
+                s.child(small_button(
+                    "review-refresh",
+                    t("review.refresh"),
+                    cx.listener(|this, _, _, cx| this.reload(cx)),
+                ))
+                .child(small_button(
+                    "review-discard",
+                    t("review.discard"),
+                    cx.listener(|this, _, _, cx| this.ask_discard(cx)),
+                ))
             });
 
         div()
@@ -397,11 +507,23 @@ impl Render for ReviewPage {
                         div()
                             .flex()
                             .flex_col()
-                            .child(div().text_size(px(20.0)).font_weight(gpui::FontWeight::SEMIBOLD).child(t("review.title")))
-                            .child(div().text_size(px(12.0)).text_color(theme::text_muted()).child(self.name.clone())),
+                            .child(
+                                div()
+                                    .text_size(px(20.0))
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .child(t("review.title")),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(12.0))
+                                    .text_color(theme::text_muted())
+                                    .child(self.name.clone()),
+                            ),
                     )
                     .child(pill)
-                    .when_some(status, |s, (text, color)| s.child(div().text_size(px(12.5)).text_color(color).child(text)))
+                    .when_some(status, |s, (text, color)| {
+                        s.child(div().text_size(px(12.5)).text_color(color).child(text))
+                    })
                     .child(buttons)
                     .when(self.show_log && has_log, |s| s.child(mono_block(log_lines)))
                     .children(body),

@@ -49,8 +49,14 @@ fn sections(diff: &str) -> Vec<Section<'_>> {
     for line in diff.lines() {
         if let Some(rest) = line.strip_prefix("diff --git ") {
             // `a/<path> b/<path>`; the b side is the file as it is after the change.
-            let path = rest.rsplit_once(" b/").map_or(rest, |(_, b)| b).trim_matches('"');
-            out.push(Section { path: path.to_string(), lines: Vec::new() });
+            let path = rest
+                .rsplit_once(" b/")
+                .map_or(rest, |(_, b)| b)
+                .trim_matches('"');
+            out.push(Section {
+                path: path.to_string(),
+                lines: Vec::new(),
+            });
         } else if let Some(s) = out.last_mut() {
             s.lines.push(line);
         }
@@ -81,7 +87,11 @@ pub fn files(diff: &str) -> Vec<FileChange> {
                     removed += 1;
                 }
             }
-            FileChange { path: s.path.clone(), added, removed }
+            FileChange {
+                path: s.path.clone(),
+                added,
+                removed,
+            }
         })
         .collect()
 }
@@ -98,12 +108,22 @@ const TEST_MARKERS: &[&str] = &[
     "assert_ne!",
     "assert_matches!",
 ];
-const READY_MARKERS: &[&str] = &["READY_ENV", "AGENTORY_READY_FILE", "ready::", "--smoke", "BUILD_ID", "SMOKE_SECS"];
+const READY_MARKERS: &[&str] = &[
+    "READY_ENV",
+    "AGENTORY_READY_FILE",
+    "ready::",
+    "--smoke",
+    "BUILD_ID",
+    "SMOKE_SECS",
+];
 
 /// `line` contains `needle` not as the tail of a longer name (`debug_assert!` is not `assert!`).
 fn mentions(line: &str, needle: &str) -> bool {
     line.match_indices(needle).any(|(i, _)| {
-        !line[..i].chars().next_back().is_some_and(|c| c.is_alphanumeric() || c == '_')
+        !line[..i]
+            .chars()
+            .next_back()
+            .is_some_and(|c| c.is_alphanumeric() || c == '_')
     })
 }
 
@@ -119,7 +139,12 @@ fn is_build_config(path: &str) -> bool {
     let name = path.rsplit('/').next().unwrap_or(path);
     matches!(
         name,
-        "Cargo.toml" | "Cargo.lock" | "build.rs" | "rust-toolchain" | "rust-toolchain.toml" | "deny.toml"
+        "Cargo.toml"
+            | "Cargo.lock"
+            | "build.rs"
+            | "rust-toolchain"
+            | "rust-toolchain.toml"
+            | "deny.toml"
     ) || path.starts_with(".cargo/")
         || path.starts_with(".github/")
 }
@@ -129,13 +154,17 @@ fn is_build_config(path: &str) -> bool {
 pub fn flags(diff: &str) -> Vec<Flag> {
     let mut out: Vec<Flag> = Vec::new();
     let mut add = |kind, file: &str| {
-        let flag = Flag { kind, file: file.to_string() };
+        let flag = Flag {
+            kind,
+            file: file.to_string(),
+        };
         if !out.contains(&flag) {
             out.push(flag);
         }
     };
     for s in sections(diff) {
-        let touches = |needles: &[&str]| changed(&s).any(|(_, l)| needles.iter().any(|n| mentions(l, n)));
+        let touches =
+            |needles: &[&str]| changed(&s).any(|(_, l)| needles.iter().any(|n| mentions(l, n)));
         if is_test_path(&s.path) || touches(TEST_MARKERS) {
             add(FlagKind::Tests, &s.path);
         }
@@ -164,7 +193,9 @@ mod tests {
     use super::*;
 
     fn file(path: &str, body: &str) -> String {
-        format!("diff --git a/{path} b/{path}\nindex 1..2 100644\n--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n{body}\n")
+        format!(
+            "diff --git a/{path} b/{path}\nindex 1..2 100644\n--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n{body}\n"
+        )
     }
 
     fn kinds(diff: &str) -> Vec<FlagKind> {
@@ -177,8 +208,16 @@ mod tests {
         assert_eq!(
             files(&diff),
             [
-                FileChange { path: "src/a.rs".into(), added: 2, removed: 1 },
-                FileChange { path: "src/b.rs".into(), added: 1, removed: 0 },
+                FileChange {
+                    path: "src/a.rs".into(),
+                    added: 2,
+                    removed: 1
+                },
+                FileChange {
+                    path: "src/b.rs".into(),
+                    added: 1,
+                    removed: 0
+                },
             ]
         );
     }
@@ -196,9 +235,21 @@ mod tests {
 
     #[test]
     fn test_files_and_test_lines_are_flagged() {
-        assert_eq!(kinds(&file("agentory-helper/tests/swap.rs", "+x")), [FlagKind::Tests]);
-        assert_eq!(kinds(&file("src/ui/theme.rs", "-    #[test]")), [FlagKind::Tests]);
-        assert_eq!(kinds(&file("src/ui/theme.rs", "-    assert_eq!(a, 1);\n+    assert_eq!(a, 2);")), [FlagKind::Tests]);
+        assert_eq!(
+            kinds(&file("agentory-helper/tests/swap.rs", "+x")),
+            [FlagKind::Tests]
+        );
+        assert_eq!(
+            kinds(&file("src/ui/theme.rs", "-    #[test]")),
+            [FlagKind::Tests]
+        );
+        assert_eq!(
+            kinds(&file(
+                "src/ui/theme.rs",
+                "-    assert_eq!(a, 1);\n+    assert_eq!(a, 2);"
+            )),
+            [FlagKind::Tests]
+        );
         assert_eq!(kinds(&file("src/x.rs", "+#[ignore]")), [FlagKind::Tests]);
     }
 
@@ -210,8 +261,17 @@ mod tests {
     #[test]
     fn ready_marker_code_is_flagged_by_path_and_content() {
         assert!(kinds(&file("src/selfbuild/ready.rs", "+x")).contains(&FlagKind::ReadyMarker));
-        assert_eq!(kinds(&file("src/app.rs", "-        crate::selfbuild::ready::on_frame();")), [FlagKind::ReadyMarker]);
-        assert_eq!(kinds(&file("src/main.rs", "+    Some(0)  // --smoke")), [FlagKind::ReadyMarker]);
+        assert_eq!(
+            kinds(&file(
+                "src/app.rs",
+                "-        crate::selfbuild::ready::on_frame();"
+            )),
+            [FlagKind::ReadyMarker]
+        );
+        assert_eq!(
+            kinds(&file("src/main.rs", "+    Some(0)  // --smoke")),
+            [FlagKind::ReadyMarker]
+        );
     }
 
     #[test]
@@ -222,7 +282,14 @@ mod tests {
 
     #[test]
     fn build_config_is_flagged() {
-        for p in ["Cargo.toml", "Cargo.lock", "build.rs", ".cargo/config.toml", "rust-toolchain.toml", ".github/workflows/ci.yml"] {
+        for p in [
+            "Cargo.toml",
+            "Cargo.lock",
+            "build.rs",
+            ".cargo/config.toml",
+            "rust-toolchain.toml",
+            ".github/workflows/ci.yml",
+        ] {
             assert_eq!(kinds(&file(p, "+x")), [FlagKind::BuildConfig], "{p}");
         }
         // Only the real file names count, not look-alikes.
@@ -241,7 +308,10 @@ mod tests {
 
     #[test]
     fn detects_committed_conflict_markers() {
-        assert!(has_conflict_markers(&file("a.rs", "+<<<<<<< HEAD\n+x\n+=======\n+y\n+>>>>>>> user")));
+        assert!(has_conflict_markers(&file(
+            "a.rs",
+            "+<<<<<<< HEAD\n+x\n+=======\n+y\n+>>>>>>> user"
+        )));
         assert!(!has_conflict_markers(&file("a.rs", "+let eq = a == b;")));
     }
 }

@@ -62,7 +62,10 @@ pub struct Log {
 
 impl Log {
     pub fn new(tx: Events) -> Log {
-        Log { tx, text: String::new() }
+        Log {
+            tx,
+            text: String::new(),
+        }
     }
     pub fn stage(&mut self, stage: Stage) {
         let _ = self.tx.send(Event::Stage(stage));
