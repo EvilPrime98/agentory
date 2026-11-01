@@ -149,15 +149,28 @@ mod tests {
 
     #[test]
     fn system_follows_the_os() {
-        assert_eq!(ThemePref::System.resolve(WindowAppearance::Dark), Mode::Dark);
-        assert_eq!(ThemePref::System.resolve(WindowAppearance::Light), Mode::Light);
-        assert_eq!(ThemePref::Light.resolve(WindowAppearance::Dark), Mode::Light);
+        assert_eq!(
+            ThemePref::System.resolve(WindowAppearance::Dark),
+            Mode::Dark
+        );
+        assert_eq!(
+            ThemePref::System.resolve(WindowAppearance::Light),
+            Mode::Light
+        );
+        assert_eq!(
+            ThemePref::Light.resolve(WindowAppearance::Dark),
+            Mode::Light
+        );
         assert_eq!(ThemePref::Dark.resolve(WindowAppearance::Light), Mode::Dark);
     }
 
     fn luminance(c: Rgba) -> f32 {
         let f = |v: f32| {
-            if v <= 0.03928 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+            if v <= 0.03928 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
         };
         0.2126 * f(c.red) + 0.7152 * f(c.green) + 0.0722 * f(c.blue)
     }

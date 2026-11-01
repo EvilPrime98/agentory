@@ -139,7 +139,11 @@ mod tests {
         assert_eq!(Prefs::default().theme, ThemePref::System);
         let p: Prefs = serde_json::from_str(r#"{"theme":"light"}"#).unwrap();
         assert_eq!(p.theme, ThemePref::Light);
-        let json = serde_json::to_string(&Prefs { theme: ThemePref::Dark, ..Default::default() }).unwrap();
+        let json = serde_json::to_string(&Prefs {
+            theme: ThemePref::Dark,
+            ..Default::default()
+        })
+        .unwrap();
         assert!(json.contains(r#""theme":"dark""#));
     }
 

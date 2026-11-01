@@ -144,7 +144,9 @@ fn placeholders(text: &str) -> Vec<String> {
     let mut found = Vec::new();
     let mut rest = text;
     while let Some(start) = rest.find('{') {
-        let Some(len) = rest[start..].find('}') else { break };
+        let Some(len) = rest[start..].find('}') else {
+            break;
+        };
         found.push(rest[start + 1..start + len].to_string());
         rest = &rest[start + len + 1..];
     }
@@ -183,16 +185,16 @@ mod tests {
 
     #[test]
     fn missing_keys_fall_back_to_en_then_key() {
-        assert_eq!(
-            lookup(Lang::Es, "settings.language.title"),
-            Some("Idioma")
-        );
+        assert_eq!(lookup(Lang::Es, "settings.language.title"), Some("Idioma"));
         assert_eq!(lookup(Lang::Es, "no.such.key"), None);
         assert_eq!(t("no.such.key"), "no.such.key");
     }
 
     #[test]
     fn substitutes_placeholders() {
-        assert_eq!(substitute("hi {name}, {name}!", &[("name", "Ana")]), "hi Ana, Ana!");
+        assert_eq!(
+            substitute("hi {name}, {name}!", &[("name", "Ana")]),
+            "hi Ana, Ana!"
+        );
     }
 }

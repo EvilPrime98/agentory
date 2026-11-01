@@ -146,8 +146,7 @@ impl DocsPage {
             return;
         };
         let path = docs_dir(&root).join(&rel);
-        let options =
-            ConfirmOptions::new(
+        let options = ConfirmOptions::new(
             t("docs.delete.title"),
             t_args("docs.delete.body", &[("rel", &rel)]),
         )
@@ -159,7 +158,13 @@ impl DocsPage {
             }
             if let Err(e) = trash::delete(&path) {
                 tracing::error!("could not trash {}: {e}", path.display());
-                toast::error(cx, t_args("docs.delete.failed", &[("rel", &rel), ("error", &e.to_string())]));
+                toast::error(
+                    cx,
+                    t_args(
+                        "docs.delete.failed",
+                        &[("rel", &rel), ("error", &e.to_string())],
+                    ),
+                );
             }
             page.update(cx, |this, cx| this.rescan(cx));
         });

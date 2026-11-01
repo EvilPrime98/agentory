@@ -18,8 +18,8 @@ use crate::ui::app_loader::app_loader;
 use crate::ui::confirm::{self, ConfirmHost, ConfirmOptions};
 use crate::ui::pages::docs::DocsPage;
 use crate::ui::pages::git::GitPage;
-use crate::ui::pages::session_history::SessionHistoryPage;
 use crate::ui::pages::review::ReviewPage;
+use crate::ui::pages::session_history::SessionHistoryPage;
 use crate::ui::pages::sessions::SessionsPage;
 use crate::ui::pages::settings::SettingsPage;
 use crate::ui::pages::skill_editor::SkillEditorPage;
@@ -196,7 +196,11 @@ impl AppRoot {
             // has nothing left to show.
             cx.observe_in(&stores.projects, window, |this, _, window, cx| {
                 this.sync_skills_project(cx);
-                if let Route::Skills(id) | Route::Docs(id) | Route::Git(id) | Route::SessionHistory(id) = this.history.current() {
+                if let Route::Skills(id)
+                | Route::Docs(id)
+                | Route::Git(id)
+                | Route::SessionHistory(id) = this.history.current()
+                {
                     if this.stores.projects.read(cx).get(id).is_none() {
                         this.history.back_or_home();
                         this.route_changed(window, cx);
@@ -276,10 +280,7 @@ impl AppRoot {
                     Some(path) => tracing::info!("claude: {}", path.display()),
                     None => {
                         tracing::warn!("claude was not found on PATH");
-                        toast::error(
-                            cx,
-                            t("app.claude_missing"),
-                        );
+                        toast::error(cx, t("app.claude_missing"));
                     }
                 }
                 // Dev aid: start a session in the selected project right away.
@@ -311,11 +312,8 @@ impl AppRoot {
         self.close_check_pending = true;
         let root = cx.entity();
         let handle = window.window_handle();
-        let options = ConfirmOptions::new(
-            t("app.close.title"),
-            t_n("app.close.body", running),
-        )
-        .labels(t("common.close"), t("common.cancel"));
+        let options = ConfirmOptions::new(t("app.close.title"), t_n("app.close.body", running))
+            .labels(t("common.close"), t("common.cancel"));
         confirm::ask(cx, options, move |answer, _, cx| {
             let close = answer == Some(true);
             root.update(cx, |root, _| {
@@ -358,11 +356,8 @@ impl AppRoot {
         }
         let root = cx.entity();
         let handle = window.window_handle();
-        let options = ConfirmOptions::new(
-            t("app.unsaved.title"),
-            t("app.unsaved.body"),
-        )
-        .labels(t("app.unsaved.discard"), t("app.unsaved.keep"));
+        let options = ConfirmOptions::new(t("app.unsaved.title"), t("app.unsaved.body"))
+            .labels(t("app.unsaved.discard"), t("app.unsaved.keep"));
         confirm::ask(cx, options, move |answer, _, cx| {
             if answer == Some(true) {
                 handle
@@ -473,7 +468,8 @@ impl AppRoot {
             }
             Route::SessionHistory(id) => {
                 self.stores.projects.update(cx, |p, cx| p.select(&id, cx));
-                let page = cx.new(|cx| SessionHistoryPage::new(self.stores.clone(), id, window, cx));
+                let page =
+                    cx.new(|cx| SessionHistoryPage::new(self.stores.clone(), id, window, cx));
                 self._page_subs.push(cx.subscribe_in(
                     &page,
                     window,
@@ -651,7 +647,9 @@ impl Render for AppRoot {
             )
             .child(self.toasts.clone())
             .child(self.confirm.clone())
-            .when(self.loading, |s| s.child(app_loader(t("app.checking_tools"))))
+            .when(self.loading, |s| {
+                s.child(app_loader(t("app.checking_tools")))
+            })
     }
 }
 

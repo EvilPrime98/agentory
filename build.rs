@@ -4,7 +4,9 @@
 /// Stdout of `git <args>` when it succeeds.
 fn git(args: &[&str]) -> Option<String> {
     let out = std::process::Command::new("git").args(args).output().ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
 /// Embed the git sha as the build id (the ready marker reports it). Same `--short=12` the

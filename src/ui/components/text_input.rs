@@ -397,14 +397,20 @@ impl Element for TextLine {
         let run = TextRun {
             len: text.len(),
             font: style.font(),
-            color: gpui::rgb_to_hsla(if empty { theme::text_faint() } else { theme::text() }),
+            color: gpui::rgb_to_hsla(if empty {
+                theme::text_faint()
+            } else {
+                theme::text()
+            }),
             background_color: None,
             underline: None,
             strikethrough: None,
             letter_spacing: None,
         };
         let font_size = style.font_size.to_pixels(window.rem_size());
-        let line = window.text_system().shape_line(text, font_size, &[run], None);
+        let line = window
+            .text_system()
+            .shape_line(text, font_size, &[run], None);
 
         let x_of = |chars: usize| {
             if empty {
@@ -467,9 +473,14 @@ impl Element for TextLine {
             window.paint_quad(selection);
         }
         let origin = point(bounds.left() - prepaint.scroll_x, bounds.top());
-        let _ = prepaint
-            .line
-            .paint(origin, window.line_height(), TextAlign::Left, None, window, cx);
+        let _ = prepaint.line.paint(
+            origin,
+            window.line_height(),
+            TextAlign::Left,
+            None,
+            window,
+            cx,
+        );
         if let Some(caret) = prepaint.caret.take() {
             window.paint_quad(caret);
         }
