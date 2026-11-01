@@ -1,0 +1,2 @@
+# Embedded with include_str! and sent to a terminal: a CR would submit the prompt.
+src/selfbuild/modify_prompt.md text eol=lf
