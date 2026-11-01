@@ -3,6 +3,7 @@
 
 pub mod git;
 pub mod spm;
+pub mod transcripts;
 
 use std::path::Path;
 use std::process::Stdio;

@@ -1,5 +1,6 @@
 //! App state: one entity per data domain, reachable everywhere through the [`Stores`] global.
 
+pub mod git;
 pub mod prefs;
 pub mod projects;
 pub mod review;
@@ -14,6 +15,7 @@ use gpui::{App, AppContext as _, Entity, Global};
 /// reach them without threading them through every constructor.
 #[derive(Clone)]
 pub struct Stores {
+    pub git: Entity<git::GitStore>,
     pub prefs: Entity<prefs::PrefsStore>,
     pub projects: Entity<projects::ProjectsStore>,
     pub review: Entity<review::ReviewStore>,
@@ -63,6 +65,7 @@ impl Stores {
         let usage = cx.new(|cx| usage::UsageStore::new(sessions.clone(), cx));
         let selfbuild = cx.new(|cx| selfbuild::SelfBuildStore::new(prefs.clone(), cx));
         Self {
+            git: cx.new(|_| git::GitStore::default()),
             prefs,
             selfbuild,
             review: cx.new(|_| review::ReviewStore::default()),
