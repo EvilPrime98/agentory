@@ -88,6 +88,8 @@
   "common.save": "Save",
   "skill_editor.title": "Editing Skill",
   "skill_editor.unsaved": "● Unsaved changes",
+  "skill_editor.edit": "Edit",
+  "skill_editor.hide_editor": "Hide editor",
   "skill_editor.overwrite_warning": "Updating skills with spm may overwrite local changes.",
   "skill_editor.nothing_to_preview": "Nothing to preview",
   "skill_editor.saved": "Saved {name}",

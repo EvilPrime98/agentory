@@ -26,6 +26,8 @@ pub struct SkillEditorPage {
     saved: String,
     /// The I/O error from reading `SKILL.md` (shown translated at render time); the editor stays read-only-empty and saving is disabled.
     load_error: Option<SharedString>,
+    /// Split view (editor + preview) when true; preview-only by default. Not persisted.
+    show_editor: bool,
     _subs: Vec<Subscription>,
 }
 
@@ -62,6 +64,7 @@ impl SkillEditorPage {
             preview_scroll: SmoothScroll::new(),
             saved,
             load_error,
+            show_editor: false,
             _subs: subs,
         }
     }
@@ -153,6 +156,18 @@ impl Render for SkillEditorPage {
                                 cx.listener(|_, _, _, cx| cx.emit(GoBack)),
                             ))
                             .child(small_button(
+                                "skill-editor-toggle",
+                                if self.show_editor {
+                                    t("skill_editor.hide_editor")
+                                } else {
+                                    t("skill_editor.edit")
+                                },
+                                cx.listener(|this, _, _, cx| {
+                                    this.show_editor = !this.show_editor;
+                                    cx.notify();
+                                }),
+                            ))
+                            .child(small_button(
                                 "skill-editor-save",
                                 t("common.save"),
                                 cx.listener(|this, _, _, cx| this.save(cx)),
@@ -182,17 +197,19 @@ impl Render for SkillEditorPage {
                     .flex_1()
                     .min_h_0()
                     .gap(px(12.0))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_1()
-                            .min_w_0()
-                            .rounded(px(6.0))
-                            .border_1()
-                            .border_color(theme::border_subtle())
-                            .bg(theme::bg_app())
-                            .child(self.area.clone()),
-                    )
+                    .when(self.show_editor, |s| {
+                        s.child(
+                            div()
+                                .flex()
+                                .flex_1()
+                                .min_w_0()
+                                .rounded(px(6.0))
+                                .border_1()
+                                .border_color(theme::border_subtle())
+                                .bg(theme::bg_app())
+                                .child(self.area.clone()),
+                        )
+                    })
                     .child(
                         div()
                             .flex()

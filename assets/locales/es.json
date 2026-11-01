@@ -88,6 +88,8 @@
   "common.save": "Guardar",
   "skill_editor.title": "Editando skill",
   "skill_editor.unsaved": "● Cambios sin guardar",
+  "skill_editor.edit": "Editar",
+  "skill_editor.hide_editor": "Ocultar editor",
   "skill_editor.overwrite_warning": "Actualizar skills con spm puede sobrescribir los cambios locales.",
   "skill_editor.nothing_to_preview": "Nada que previsualizar",
   "skill_editor.saved": "{name} guardada",
