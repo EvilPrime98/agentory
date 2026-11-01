@@ -5,6 +5,8 @@
 //! and clicks map to real glyph positions.
 //! Known gaps: no IME composition, caret is char-based (not grapheme-based).
 
+use std::time::{Duration, Instant};
+
 use gpui::{
     App, Bounds, ClipboardItem, Context, Element, ElementId, Entity, EventEmitter, FocusHandle,
     Focusable, GlobalElementId, InspectorElementId, InteractiveElement, IntoElement, KeyDownEvent,
@@ -35,7 +37,13 @@ pub struct TextInput {
     last_layout: Option<ShapedLine>,
     last_bounds: Option<Bounds<Pixels>>,
     dragging: bool,
+    /// Last typing/click time; the blink restarts from "visible" on each one.
+    last_activity: Instant,
+    /// A repaint is already scheduled for the next blink toggle.
+    blink_pending: bool,
 }
+
+const BLINK_HALF_PERIOD: Duration = Duration::from_millis(530);
 
 impl EventEmitter<TextInputEvent> for TextInput {}
 
@@ -51,6 +59,8 @@ impl TextInput {
             last_layout: None,
             last_bounds: None,
             dragging: false,
+            last_activity: Instant::now(),
+            blink_pending: false,
         }
     }
 
@@ -179,6 +189,7 @@ impl TextInput {
 
     fn on_mouse_down(&mut self, e: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
+        self.last_activity = Instant::now();
         let at = self.index_at(e.position);
         match e.click_count {
             1 => {
@@ -211,6 +222,7 @@ impl TextInput {
 
     fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let ks = &event.keystroke;
+        self.last_activity = Instant::now();
         let len = self.len();
         let command = ks.modifiers.control || ks.modifiers.platform;
         let shift = ks.modifiers.shift;
@@ -446,10 +458,27 @@ impl Element for TextLine {
         let selection = input
             .selection()
             .map(|(from, to)| fill(at(x_of(from), x_of(to) - x_of(from)), theme::accent_soft()));
-        let caret = input
-            .focus
-            .is_focused(window)
-            .then(|| fill(at(caret_x, px(1.0)), theme::accent()));
+        let focused = input.focus.is_focused(window);
+        let elapsed = input.last_activity.elapsed();
+        let phase = BLINK_HALF_PERIOD.as_millis();
+        let visible = (elapsed.as_millis() / phase) % 2 == 0;
+        let caret = (focused && visible).then(|| fill(at(caret_x, px(1.0)), theme::accent()));
+
+        if focused && !input.blink_pending {
+            let wait = Duration::from_millis((phase - elapsed.as_millis() % phase) as u64);
+            let timer = cx.background_executor().timer(wait);
+            let entity = self.input.clone();
+            entity.update(cx, |input, _| input.blink_pending = true);
+            window
+                .spawn(cx, async move |cx| {
+                    timer.await;
+                    let _ = entity.update(cx, |input, cx| {
+                        input.blink_pending = false;
+                        cx.notify();
+                    });
+                })
+                .detach();
+        }
 
         Prepaint {
             line,

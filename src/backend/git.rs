@@ -619,6 +619,142 @@ pub async fn sync(root: &Path, status: &Status) -> Result<(), String> {
     }
 }
 
+/// One branch the switcher can offer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Branch {
+    /// What `git switch` takes: the local name, or for a remote-only branch the name without the
+    /// remote, which makes git create a tracking branch.
+    pub name: String,
+    /// The remote of a remote-only branch.
+    pub remote: Option<String>,
+    pub current: bool,
+}
+
+/// Parse `git for-each-ref --format=%(HEAD)%(refname) refs/heads refs/remotes`: local branches
+/// first, then remote-only ones (a remote branch that has a local twin is left out).
+pub fn parse_branches(out: &str) -> Vec<Branch> {
+    let mut local = Vec::new();
+    let mut remote: Vec<Branch> = Vec::new();
+    for line in out.lines() {
+        let current = line.starts_with('*');
+        let Some(full) = line.get(1..) else { continue };
+        if let Some(name) = full.strip_prefix("refs/heads/") {
+            local.push(Branch {
+                name: name.to_string(),
+                remote: None,
+                current,
+            });
+        } else if let Some(rest) = full.strip_prefix("refs/remotes/") {
+            let Some((r, name)) = rest.split_once('/') else {
+                continue;
+            };
+            if name == "HEAD" {
+                continue;
+            }
+            remote.push(Branch {
+                name: name.to_string(),
+                remote: Some(r.to_string()),
+                current: false,
+            });
+        }
+    }
+    let mut seen: Vec<String> = local.iter().map(|b| b.name.clone()).collect();
+    for b in remote {
+        if !seen.contains(&b.name) {
+            seen.push(b.name.clone());
+            local.push(b);
+        }
+    }
+    local
+}
+
+pub async fn branches(root: &Path) -> Result<Vec<Branch>, String> {
+    let out = git(
+        root,
+        &[
+            "--no-optional-locks",
+            "for-each-ref",
+            "--format=%(HEAD)%(refname)",
+            "refs/heads",
+            "refs/remotes",
+        ],
+    )
+    .await?;
+    Ok(parse_branches(&out))
+}
+
+/// Plain `git switch`: when changes conflict, git refuses and its output is the error.
+pub async fn switch(root: &Path, name: &str) -> Result<(), String> {
+    git(root, &["switch", name]).await.map(|_| ())
+}
+
+/// Create a branch at HEAD and switch to it. Git validates the name.
+pub async fn create_branch(root: &Path, name: &str) -> Result<(), String> {
+    git(root, &["switch", "-c", name]).await.map(|_| ())
+}
+
+/// One entry of the stash list; `index` is the `N` of `stash@{N}`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stash {
+    pub index: usize,
+    pub message: String,
+}
+
+pub async fn stash_list(root: &Path) -> Result<Vec<Stash>, String> {
+    let out = git(
+        root,
+        &["--no-optional-locks", "stash", "list", "--format=%gs"],
+    )
+    .await?;
+    Ok(out
+        .lines()
+        .enumerate()
+        .map(|(index, l)| Stash {
+            index,
+            message: l.to_string(),
+        })
+        .collect())
+}
+
+/// Stash staged, unstaged and untracked changes. An empty message uses git's default.
+pub async fn stash_push(root: &Path, message: &str) -> Result<(), String> {
+    let has_identity = git(root, &["config", "user.email"])
+        .await
+        .is_ok_and(|s| !s.trim().is_empty());
+    let mut args = Vec::new();
+    if !has_identity {
+        args.extend([
+            "-c",
+            "user.name=Agentory",
+            "-c",
+            "user.email=agentory@localhost",
+        ]);
+    }
+    args.extend(["stash", "push", "-u"]);
+    let message = message.trim();
+    if !message.is_empty() {
+        args.extend(["-m", message]);
+    }
+    git(root, &args).await.map(|_| ())
+}
+
+async fn stash_cmd(root: &Path, verb: &str, index: usize) -> Result<(), String> {
+    let reference = format!("stash@{{{index}}}");
+    git(root, &["stash", verb, &reference]).await.map(|_| ())
+}
+
+pub async fn stash_apply(root: &Path, index: usize) -> Result<(), String> {
+    stash_cmd(root, "apply", index).await
+}
+
+pub async fn stash_pop(root: &Path, index: usize) -> Result<(), String> {
+    stash_cmd(root, "pop", index).await
+}
+
+pub async fn stash_drop(root: &Path, index: usize) -> Result<(), String> {
+    stash_cmd(root, "drop", index).await
+}
+
 #[cfg(test)]
 mod source_control_tests {
     use super::*;
@@ -650,6 +786,55 @@ u UU N... 1 2 3 4 a b c clash.rs\0\
         assert_eq!(st.unstaged[1].kind, ChangeKind::Deleted);
         assert_eq!(st.unstaged[2].kind, ChangeKind::Untracked);
         assert_eq!(st.total(), 7);
+    }
+
+    #[test]
+    fn branches_list_local_then_remote_only() {
+        let out = " refs/heads/dev
+*refs/heads/main
+ refs/remotes/origin/HEAD
+ refs/remotes/origin/main
+ refs/remotes/origin/feat/x
+";
+        let b = parse_branches(out);
+        let names: Vec<_> = b.iter().map(|b| b.name.as_str()).collect();
+        assert_eq!(names, ["dev", "main", "feat/x"]);
+        assert!(b[1].current && !b[0].current);
+        assert_eq!(b[2].remote.as_deref(), Some("origin"));
+    }
+
+    #[tokio::test]
+    async fn branch_and_stash_roundtrip() {
+        let dir = std::env::temp_dir().join(format!("agentory-bs-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        init(&dir).await.unwrap();
+        let root = repo_root(&dir).await.unwrap().unwrap();
+        fs::write(root.join("a.txt"), "one").unwrap();
+        stage(&root, &["a.txt".into()]).await.unwrap();
+        commit(&root, "first").await.unwrap();
+        create_branch(&root, "topic").await.unwrap();
+        assert_eq!(
+            status(&root).await.unwrap().branch.as_deref(),
+            Some("topic")
+        );
+        let bs = branches(&root).await.unwrap();
+        assert!(bs.iter().any(|b| b.name == "topic" && b.current));
+
+        fs::write(root.join("a.txt"), "two").unwrap();
+        fs::write(root.join("new.txt"), "n").unwrap();
+        stash_push(&root, "wip").await.unwrap();
+        assert_eq!(status(&root).await.unwrap().total(), 0);
+        let list = stash_list(&root).await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert!(list[0].message.contains("wip"));
+        stash_apply(&root, 0).await.unwrap();
+        assert_eq!(status(&root).await.unwrap().total(), 2);
+        discard_everything(&root).await.unwrap();
+        stash_pop(&root, 0).await.unwrap();
+        assert!(stash_list(&root).await.unwrap().is_empty());
+        discard_everything(&root).await.unwrap();
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

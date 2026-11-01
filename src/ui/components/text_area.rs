@@ -5,7 +5,7 @@
 //! Known gaps: no IME composition, caret is
 //! char-based (not grapheme-based), and mouse placement assumes the monospace app font.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use gpui::{
@@ -21,6 +21,8 @@ const LINE_HEIGHT: f32 = 19.0;
 const PAD: f32 = 10.0;
 /// Undo steps kept.
 const HISTORY: usize = 200;
+/// Extra rows rendered above and below the viewport.
+const OVERSCAN: usize = 8;
 const TAB: &str = "    ";
 
 pub enum TextAreaEvent {
@@ -49,6 +51,8 @@ pub struct TextArea {
     scroll: ScrollHandle,
     /// Window position of the text origin and the glyph advance, written by `render`.
     metrics: Rc<Cell<Metrics>>,
+    /// Cached first visual row of each line (plus a total at the end) for the given `cols`.
+    layout: RefCell<Option<(usize, Rc<Vec<usize>>)>>,
 }
 
 #[derive(Clone)]
@@ -81,6 +85,7 @@ impl TextArea {
             focus: cx.focus_handle(),
             scroll: ScrollHandle::new(),
             metrics: Rc::default(),
+            layout: RefCell::new(None),
         }
     }
 
@@ -91,6 +96,7 @@ impl TextArea {
     /// Replace the text (no `Changed` event: callers use this to load a file).
     pub fn set_value(&mut self, value: &str, cx: &mut Context<Self>) {
         self.lines = split_lines(value);
+        self.invalidate();
         self.caret = (0, 0);
         self.anchor = None;
         self.goal_col = None;
@@ -109,6 +115,7 @@ impl TextArea {
 
     fn restore(&mut self, snap: Snapshot) {
         self.lines = snap.lines;
+        self.invalidate();
         self.caret = snap.caret;
         self.anchor = None;
         self.goal_col = None;
@@ -170,6 +177,7 @@ impl TextArea {
         let Some((from, to)) = self.selection() else {
             return false;
         };
+        self.invalidate();
         let tail = self.lines[to.0][self.byte_index(to.0, to.1)..].to_string();
         let head = self.byte_index(from.0, from.1);
         self.lines[from.0].truncate(head);
@@ -191,6 +199,7 @@ impl TextArea {
             return;
         }
         self.delete_selection();
+        self.invalidate();
         let (line, col) = self.caret;
         let at = self.byte_index(line, col);
         let tail = self.lines[line].split_off(at);
@@ -244,35 +253,63 @@ impl TextArea {
         }
     }
 
+    fn invalidate(&self) {
+        *self.layout.borrow_mut() = None;
+    }
+
+    /// First visual row of every line, plus the total row count as the last entry.
+    fn starts(&self) -> Rc<Vec<usize>> {
+        let cols = self.cols();
+        if let Some((c, v)) = &*self.layout.borrow()
+            && *c == cols
+        {
+            return v.clone();
+        }
+        let mut v = Vec::with_capacity(self.lines.len() + 1);
+        let mut acc = 0;
+        for l in &self.lines {
+            v.push(acc);
+            acc += l.chars().count() / cols + 1;
+        }
+        v.push(acc);
+        let v = Rc::new(v);
+        *self.layout.borrow_mut() = Some((cols, v.clone()));
+        v
+    }
+
     /// Visual rows a line takes; a caret at the very end of a full row sits on one more row.
     fn rows_of(&self, line: usize) -> usize {
-        self.line_len(line) / self.cols() + 1
+        let s = self.starts();
+        s[line + 1] - s[line]
     }
 
     /// Visual row index of a position, counted from the top of the text.
     fn row_index(&self, (line, col): (usize, usize)) -> usize {
-        (0..line).map(|l| self.rows_of(l)).sum::<usize>() + col / self.cols()
+        self.starts()[line] + col / self.cols()
+    }
+
+    /// Line holding visual row `row` (must be below the total).
+    fn line_of_row(starts: &[usize], row: usize) -> usize {
+        starts.partition_point(|&x| x <= row) - 1
     }
 
     /// Position at visual row `row` and column offset `x` within it (both clamped).
     fn pos_at_row(&self, row: usize, x: usize) -> (usize, usize) {
         let cols = self.cols();
-        let mut left = row;
-        for line in 0..self.lines.len() {
-            let n = self.rows_of(line);
-            if left < n {
-                return (
-                    line,
-                    (left * cols)
-                        .saturating_add(x)
-                        .min(self.line_len(line))
-                        .min((left * cols).saturating_add(cols - 1).max(left * cols)),
-                );
-            }
-            left -= n;
+        let starts = self.starts();
+        if row >= *starts.last().unwrap_or(&0) {
+            let last = self.lines.len() - 1;
+            return (last, self.line_len(last));
         }
-        let last = self.lines.len() - 1;
-        (last, self.line_len(last))
+        let line = Self::line_of_row(&starts, row);
+        let left = row - starts[line];
+        (
+            line,
+            (left * cols)
+                .saturating_add(x)
+                .min(self.line_len(line))
+                .min((left * cols).saturating_add(cols - 1).max(left * cols)),
+        )
     }
 
     /// Keep the caret row inside the viewport.
@@ -593,10 +630,28 @@ impl Render for TextArea {
             cx.notify();
         }
 
-        let lines: Vec<_> = (0..self.lines.len())
-            .flat_map(|i| (0..self.rows_of(i)).map(move |k| (i, k)))
-            .map(|(i, k)| self.render_row(i, k, focused, char_w))
+        // Only the rows in (or near) the viewport are built; spacers keep the scroll extent.
+        let starts = self.starts();
+        let total = *starts.last().unwrap_or(&0);
+        let top = (-f32::from(self.scroll.offset().y) - PAD).max(0.0);
+        let view_h = f32::from(bounds.size.height);
+        let visible = if view_h > 0.0 {
+            (view_h / LINE_HEIGHT).ceil() as usize
+        } else {
+            60
+        };
+        let first = ((top / LINE_HEIGHT) as usize)
+            .saturating_sub(OVERSCAN)
+            .min(total);
+        let end = (first + visible + 2 * OVERSCAN).min(total);
+        let rows: Vec<_> = (first..end)
+            .map(|r| {
+                let i = Self::line_of_row(&starts, r);
+                self.render_row(i, r - starts[i], focused, char_w)
+            })
             .collect();
+        let above = div().flex_none().h(px(first as f32 * LINE_HEIGHT));
+        let below = div().flex_none().h(px((total - end) as f32 * LINE_HEIGHT));
 
         div()
             .id("text-area")
@@ -626,7 +681,9 @@ impl Render for TextArea {
             .text_size(font_size)
             .text_color(theme::text())
             .cursor_text()
-            .children(lines)
+            .child(above)
+            .children(rows)
+            .child(below)
     }
 }
 

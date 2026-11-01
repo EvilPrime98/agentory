@@ -16,13 +16,14 @@ use gpui::{
 };
 
 use super::skills::{icon_button, muted_note};
-use crate::backend::git::{self, Change, ChangeKind, DiffLine, LineKind, Status};
+use crate::backend::git::{self, Branch, Change, ChangeKind, DiffLine, LineKind, Stash, Status};
 use crate::i18n::{t, t_args, t_n};
 use crate::route::{GoBack, Navigate};
 use crate::runtime;
 use crate::state::Stores;
 use crate::ui::components::button::{ButtonVariant, button, small_button};
 use crate::ui::components::text_area::{TextArea, TextAreaEvent};
+use crate::ui::components::text_input::{TextInput, TextInputEvent};
 use crate::ui::confirm::{self, ConfirmOptions};
 use crate::ui::icons::{Icon, icon};
 use crate::ui::{theme, toast};
@@ -82,6 +83,15 @@ pub struct GitPage {
     diff_gen: u64,
     diff_scroll: ScrollHandle,
     message: Entity<TextArea>,
+    stashes: Vec<Stash>,
+    stashes_open: bool,
+    stash_input: Entity<TextInput>,
+    /// The branch dropdown is open.
+    branch_open: bool,
+    branches: Vec<Branch>,
+    /// The dropdown shows the new-branch name input.
+    creating: bool,
+    branch_input: Entity<TextInput>,
     /// A local command (stage, commit, discard…) is running.
     busy: bool,
     /// A fetch or sync is running.
@@ -97,14 +107,15 @@ pub struct GitPage {
 impl EventEmitter<Navigate> for GitPage {}
 impl EventEmitter<GoBack> for GitPage {}
 
-type Loaded = Option<(PathBuf, Status)>;
+type Loaded = Option<(PathBuf, Status, Vec<Stash>)>;
 
 async fn load(path: PathBuf) -> Result<Loaded, String> {
     let Some(root) = git::repo_root(&path).await? else {
         return Ok(None);
     };
     let status = git::status(&root).await?;
-    Ok(Some((root, status)))
+    let stashes = git::stash_list(&root).await.unwrap_or_default();
+    Ok(Some((root, status, stashes)))
 }
 
 fn kind_color(kind: ChangeKind) -> Rgba {
@@ -126,11 +137,25 @@ fn tint(color: Rgba) -> Rgba {
 impl GitPage {
     pub fn new(stores: Stores, project_id: String, cx: &mut Context<Self>) -> Self {
         let message = cx.new(TextArea::new);
-        let subs = vec![cx.subscribe(&message, |this, _, ev: &TextAreaEvent, cx| {
-            if matches!(ev, TextAreaEvent::Submit) {
-                this.commit(cx);
-            }
-        })];
+        let stash_input = cx.new(|cx| TextInput::new(t("git.stash.placeholder"), cx));
+        let branch_input = cx.new(|cx| TextInput::new(t("git.branch.name_placeholder"), cx));
+        let subs = vec![
+            cx.subscribe(&message, |this, _, ev: &TextAreaEvent, cx| {
+                if matches!(ev, TextAreaEvent::Submit) {
+                    this.commit(cx);
+                }
+            }),
+            cx.subscribe(&stash_input, |this, _, ev: &TextInputEvent, cx| {
+                if matches!(ev, TextInputEvent::Submit) {
+                    this.stash_push(cx);
+                }
+            }),
+            cx.subscribe(&branch_input, |this, _, ev: &TextInputEvent, cx| match ev {
+                TextInputEvent::Submit => this.create_branch(cx),
+                TextInputEvent::Cancel => this.close_branches(cx),
+                TextInputEvent::Changed => {}
+            }),
+        ];
         let mut this = Self {
             stores,
             project_id,
@@ -143,6 +168,13 @@ impl GitPage {
             diff_gen: 0,
             diff_scroll: ScrollHandle::new(),
             message,
+            stashes: Vec::new(),
+            stashes_open: true,
+            stash_input,
+            branch_open: false,
+            branches: Vec::new(),
+            creating: false,
+            branch_input,
             busy: false,
             net_busy: false,
             refreshing: false,
@@ -201,6 +233,7 @@ impl GitPage {
                 self.repo = Repo::Missing;
                 self.root = None;
                 self.status = Status::default();
+                self.stashes.clear();
                 self.pick = None;
                 self.diff.clear();
                 self.set_badge(0, cx);
@@ -208,10 +241,14 @@ impl GitPage {
                     cx.notify();
                 }
             }
-            Ok(Some((root, status))) => {
+            Ok(Some((root, status, stashes))) => {
                 let first = !matches!(self.repo, Repo::Ready);
                 self.repo = Repo::Ready;
                 self.root = Some(root);
+                if stashes != self.stashes {
+                    self.stashes = stashes;
+                    cx.notify();
+                }
                 let changed = first || status != self.status;
                 if changed {
                     self.set_badge(status.total(), cx);
@@ -510,6 +547,120 @@ impl GitPage {
         });
     }
 
+    // ---- branches and stashes ----------------------------------------------------------------
+
+    fn toggle_branches(&mut self, cx: &mut Context<Self>) {
+        if self.branch_open {
+            self.close_branches(cx);
+            return;
+        }
+        self.branch_open = true;
+        self.creating = false;
+        cx.notify();
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let result = runtime::run(async move { git::branches(&root).await }).await;
+            this.update(cx, |this, cx| {
+                match result {
+                    Ok(list) => this.branches = list,
+                    Err(e) => tracing::warn!("git branches failed: {e}"),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn close_branches(&mut self, cx: &mut Context<Self>) {
+        self.branch_open = false;
+        self.creating = false;
+        self.branch_input.update(cx, |i, cx| i.set_value("", cx));
+        cx.notify();
+    }
+
+    fn switch_branch(&mut self, name: String, cx: &mut Context<Self>) {
+        self.close_branches(cx);
+        self.op(
+            t("git.branch.switch"),
+            false,
+            false,
+            cx,
+            move |root| async move { git::switch(&root, &name).await },
+        );
+    }
+
+    fn create_branch(&mut self, cx: &mut Context<Self>) {
+        let name = self.branch_input.read(cx).value().trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        self.close_branches(cx);
+        self.op(
+            t("git.branch.create"),
+            false,
+            false,
+            cx,
+            move |root| async move { git::create_branch(&root, &name).await },
+        );
+    }
+
+    fn stash_push(&mut self, cx: &mut Context<Self>) {
+        if self.status.total() == 0 {
+            toast::error(cx, t("git.stash.nothing"));
+            return;
+        }
+        let message = self.stash_input.read(cx).value().trim().to_string();
+        self.stash_input.update(cx, |i, cx| i.set_value("", cx));
+        self.op(t("git.stash"), false, false, cx, move |root| async move {
+            git::stash_push(&root, &message).await
+        });
+    }
+
+    fn stash_apply(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.op(
+            t("git.stash.apply"),
+            false,
+            false,
+            cx,
+            move |root| async move { git::stash_apply(&root, index).await },
+        );
+    }
+
+    fn stash_pop(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.op(
+            t("git.stash.pop"),
+            false,
+            false,
+            cx,
+            move |root| async move { git::stash_pop(&root, index).await },
+        );
+    }
+
+    fn ask_stash_drop(&mut self, stash: Stash, cx: &mut Context<Self>) {
+        let options = ConfirmOptions::new(
+            t("git.stash.drop.title"),
+            t_args("git.stash.drop.body", &[("message", &stash.message)]),
+        )
+        .labels(t("git.stash.drop"), t("common.cancel"));
+        let page = cx.entity();
+        confirm::ask(cx, options, move |answer, _, cx| {
+            if answer == Some(true) {
+                page.update(cx, |this, cx| {
+                    this.op(
+                        t("git.stash.drop"),
+                        false,
+                        false,
+                        cx,
+                        move |root| async move { git::stash_drop(&root, stash.index).await },
+                    );
+                });
+            }
+        });
+    }
+
     fn init_repo(&mut self, cx: &mut Context<Self>) {
         let Some(path) = self.stores.projects.read(cx).path_of(&self.project_id) else {
             return;
@@ -561,28 +712,17 @@ impl GitPage {
                     .child(t("git.title")),
             )
             .when(ready, |s| {
-                s.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(6.0))
-                        .px(px(8.0))
-                        .h(px(26.0))
-                        .rounded(px(4.0))
-                        .bg(theme::hover())
-                        .child(icon(Icon::Branch, px(13.0)).text_color(theme::text_muted()))
-                        .child(div().text_size(px(12.0)).child(branch)),
-                )
-                .child(small_button(
-                    "git-sync",
-                    sync_label,
-                    cx.listener(|this, _, _, cx| this.sync(cx)),
-                ))
-                .child(small_button(
-                    "git-fetch",
-                    t("git.fetch"),
-                    cx.listener(|this, _, _, cx| this.fetch(cx)),
-                ))
+                s.child(self.branch_picker(branch, cx))
+                    .child(small_button(
+                        "git-sync",
+                        sync_label,
+                        cx.listener(|this, _, _, cx| this.sync(cx)),
+                    ))
+                    .child(small_button(
+                        "git-fetch",
+                        t("git.fetch"),
+                        cx.listener(|this, _, _, cx| this.fetch(cx)),
+                    ))
             })
             .child(
                 div()
@@ -598,6 +738,236 @@ impl GitPage {
                     .child(icon(Icon::Refresh, px(15.0)).text_color(theme::text())),
             )
             .into_any_element()
+    }
+
+    fn branch_picker(&self, branch: String, cx: &mut Context<Self>) -> AnyElement {
+        let pill = div()
+            .id("git-branch")
+            .flex()
+            .items_center()
+            .gap(px(6.0))
+            .px(px(8.0))
+            .h(px(26.0))
+            .rounded(px(4.0))
+            .bg(theme::hover())
+            .cursor_pointer()
+            .on_click(cx.listener(|this, _, _, cx| this.toggle_branches(cx)))
+            .child(icon(Icon::Branch, px(13.0)).text_color(theme::text_muted()))
+            .child(div().text_size(px(12.0)).child(branch))
+            .child(icon(Icon::ChevronDown, px(12.0)).text_color(theme::text_muted()));
+        div()
+            .relative()
+            .child(pill)
+            .when(self.branch_open, |s| {
+                s.child(gpui::deferred(self.branch_menu(cx)).with_priority(1))
+            })
+            .into_any_element()
+    }
+
+    fn branch_menu(&self, cx: &mut Context<Self>) -> AnyElement {
+        let row = |id: SharedString| {
+            div()
+                .id(id)
+                .flex()
+                .items_center()
+                .gap(px(8.0))
+                .px(px(8.0))
+                .h(px(28.0))
+                .flex_none()
+                .rounded(px(4.0))
+                .cursor_pointer()
+                .text_size(px(12.5))
+                .hover(|s| s.bg(theme::hover()))
+        };
+        let mut rows: Vec<AnyElement> = Vec::new();
+        if self.creating {
+            rows.push(
+                div()
+                    .flex()
+                    .flex_none()
+                    .h(px(30.0))
+                    .rounded(px(4.0))
+                    .border_1()
+                    .border_color(theme::border_subtle())
+                    .bg(theme::bg_app())
+                    .px(px(8.0))
+                    .child(self.branch_input.clone())
+                    .into_any_element(),
+            );
+        } else {
+            rows.push(
+                row("git-branch-create".into())
+                    .text_color(theme::accent())
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.creating = true;
+                        let handle = gpui::Focusable::focus_handle(&this.branch_input, cx);
+                        window.focus(&handle, cx);
+                        cx.notify();
+                    }))
+                    .child(icon(Icon::Plus, px(13.0)))
+                    .child(t("git.branch.create_row"))
+                    .into_any_element(),
+            );
+        }
+        for b in &self.branches {
+            let name = b.name.clone();
+            let label = match &b.remote {
+                Some(r) => format!("{r}/{}", b.name),
+                None => b.name.clone(),
+            };
+            let current = b.current;
+            let color = if b.remote.is_some() {
+                theme::text_muted()
+            } else {
+                theme::text()
+            };
+            rows.push(
+                row(format!("git-branch-{label}").into())
+                    .when(current, |s| s.bg(theme::accent_soft()))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if current {
+                            this.close_branches(cx);
+                        } else {
+                            this.switch_branch(name.clone(), cx);
+                        }
+                    }))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_color(color)
+                            .child(label),
+                    )
+                    .into_any_element(),
+            );
+        }
+        div()
+            .id("git-branch-menu")
+            .occlude()
+            .absolute()
+            .top(px(30.0))
+            .left_0()
+            .w(px(260.0))
+            .max_h(px(320.0))
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .p(px(4.0))
+            .rounded(px(6.0))
+            .border_1()
+            .border_color(theme::border_subtle())
+            .bg(theme::bg_app())
+            .shadow_md()
+            .children(rows)
+            .into_any_element()
+    }
+
+    fn stash_box(&self, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .flex()
+            .items_center()
+            .gap(px(8.0))
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .min_w_0()
+                    .h(px(26.0))
+                    .rounded(px(4.0))
+                    .border_1()
+                    .border_color(theme::border_subtle())
+                    .bg(theme::bg_app())
+                    .px(px(8.0))
+                    .child(self.stash_input.clone()),
+            )
+            .child(small_button(
+                "git-stash",
+                t("git.stash"),
+                cx.listener(|this, _, _, cx| this.stash_push(cx)),
+            ))
+            .into_any_element()
+    }
+
+    fn stash_rows(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let open = self.stashes_open;
+        let chevron = if open {
+            Icon::ChevronDown
+        } else {
+            Icon::ChevronRight
+        };
+        let header = div()
+            .id("git-stashes-toggle")
+            .flex()
+            .items_center()
+            .gap(px(6.0))
+            .pt(px(6.0))
+            .cursor_pointer()
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.stashes_open = !this.stashes_open;
+                cx.notify();
+            }))
+            .child(icon(chevron, px(12.0)).text_color(theme::text_muted()))
+            .child(
+                div()
+                    .flex_1()
+                    .text_size(px(11.0))
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_color(theme::text_muted())
+                    .child(t("git.group.stashes").to_uppercase()),
+            )
+            .child(
+                div()
+                    .px(px(6.0))
+                    .rounded(px(8.0))
+                    .bg(theme::hover())
+                    .text_size(px(11.0))
+                    .text_color(theme::text_muted())
+                    .child(self.stashes.len().to_string()),
+            )
+            .into_any_element();
+        let mut out = vec![header];
+        if !open {
+            return out;
+        }
+        for st in &self.stashes {
+            let i = st.index;
+            let dropped = st.clone();
+            out.push(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.0))
+                    .px(px(6.0))
+                    .h(px(28.0))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(12.5))
+                            .text_color(theme::text())
+                            .child(st.message.clone()),
+                    )
+                    .child(small_button(
+                        SharedString::from(format!("git-stash-apply-{i}")),
+                        t("git.stash.apply"),
+                        cx.listener(move |this, _, _, cx| this.stash_apply(i, cx)),
+                    ))
+                    .child(small_button(
+                        SharedString::from(format!("git-stash-pop-{i}")),
+                        t("git.stash.pop"),
+                        cx.listener(move |this, _, _, cx| this.stash_pop(i, cx)),
+                    ))
+                    .child(icon_button(
+                        SharedString::from(format!("git-stash-drop-{i}")),
+                        Icon::Trash,
+                        cx.listener(move |this, _, _, cx| this.ask_stash_drop(dropped.clone(), cx)),
+                    ))
+                    .into_any_element(),
+            );
+        }
+        out
     }
 
     fn failure_banner(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -685,6 +1055,7 @@ impl GitPage {
                 )
                 .w_full(),
             )
+            .child(self.stash_box(cx))
             .into_any_element()
     }
 
@@ -884,6 +1255,9 @@ impl GitPage {
             for c in &status.unstaged {
                 groups.push(self.file_row(Group::Changes, c, cx));
             }
+        }
+        if !self.stashes.is_empty() {
+            groups.extend(self.stash_rows(cx));
         }
         if status.total() == 0 {
             groups.push(muted_note(t("git.clean").into()).into_any_element());
