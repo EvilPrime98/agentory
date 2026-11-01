@@ -343,7 +343,8 @@ mod tests {
     #[test]
     fn block_content_and_tool_results() {
         let blocks = r#"{"type":"user","message":{"content":[{"type":"text","text":"hello"},{"type":"text","text":"there"}]}}"#;
-        let tool = r#"{"type":"user","message":{"content":[{"type":"tool_result","content":"x"}]}}"#;
+        let tool =
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","content":"x"}]}}"#;
         let p = parse_ends(&format!("{tool}\n{blocks}"), "");
         assert_eq!(p.first_prompt.as_deref(), Some("hello there"));
     }
@@ -391,7 +392,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("agentory-tr-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("abc-123.jsonl");
-        fs::write(&path, format!("{}\n{}\n", user("do the thing"), user("more"))).unwrap();
+        fs::write(
+            &path,
+            format!("{}\n{}\n", user("do the thing"), user("more")),
+        )
+        .unwrap();
         let meta = read_meta(&path, 5).unwrap();
         assert_eq!(meta.id, "abc-123");
         assert_eq!(meta.title, "do the thing");
@@ -410,7 +415,10 @@ mod tests {
 
     #[test]
     fn same_dir_ignores_case_and_separators() {
-        assert!(same_dir(Path::new(r"C:\Users\A\p"), Path::new("c:/users/a/p/")));
+        assert!(same_dir(
+            Path::new(r"C:\Users\A\p"),
+            Path::new("c:/users/a/p/")
+        ));
         assert!(!same_dir(Path::new("C:/a"), Path::new("C:/b")));
     }
 

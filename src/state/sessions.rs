@@ -8,15 +8,15 @@ use gpui::{App, AppContext as _, Context, Entity, Subscription, Window};
 
 use crate::app::AppRoot;
 use crate::backend::git::{self, Merged, Worktree};
-use crate::selfbuild::upstream;
 use crate::backend::spm;
-use crate::model::{Project, SessionStatus, new_id};
 use crate::i18n::{t, t_args};
+use crate::model::{Project, SessionStatus, new_id};
 use crate::platform::pty::{self, SpawnSpec};
 use crate::platform::shells::{self, Shell};
 use crate::platform::{notify, status};
 use crate::route::Route;
 use crate::runtime;
+use crate::selfbuild::upstream;
 use crate::state::Stores;
 use crate::state::prefs::Prefs;
 use crate::ui::confirm::{self, ConfirmOptions};
@@ -187,9 +187,9 @@ impl SessionsStore {
 
     /// The live Agentory session that resumed Claude session `resume_id`, if any.
     pub fn resumed(&self, resume_id: &str) -> Option<&Session> {
-        self.items
-            .iter()
-            .find(|s| s.status != SessionStatus::Exited && s.resume_id.as_deref() == Some(resume_id))
+        self.items.iter().find(|s| {
+            s.status != SessionStatus::Exited && s.resume_id.as_deref() == Some(resume_id)
+        })
     }
 
     /// Start a session. `id` is shared with the worktree (if any) so both are easy to correlate.
@@ -516,7 +516,10 @@ pub fn begin_new_input(project_id: &str, input: Option<String>, cx: &mut App) {
         t("sessions.new"),
         t_args("sessions.ask_worktree.body", &[("project", &project.name)]),
     )
-    .labels(t("sessions.ask_worktree.worktree"), t("sessions.ask_worktree.folder"))
+    .labels(
+        t("sessions.ask_worktree.worktree"),
+        t("sessions.ask_worktree.folder"),
+    )
     .checkbox(t("sessions.ask_worktree.remember"), true);
     confirm::ask(cx, options, move |answer, remember, cx| {
         let Some(worktree) = answer else { return };
@@ -550,7 +553,9 @@ pub fn resume(resume_id: &str, cwd: PathBuf, fallback_id: &str, cx: &mut App) ->
         .resumed(resume_id)
         .map(|s| (s.id.clone(), s.project_id.clone()));
     if let Some((id, project_id)) = live {
-        stores.projects.update(cx, |p, cx| p.select(&project_id, cx));
+        stores
+            .projects
+            .update(cx, |p, cx| p.select(&project_id, cx));
         stores.sessions.update(cx, |s, cx| s.select(&id, cx));
         return true;
     }
@@ -561,9 +566,10 @@ pub fn resume(resume_id: &str, cwd: PathBuf, fallback_id: &str, cx: &mut App) ->
             .iter()
             .find(|p| crate::backend::transcripts::same_dir(&p.path, &cwd));
         by_path.cloned().or_else(|| {
-            projects
-                .get(fallback_id)
-                .map(|p| Project { path: cwd.clone(), ..p.clone() })
+            projects.get(fallback_id).map(|p| Project {
+                path: cwd.clone(),
+                ..p.clone()
+            })
         })
     };
     let Some(project) = project else { return false };
@@ -582,7 +588,9 @@ pub fn resume(resume_id: &str, cwd: PathBuf, fallback_id: &str, cx: &mut App) ->
     });
     match result {
         Ok(()) => {
-            stores.projects.update(cx, |p, cx| p.select(&project.id, cx));
+            stores
+                .projects
+                .update(cx, |p, cx| p.select(&project.id, cx));
             true
         }
         Err(e) => {
@@ -735,7 +743,13 @@ pub fn begin_upstream_update(tag: String, cx: &mut App) {
     cx.spawn(async move |cx| {
         let (p, sid, tg) = (project.clone(), id.clone(), tag.clone());
         let result = runtime::run(async move {
-            let wt = git::add_worktree_from(&p.path, &p.name, &sid, crate::selfbuild::clone::USER_BRANCH).await?;
+            let wt = git::add_worktree_from(
+                &p.path,
+                &p.name,
+                &sid,
+                crate::selfbuild::clone::USER_BRANCH,
+            )
+            .await?;
             match upstream::merge_tag(&wt, &tg).await {
                 Ok(merged) => Ok((wt, merged)),
                 Err(e) => {
@@ -753,7 +767,15 @@ pub fn begin_upstream_update(tag: String, cx: &mut App) {
                 };
                 let prefs = stores.prefs.read(cx).prefs.clone();
                 let started = stores.sessions.update(cx, |s, cx| {
-                    s.start(&project, id, Some(wt), SessionKind::SelfModify, &prefs, Some(prompt), cx)
+                    s.start(
+                        &project,
+                        id,
+                        Some(wt),
+                        SessionKind::SelfModify,
+                        &prefs,
+                        Some(prompt),
+                        cx,
+                    )
                 });
                 if let Err(e) = started {
                     tracing::error!("could not start an upstream update session: {e}");
@@ -788,7 +810,10 @@ fn launch(stores: Stores, project: Project, worktree: bool, input: Option<String
         .await;
         cx.update(|cx| match result {
             Ok(wt) => spawn_session(&stores, &project, id, Some(wt), input, cx),
-            Err(e) => toast::error(cx, t_args("sessions.worktree.failed", &[("error", &e.to_string())])),
+            Err(e) => toast::error(
+                cx,
+                t_args("sessions.worktree.failed", &[("error", &e.to_string())]),
+            ),
         });
     })
     .detach();
@@ -835,10 +860,18 @@ mod tests {
 
     #[test]
     fn modify_prompt_covers_the_rules() {
-        for needle in ["cargo build", "cargo test", "agentory-helper", "ready marker"] {
+        for needle in [
+            "cargo build",
+            "cargo test",
+            "agentory-helper",
+            "ready marker",
+        ] {
             assert!(MODIFY_PROMPT.contains(needle), "{needle}");
         }
-        assert!(!MODIFY_PROMPT.contains('\r'), "a CR would submit the prompt");
+        assert!(
+            !MODIFY_PROMPT.contains('\r'),
+            "a CR would submit the prompt"
+        );
     }
 
     #[test]
