@@ -441,8 +441,10 @@ impl Sidebar {
         let docs_id = project.id.clone();
         let git_id = project.id.clone();
         let history_id = project.id.clone();
+        let workflows_active = self.route == Route::Workflows(project.id.clone());
+        let workflows_id = project.id.clone();
 
-        let full_h = ROW_H * 4.0
+        let full_h = ROW_H * 5.0
             + if sessions.is_empty() {
                 0.0
             } else {
@@ -745,6 +747,35 @@ impl Sidebar {
                             .text_size(px(12.5))
                             .text_color(theme::text())
                             .child(t("sidebar.history")),
+                    ),
+            )
+            .child(
+                div()
+                    .id(gpui::SharedString::from(format!(
+                        "workflows-{}",
+                        project.id
+                    )))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .h(px(ROW_H))
+                    .ml(px(26.0))
+                    .px(px(6.0))
+                    .rounded(px(6.0))
+                    .cursor_pointer()
+                    .when(workflows_active, |s| s.bg(theme::accent_soft()))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.stores
+                            .projects
+                            .update(cx, |p, cx| p.select(&workflows_id, cx));
+                        cx.emit(Navigate(Route::Workflows(workflows_id.clone())));
+                    }))
+                    .child(icon(Icon::Play, px(13.0)).text_color(theme::text_muted()))
+                    .child(
+                        div()
+                            .text_size(px(12.5))
+                            .text_color(theme::text())
+                            .child(t("sidebar.workflows")),
                     ),
             )
             .when(!sessions.is_empty(), |s| {

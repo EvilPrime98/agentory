@@ -15,6 +15,7 @@ pub enum Route {
     /// Previous Claude Code sessions, opened filtered to this project id.
     SessionHistory(String),
     SkillEditor(String, String),
+    Workflows(String),
     /// Review and apply the change of the Modify session with this id.
     Review(String),
 }
@@ -34,6 +35,7 @@ impl Route {
             Self::Git(_) => "git.title",
             Self::SessionHistory(_) => "history.title",
             Self::SkillEditor(..) => "skill_editor.title",
+            Self::Workflows(_) => "workflows.title",
             Self::Review(_) => "review.title",
         })
     }

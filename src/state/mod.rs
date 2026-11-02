@@ -8,6 +8,7 @@ pub mod selfbuild;
 pub mod sessions;
 pub mod skills;
 pub mod usage;
+pub mod workflows;
 
 use gpui::{App, AppContext as _, Entity, Global};
 
@@ -23,6 +24,7 @@ pub struct Stores {
     pub sessions: Entity<sessions::SessionsStore>,
     pub skills: Entity<skills::SkillsStore>,
     pub usage: Entity<usage::UsageStore>,
+    pub workflows: Entity<workflows::WorkflowsStore>,
 }
 
 impl Global for Stores {}
@@ -73,6 +75,7 @@ impl Stores {
             sessions,
             skills: cx.new(|_| skills::SkillsStore::default()),
             usage,
+            workflows: cx.new(|_| workflows::WorkflowsStore::default()),
         }
     }
 }

@@ -24,6 +24,7 @@ use crate::ui::pages::sessions::SessionsPage;
 use crate::ui::pages::settings::SettingsPage;
 use crate::ui::pages::skill_editor::SkillEditorPage;
 use crate::ui::pages::skills::SkillsPage;
+use crate::ui::pages::workflows::WorkflowsPage;
 use crate::ui::shell::header::header;
 use crate::ui::shell::sidebar::Sidebar;
 use crate::ui::shell::usage_pill::UsagePill;
@@ -67,6 +68,7 @@ enum Page {
     SessionHistory(Entity<SessionHistoryPage>),
     SkillEditor(Entity<SkillEditorPage>),
     Review(Entity<ReviewPage>),
+    Workflows(Entity<WorkflowsPage>),
 }
 
 const PANEL_OPEN: Duration = Duration::from_millis(220);
@@ -199,6 +201,7 @@ impl AppRoot {
                 if let Route::Skills(id)
                 | Route::Docs(id)
                 | Route::Git(id)
+                | Route::Workflows(id)
                 | Route::SessionHistory(id) = this.history.current()
                 {
                     if this.stores.projects.read(cx).get(id).is_none() {
@@ -493,6 +496,21 @@ impl AppRoot {
                 ));
                 Page::SkillEditor(page)
             }
+            Route::Workflows(id) => {
+                self.stores.projects.update(cx, |p, cx| p.select(&id, cx));
+                let page = cx.new(|cx| WorkflowsPage::new(self.stores.clone(), id, cx));
+                self._page_subs.push(cx.subscribe_in(
+                    &page,
+                    window,
+                    |this, _, ev: &Navigate, window, cx| this.navigate(ev.0.clone(), window, cx),
+                ));
+                self._page_subs.push(cx.subscribe_in(
+                    &page,
+                    window,
+                    |this, _, _: &GoBack, window, cx| this.go_back(window, cx),
+                ));
+                Page::Workflows(page)
+            }
             Route::Review(id) => {
                 let page = cx.new(|cx| ReviewPage::new(self.stores.clone(), id, cx));
                 self._page_subs.push(cx.subscribe_in(
@@ -588,6 +606,7 @@ impl Render for AppRoot {
             Page::SessionHistory(page) => AnyView::from(page.clone()).into_any_element(),
             Page::SkillEditor(page) => AnyView::from(page.clone()).into_any_element(),
             Page::Review(page) => AnyView::from(page.clone()).into_any_element(),
+            Page::Workflows(page) => AnyView::from(page.clone()).into_any_element(),
         };
 
         div()
