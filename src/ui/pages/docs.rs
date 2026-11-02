@@ -132,7 +132,7 @@ impl DocsPage {
     }
 
     fn start_working(&self, rel: &str, cx: &mut Context<Self>) {
-        let mut input = format!("@docs/{rel} ");
+        let mut input = format!("@docs/{rel} -> implement");
         if self.stores.prefs.read(cx).prefs.send_doc_prompt {
             // Enter, so the prefilled mention is submitted.
             input.push('\r');
