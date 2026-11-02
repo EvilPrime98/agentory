@@ -386,6 +386,21 @@ impl GitPage {
         F: FnOnce(PathBuf) -> Fut,
         Fut: Future<Output = Result<(), String>> + Send + 'static,
     {
+        self.op_notify(label, None, net, clear_message, cx, f);
+    }
+
+    fn op_notify<F, Fut>(
+        &mut self,
+        label: String,
+        success: Option<String>,
+        net: bool,
+        clear_message: bool,
+        cx: &mut Context<Self>,
+        f: F,
+    ) where
+        F: FnOnce(PathBuf) -> Fut,
+        Fut: Future<Output = Result<(), String>> + Send + 'static,
+    {
         let Some(root) = self.root.clone() else {
             return;
         };
@@ -410,6 +425,9 @@ impl GitPage {
                 }
                 match result {
                     Ok(()) => {
+                        if let Some(text) = success {
+                            toast::success(cx, text);
+                        }
                         if clear_message {
                             this.message.update(cx, |m, cx| m.set_value("", cx));
                         }
@@ -546,9 +564,14 @@ impl GitPage {
 
     fn sync(&mut self, cx: &mut Context<Self>) {
         let status = self.status.clone();
-        self.op(t("git.sync"), true, false, cx, move |root| async move {
-            git::sync(&root, &status).await
-        });
+        self.op_notify(
+            t("git.sync"),
+            Some(t("git.synced")),
+            true,
+            false,
+            cx,
+            move |root| async move { git::sync(&root, &status).await },
+        );
     }
 
     // ---- branches and stashes ----------------------------------------------------------------

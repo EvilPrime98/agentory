@@ -294,6 +294,7 @@
   "git.discard_all.body_one": "¿Descartar {n} cambio sin preparar y eliminar los archivos sin seguimiento? No se puede deshacer.",
   "git.discard_all.body_other": "¿Descartar {n} cambios sin preparar y eliminar los archivos sin seguimiento? No se puede deshacer.",
   "git.failed": "{op}: error",
+  "git.synced": "Sincronización completada correctamente",
   "git.output_show": "Mostrar salida",
   "git.output_hide": "Ocultar salida",
   "git.stash": "Guardar",
