@@ -41,15 +41,16 @@ impl SkillEditorPage {
             .join("skills")
             .join(&name)
             .join("SKILL.md");
-        let (saved, load_error) = match std::fs::read_to_string(&path) {
+        let (loaded, load_error) = match std::fs::read_to_string(&path) {
             Ok(text) => (text, None),
             Err(e) => (String::new(), Some(e.to_string().into())),
         };
         let area = cx.new(|cx| {
             let mut a = TextArea::new(cx);
-            a.set_value(&saved, cx);
+            a.set_value(&loaded, cx);
             a
         });
+        let saved = area.read(cx).value();
         let subs = vec![
             cx.subscribe(&area, |this, _, ev: &TextAreaEvent, cx| match ev {
                 TextAreaEvent::Changed => cx.notify(),
