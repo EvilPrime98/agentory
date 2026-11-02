@@ -294,6 +294,7 @@
   "git.discard_all.body_one": "Discard {n} unstaged change, deleting untracked files? This cannot be undone.",
   "git.discard_all.body_other": "Discard {n} unstaged changes, deleting untracked files? This cannot be undone.",
   "git.failed": "{op} failed",
+  "git.synced": "Sync completed successfully",
   "git.output_show": "Show output",
   "git.output_hide": "Hide output",
   "git.stash": "Stash",
