@@ -8,6 +8,11 @@
       "ref": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
       "market": "skillsmp"
     },
+    "ecc-council": {
+      "repo": "https://github.com/affaan-m/ECC/tree/main/pi/core/skills/ecc-council",
+      "ref": "b38be6a7f6350964d59328b52f0624e1d1d552d1",
+      "market": "skillsmp"
+    },
     "git-commit-doctor": "https://github.com/EvilPrime98/mySkills",
     "gpui-desktop": "https://github.com/EvilPrime98/mySkills",
     "grill-with-docs": {

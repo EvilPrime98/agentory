@@ -1359,9 +1359,7 @@ impl GitPage {
                 .overflow_scroll()
                 .track_scroll(&self.diff_scroll)
                 .py(px(6.0))
-                .when(total == 0, |s| {
-                    s.child(muted_note(t("git.no_diff").into()))
-                })
+                .when(total == 0, |s| s.child(muted_note(t("git.no_diff").into())))
                 .child(
                     div()
                         .flex()
