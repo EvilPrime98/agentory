@@ -24,9 +24,16 @@ enum SkillsTab {
     Sources,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DiscoverTab {
+    Repos,
+    Market,
+}
+
 pub struct SkillsPage {
     stores: Stores,
     tab: SkillsTab,
+    discover: DiscoverTab,
     repo_input: Entity<TextInput>,
     init_repo_input: Entity<TextInput>,
     search_input: Entity<TextInput>,
@@ -41,7 +48,7 @@ pub struct SkillsPage {
 /// Narrowest a card gets before the row wraps and the cards stack.
 const CARD_MIN_W: f32 = 340.0;
 
-const LIST_MAX_H: f32 = 360.0;
+const LIST_MAX_H: f32 = 560.0;
 
 const INSTALLED_MAX_H: f32 = 560.0;
 
@@ -253,6 +260,7 @@ impl SkillsPage {
         Self {
             stores,
             tab: SkillsTab::Installed,
+            discover: DiscoverTab::Repos,
             repo_input,
             init_repo_input,
             search_input,
@@ -270,6 +278,7 @@ impl SkillsPage {
         if term.is_empty() {
             return;
         }
+        self.discover = DiscoverTab::Market;
         self.stores
             .skills
             .update(cx, |s, cx| s.search_market(term, cx));
@@ -596,6 +605,7 @@ impl SkillsPage {
             })
             .collect();
         let show_market = hit_count > 0 || searching || search_error.is_some();
+        let discover = self.discover;
         let has_filter = !filter.is_empty();
 
         div()
@@ -637,43 +647,75 @@ impl SkillsPage {
                             )),
                     ),
             )
-            .child(muted_note(t("skills.search_hint").into()))
-            .child(group_heading(t("skills.group.repos"), pool_count))
-            .when_some(available_error, |s, e| s.child(muted_note(e)))
-            .when(pool_count == 0 && !has_filter, |s| {
-                s.child(muted_note(t("skills.nothing_to_install").into()))
-            })
-            .when(pool_count == 0 && has_filter, |s| {
-                s.child(muted_note(t("skills.no_match").into()))
-            })
             .child(
-                self.pool_scroll.framed(
-                    div()
-                        .id("skills-pool")
-                        .flex()
-                        .flex_col()
-                        .max_h(px(LIST_MAX_H))
-                        .children(pool_rows),
-                    window,
-                ),
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.0))
+                    .child(segment(
+                        "discover-repos",
+                        t("skills.group.repos"),
+                        discover == DiscoverTab::Repos,
+                        cx.listener(|this, _, _, cx| {
+                            this.discover = DiscoverTab::Repos;
+                            cx.notify();
+                        }),
+                    ))
+                    .child(segment(
+                        "discover-market",
+                        t("skills.group.market"),
+                        discover == DiscoverTab::Market,
+                        cx.listener(|this, _, _, cx| {
+                            this.discover = DiscoverTab::Market;
+                            cx.notify();
+                        }),
+                    )),
             )
-            .when(show_market, |s| {
-                s.child(group_heading(t("skills.group.market"), hit_count))
-                    .when(searching, |s| {
-                        s.child(muted_note(t("skills.market.searching").into()))
+            .when(discover == DiscoverTab::Repos, |s| {
+                s.child(group_heading(t("skills.group.repos"), pool_count))
+                    .when_some(available_error, |s, e| s.child(muted_note(e)))
+                    .when(pool_count == 0 && !has_filter, |s| {
+                        s.child(muted_note(t("skills.nothing_to_install").into()))
                     })
-                    .when_some(search_error, |s, e| s.child(muted_note(e)))
+                    .when(pool_count == 0 && has_filter, |s| {
+                        s.child(muted_note(t("skills.no_match").into()))
+                    })
                     .child(
-                        self.market_scroll.framed(
+                        self.pool_scroll.framed(
                             div()
-                                .id("skills-market")
+                                .id("skills-pool")
                                 .flex()
                                 .flex_col()
                                 .max_h(px(LIST_MAX_H))
-                                .children(hit_rows),
+                                .children(pool_rows),
                             window,
                         ),
                     )
+            })
+            .when(discover == DiscoverTab::Market, |s| {
+                s.when(!show_market, |s| {
+                    s.child(muted_note(t("skills.search_hint").into()))
+                })
+                .when(show_market, |s| {
+                    s.child(group_heading(t("skills.group.market"), hit_count))
+                        .when(searching, |s| {
+                            s.child(muted_note(t("skills.market.searching").into()))
+                        })
+                        .when_some(search_error, |s, e| s.child(muted_note(e)))
+                        .when(!searching && hit_count > 0, |s| {
+                            s.child(
+                                self.market_scroll.framed(
+                                    div()
+                                        .id("skills-market")
+                                        .flex()
+                                        .flex_col()
+                                        .max_h(px(LIST_MAX_H))
+                                        .children(hit_rows),
+                                    window,
+                                ),
+                            )
+                        })
+                })
             })
             .into_any_element()
     }
