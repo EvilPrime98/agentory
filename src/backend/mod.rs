@@ -4,6 +4,7 @@
 pub mod git;
 pub mod spm;
 pub mod transcripts;
+pub mod workflow;
 
 use std::path::Path;
 use std::process::Stdio;
