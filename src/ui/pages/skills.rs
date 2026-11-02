@@ -315,6 +315,7 @@ impl SkillsPage {
         let manifest = skills.snapshot.manifest.clone();
         let doctor = skills.doctor.clone();
         let on_disk_set: BTreeSet<String> = skills.snapshot.installed.iter().cloned().collect();
+        let latest_set = skills.latest.clone();
         // Declared in spm.json plus anything on disk.
         let mut names = on_disk_set.clone();
         if let Some(m) = &manifest {
@@ -343,6 +344,7 @@ impl SkillsPage {
                     .clone()
                     .filter(|_| on_disk)
                     .map(|id| Route::SkillEditor(id, name.clone()));
+                let is_latest = latest_set.contains(&name);
                 let latest_name = name.clone();
                 let is_confirming = confirming.as_deref() == Some(name.as_str());
 
@@ -449,7 +451,7 @@ impl SkillsPage {
                                 )),
                         )
                     })
-                    .when(is_market, |s| {
+                    .when(is_market && !is_latest, |s| {
                         s.child(small_button(
                             gpui::SharedString::from(format!("latest-skill-{name}")),
                             t("skills.update_latest"),
