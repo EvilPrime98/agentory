@@ -1,5 +1,6 @@
 //! Skills of the selected project, through the built-in `spm`: read from disk, mutate through `backend::spm`.
 
+use std::collections::BTreeSet;
 use std::future::Future;
 use std::path::PathBuf;
 
@@ -29,6 +30,7 @@ pub struct SkillsStore {
     pub searching: bool,
     /// What is running right now (`"Installing foo…"`); mutations are serialized.
     pub busy: Option<SharedString>,
+    pub latest: BTreeSet<String>,
     pub revision: u64,
     /// Bumped when the project changes so a stale response is dropped.
     generation: u64,
@@ -44,6 +46,7 @@ impl SkillsStore {
         self.generation += 1;
         self.snapshot = Snapshot::default();
         self.doctor = None;
+        self.latest.clear();
         self.available.clear();
         self.available_error = None;
         self.hits.clear();
@@ -125,6 +128,20 @@ impl SkillsStore {
         F: FnOnce(PathBuf) -> Fut + Send + 'static,
         Fut: Future<Output = Result<String, String>> + Send + 'static,
     {
+        self.mutate_marking(label, refetch_available, None, cx, call);
+    }
+
+    fn mutate_marking<F, Fut>(
+        &mut self,
+        label: String,
+        refetch_available: bool,
+        latest: Option<String>,
+        cx: &mut Context<Self>,
+        call: F,
+    ) where
+        F: FnOnce(PathBuf) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<String, String>> + Send + 'static,
+    {
         let Some(dir) = self.project.clone() else {
             return;
         };
@@ -141,6 +158,9 @@ impl SkillsStore {
                     s.busy = None;
                     cx.notify();
                     if s.generation == generation {
+                        if let (Ok(_), Some(name)) = (&result, latest) {
+                            s.latest.insert(name);
+                        }
                         s.reload_snapshot(cx);
                         if refetch_available {
                             s.refresh_available(cx);
@@ -256,7 +276,7 @@ impl SkillsStore {
         cx: &mut Context<Self>,
     ) {
         let label = t_args("skills.busy.review", &[("name", &id)]);
-        self.prepare(label, cx, move |dir| async move {
+        self.prepare(label, None, cx, move |dir| async move {
             spm::prepare_install(&dir, &market, &id, global).await
         });
     }
@@ -264,13 +284,20 @@ impl SkillsStore {
     /// Move a market skill to the newest commit of its repo, after a review.
     pub fn update_latest(&mut self, name: String, cx: &mut Context<Self>) {
         let label = t_args("skills.busy.review", &[("name", &name)]);
-        self.prepare(label, cx, move |dir| async move {
+        let latest = Some(name.clone());
+        self.prepare(label, latest, cx, move |dir| async move {
             spm::prepare_update_latest(&dir, &name).await
         });
     }
 
     /// First phase of a market install or update: busy while fetching, then the review dialog.
-    fn prepare<F, Fut>(&mut self, label: String, cx: &mut Context<Self>, call: F)
+    fn prepare<F, Fut>(
+        &mut self,
+        label: String,
+        latest: Option<String>,
+        cx: &mut Context<Self>,
+        call: F,
+    )
     where
         F: FnOnce(PathBuf) -> Fut + Send + 'static,
         Fut: Future<Output = Result<Prepared, String>> + Send + 'static,
@@ -301,7 +328,16 @@ impl SkillsStore {
                     tracing::warn!("spm review failed: {e}");
                     cx.update(|cx| toast::error(cx, e));
                 }
-                Ok(Prepared::Done(msg)) if current => cx.update(|cx| toast::success(cx, msg)),
+                Ok(Prepared::Done(msg)) if current => {
+                    if let Some(name) = latest {
+                        this.update(cx, |s, cx| {
+                            s.latest.insert(name);
+                            cx.notify();
+                        })
+                        .ok();
+                    }
+                    cx.update(|cx| toast::success(cx, msg));
+                }
                 Ok(Prepared::Review(review)) if current => {
                     cx.update(|cx| ask_review(cx, this, *review));
                 }
@@ -314,7 +350,8 @@ impl SkillsStore {
     /// Second phase: the user approved the review.
     fn apply_review(&mut self, review: Review, cx: &mut Context<Self>) {
         let label = t_args("skills.busy.install", &[("names", &review.name)]);
-        self.mutate(label, false, cx, move |dir| async move {
+        let latest = review.from.is_some().then(|| review.name.clone());
+        self.mutate_marking(label, false, latest, cx, move |dir| async move {
             spm::confirm(&dir, review).await
         });
     }
