@@ -297,8 +297,7 @@ impl SkillsStore {
         latest: Option<String>,
         cx: &mut Context<Self>,
         call: F,
-    )
-    where
+    ) where
         F: FnOnce(PathBuf) -> Fut + Send + 'static,
         Fut: Future<Output = Result<Prepared, String>> + Send + 'static,
     {
