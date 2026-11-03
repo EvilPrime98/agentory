@@ -5,20 +5,27 @@ use gpui::{
     Render, Styled, Subscription, Window, div, prelude::*, px,
 };
 
+use std::path::Path;
+
 use crate::i18n::t;
 use crate::platform::logging;
 use crate::route::{GoBack, Navigate};
+use crate::runtime;
 use crate::state::Stores;
 use crate::state::prefs::{MAX_FONT, MIN_FONT};
 use crate::ui::components::button::{ButtonVariant, button, small_button};
 use crate::ui::components::checkbox::checkbox;
 use crate::ui::components::text_input::{TextInput, TextInputEvent};
+use crate::ui::icons::Icon;
 use crate::ui::pages::selfbuild_section;
+use crate::ui::pages::skills::icon_button;
 use crate::ui::theme;
+use crate::ui::toast;
 
 pub struct SettingsPage {
     stores: Stores,
     claude_input: Entity<TextInput>,
+    picker_open: bool,
     _subs: Vec<Subscription>,
 }
 
@@ -57,7 +64,64 @@ fn section(title: &str, body: impl IntoElement) -> AnyElement {
         .into_any_element()
 }
 
+fn relative_folder(root: &Path, picked: &Path) -> Option<String> {
+    let root = root.canonicalize().ok()?;
+    let picked = picked.canonicalize().ok()?;
+    let rel = picked.strip_prefix(&root).ok()?;
+    let parts: Vec<_> = rel
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    (!parts.is_empty()).then(|| parts.join("/"))
+}
+
 impl SettingsPage {
+    fn add_docs_folder(&mut self, cx: &mut Context<Self>) {
+        let Some(root) = self
+            .stores
+            .projects
+            .read(cx)
+            .selected_project()
+            .map(|p| p.path.clone())
+        else {
+            return;
+        };
+        if self.picker_open {
+            return;
+        }
+        self.picker_open = true;
+        let start = root.clone();
+        cx.spawn(async move |this, cx| {
+            let picked = runtime::run(async move {
+                rfd::AsyncFileDialog::new()
+                    .set_title(t("settings.docs.pick"))
+                    .set_directory(start)
+                    .pick_folder()
+                    .await
+                    .map(|h| h.path().to_path_buf())
+            })
+            .await;
+            this.update(cx, |this, cx| {
+                this.picker_open = false;
+                if let Some(picked) = picked {
+                    match relative_folder(&root, &picked) {
+                        Some(rel) => this.stores.prefs.update(cx, |p, cx| {
+                            p.update(cx, |p| {
+                                if !p.docs_folders.contains(&rel) {
+                                    p.docs_folders.push(rel);
+                                }
+                            })
+                        }),
+                        None => toast::error(cx, t("settings.docs.outside")),
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     pub fn new(stores: Stores, cx: &mut Context<Self>) -> Self {
         let initial = stores.prefs.read(cx).prefs.claude_command.clone();
         let claude_input = cx.new(|cx| TextInput::new("claude", cx).with_value(initial));
@@ -78,6 +142,7 @@ impl SettingsPage {
         Self {
             stores,
             claude_input,
+            picker_open: false,
             _subs: subs,
         }
     }
@@ -110,6 +175,9 @@ impl Render for SettingsPage {
         let font_stores_up = self.stores.clone();
         let language = prefs.language;
         let language_stores = self.stores.clone();
+        let has_project = self.stores.projects.read(cx).selected_project().is_some();
+        let add_page = cx.entity();
+        let docs_folders = prefs.docs_folders.clone();
         let theme_pref = prefs.theme;
         let theme_stores = self.stores.clone();
 
@@ -310,6 +378,68 @@ impl Render for SettingsPage {
                                         )),
                                 ))
                             }),
+                    )
+                    .child(
+                        row().child(section(
+                            &t("settings.docs.title"),
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(8.0))
+                                .child(
+                                    div()
+                                        .text_size(px(12.5))
+                                        .text_color(theme::text_muted())
+                                        .child(t("settings.docs.hint")),
+                                )
+                                .children(docs_folders.into_iter().map(|folder| {
+                                    let stores = self.stores.clone();
+                                    let target = folder.clone();
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .justify_between()
+                                        .gap(px(10.0))
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .min_w_0()
+                                                .truncate()
+                                                .text_size(px(13.0))
+                                                .child(folder.clone()),
+                                        )
+                                        .child(icon_button(
+                                            gpui::SharedString::from(format!("rm-docs-{folder}")),
+                                            Icon::Trash,
+                                            move |_, _, cx| {
+                                                stores.prefs.update(cx, |p, cx| {
+                                                    p.update(cx, |p| {
+                                                        p.docs_folders.retain(|f| *f != target)
+                                                    })
+                                                });
+                                            },
+                                        ))
+                                }))
+                                .child(div().flex().items_center().gap(px(10.0)).child(
+                                    if has_project {
+                                        small_button(
+                                            "add-docs-folder",
+                                            t("settings.docs.add"),
+                                            move |_, _, cx| {
+                                                add_page
+                                                    .update(cx, |this, cx| this.add_docs_folder(cx))
+                                            },
+                                        )
+                                        .into_any_element()
+                                    } else {
+                                        div()
+                                            .text_size(px(12.5))
+                                            .text_color(theme::text_muted())
+                                            .child(t("settings.docs.no_project"))
+                                            .into_any_element()
+                                    },
+                                )),
+                        )),
                     )
                     .child(
                         row()

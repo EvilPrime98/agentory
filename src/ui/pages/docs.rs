@@ -1,6 +1,6 @@
-//! Docs page: the project's `docs/**/*.md` files, each deletable or the start of an agent session.
+//! Docs page: the markdown files under the configured docs folders, each deletable or the start of an agent session.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use gpui::{
     AnyElement, Context, EventEmitter, InteractiveElement, IntoElement, ParentElement, Render,
@@ -17,7 +17,7 @@ use crate::ui::icons::{Icon, icon};
 use crate::ui::{theme, toast};
 
 struct Doc {
-    /// Path relative to `docs/`, with `/` separators.
+    /// Path relative to the project root, with `/` separators.
     rel: String,
     /// The first `# heading`, when the file has one.
     title: Option<String>,
@@ -33,14 +33,11 @@ pub struct DocsPage {
     stores: Stores,
     project_id: String,
     scan: Scan,
+    _sub: gpui::Subscription,
 }
 
 impl EventEmitter<Navigate> for DocsPage {}
 impl EventEmitter<GoBack> for DocsPage {}
-
-fn docs_dir(root: &Path) -> PathBuf {
-    root.join("docs")
-}
 
 /// First level-1 heading outside code fences.
 fn first_heading(text: &str) -> Option<String> {
@@ -94,23 +91,36 @@ fn collect(dir: &Path, base: &Path, out: &mut Vec<Doc>) {
     }
 }
 
-fn scan(root: &Path) -> Scan {
-    let dir = docs_dir(root);
-    if !dir.is_dir() {
+fn scan(root: &Path, folders: &[String]) -> Scan {
+    let mut docs = Vec::new();
+    let mut found_folder = false;
+    for folder in folders {
+        let rel = Path::new(folder);
+        if !rel.components().all(|c| matches!(c, Component::Normal(_))) {
+            continue;
+        }
+        let dir = root.join(rel);
+        if dir.is_dir() {
+            found_folder = true;
+            collect(&dir, root, &mut docs);
+        }
+    }
+    if !found_folder {
         return Scan::NoFolder;
     }
-    let mut docs = Vec::new();
-    collect(&dir, &dir, &mut docs);
     docs.sort_by(|a, b| a.rel.cmp(&b.rel));
+    docs.dedup_by(|a, b| a.rel == b.rel);
     Scan::Docs(docs)
 }
 
 impl DocsPage {
     pub fn new(stores: Stores, project_id: String, cx: &mut Context<Self>) -> Self {
+        let sub = cx.observe(&stores.prefs, |this, _, cx| this.rescan(cx));
         let mut this = Self {
             stores,
             project_id,
             scan: Scan::NoFolder,
+            _sub: sub,
         };
         this.rescan(cx);
         this
@@ -125,14 +135,15 @@ impl DocsPage {
     }
 
     fn rescan(&mut self, cx: &mut Context<Self>) {
+        let folders = self.stores.prefs.read(cx).prefs.docs_folders.clone();
         self.scan = self
             .project_root(cx)
-            .map_or(Scan::NoFolder, |root| scan(&root));
+            .map_or(Scan::NoFolder, |root| scan(&root, &folders));
         cx.notify();
     }
 
     fn start_working(&self, rel: &str, cx: &mut Context<Self>) {
-        let mut input = format!("@docs/{rel} -> implement");
+        let mut input = format!("@{rel} -> implement");
         if self.stores.prefs.read(cx).prefs.send_doc_prompt {
             // Enter, so the prefilled mention is submitted.
             input.push('\r');
@@ -145,7 +156,7 @@ impl DocsPage {
         let Some(root) = self.project_root(cx) else {
             return;
         };
-        let path = docs_dir(&root).join(&rel);
+        let path = root.join(&rel);
         let options = ConfirmOptions::new(
             t("docs.delete.title"),
             t_args("docs.delete.body", &[("rel", &rel)]),
@@ -286,6 +297,30 @@ impl Render for DocsPage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scan_merges_dedupes_and_skips_missing() {
+        let root = std::env::temp_dir().join(format!("agentory-docs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("docs/sub")).unwrap();
+        std::fs::create_dir_all(root.join("notes")).unwrap();
+        std::fs::write(root.join("docs/a.md"), "# A").unwrap();
+        std::fs::write(root.join("docs/sub/c.md"), "").unwrap();
+        std::fs::write(root.join("notes/b.md"), "").unwrap();
+        let folders: Vec<String> = ["notes", "docs", "docs/sub", "missing", "../x"]
+            .map(String::from)
+            .into();
+        let Scan::Docs(docs) = scan(&root, &folders) else {
+            panic!("expected docs");
+        };
+        let rels: Vec<_> = docs.iter().map(|d| d.rel.as_str()).collect();
+        assert_eq!(rels, ["docs/a.md", "docs/sub/c.md", "notes/b.md"]);
+        assert!(matches!(
+            scan(&root, &["missing".to_string()]),
+            Scan::NoFolder
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn heading_skips_code_fences() {

@@ -16,6 +16,7 @@ pub struct Prefs {
     pub ask_worktree: bool,
     /// Submit the prompt (not just type it) when running a doc from the Docs page.
     pub send_doc_prompt: bool,
+    pub docs_folders: Vec<String>,
     /// Toast (in-app and Windows) when a session needs input or finishes.
     pub notifications: bool,
     /// Launch agent sessions in Claude Code's fullscreen renderer so the prompt sits at the bottom.
@@ -38,6 +39,7 @@ impl Default for Prefs {
             claude_command: String::new(),
             ask_worktree: true,
             send_doc_prompt: false,
+            docs_folders: vec![DEFAULT_DOCS_FOLDER.to_string()],
             notifications: true,
             fullscreen_agents: true,
             self_build_enabled: false,
@@ -50,6 +52,7 @@ impl Default for Prefs {
     }
 }
 
+pub const DEFAULT_DOCS_FOLDER: &str = "docs";
 pub const MIN_FONT: f32 = 9.0;
 pub const MAX_FONT: f32 = 28.0;
 
@@ -109,6 +112,9 @@ impl PrefsStore {
 impl Prefs {
     fn font_clamp(&mut self) {
         self.terminal_font_size = self.terminal_font_size.clamp(MIN_FONT, MAX_FONT);
+        if self.docs_folders.is_empty() {
+            self.docs_folders = vec![DEFAULT_DOCS_FOLDER.to_string()];
+        }
     }
 }
 
@@ -145,6 +151,17 @@ mod tests {
         })
         .unwrap();
         assert!(json.contains(r#""theme":"dark""#));
+    }
+
+    #[test]
+    fn docs_folders_default_and_reset_when_emptied() {
+        assert_eq!(Prefs::default().docs_folders, vec!["docs"]);
+        let mut p = Prefs {
+            docs_folders: Vec::new(),
+            ..Default::default()
+        };
+        p.font_clamp();
+        assert_eq!(p.docs_folders, vec!["docs"]);
     }
 
     #[test]
