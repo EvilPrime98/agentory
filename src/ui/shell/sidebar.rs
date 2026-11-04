@@ -64,7 +64,7 @@ struct Fold {
 impl Fold {
     /// Reverses `prev` from wherever it currently is, so a mid-animation click does not jump.
     fn toggle(prev: Option<Self>) -> Self {
-        let (from, open) = prev.map_or((1.0, true), |f| (f.progress(), f.open()));
+        let (from, open) = prev.map_or((0.0, false), |f| (f.progress(), f.open()));
         let to = if open { 0.0 } else { 1.0 };
         Self {
             id: prev.map_or(0, |f| f.id + 1),
@@ -93,7 +93,6 @@ impl Fold {
 
 pub struct Sidebar {
     stores: Stores,
-    /// Folds started by a chevron click, per project. A project without one is open.
     folds: HashMap<String, Fold>,
     picker_open: bool,
     shell_menu: Option<ShellMenu>,
@@ -474,14 +473,14 @@ impl Sidebar {
                     move |_, t| chevron(f.from + (f.to - f.from) * t),
                 )
                 .into_any_element(),
-            None => chevron(if fold.is_none_or(|f| f.open()) {
+            None => chevron(if fold.is_some_and(|f| f.open()) {
                 1.0
             } else {
                 0.0
             })
             .into_any_element(),
         };
-        let show_list = animating.is_some() || fold.is_none_or(|f| f.open());
+        let show_list = animating.is_some() || fold.is_some_and(|f| f.open());
 
         let header = div()
             .flex()
