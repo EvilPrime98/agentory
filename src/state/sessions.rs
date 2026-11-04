@@ -237,6 +237,10 @@ impl SessionsStore {
                 "--settings".to_string(),
                 settings.to_string_lossy().into_owned(),
             ];
+            if prefs.claude_command.trim().is_empty() {
+                args.push("--append-system-prompt".to_string());
+                args.push(crate::cli::AGENT_PROMPT.to_string());
+            }
             if let Some(resume) = &resume_id {
                 args.push("--resume".to_string());
                 args.push(resume.clone());
@@ -245,6 +249,9 @@ impl SessionsStore {
         };
         let (rows, cols) = (30, 100);
         let mut env = vec![("AGENTORY_SESSION".into(), id.clone())];
+        if let Some(path) = path_with_exe_dir() {
+            env.push(("PATH".into(), path));
+        }
         if prefs.fullscreen_agents {
             env.push(("CLAUDE_CODE_NO_FLICKER".into(), "1".into()));
             env.push(("CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT".into(), "1".into()));
@@ -948,4 +955,11 @@ pub fn reveal(session_id: &str, window: &mut Window, cx: &mut App) {
     if let Some(Some(root)) = window.root::<AppRoot>() {
         root.update(cx, |root, cx| root.navigate(Route::Sessions, window, cx));
     }
+}
+
+fn path_with_exe_dir() -> Option<String> {
+    let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    let existing = std::env::var_os("PATH").unwrap_or_default();
+    let joined = std::env::join_paths(std::iter::once(dir).chain(std::env::split_paths(&existing)));
+    joined.ok()?.into_string().ok()
 }

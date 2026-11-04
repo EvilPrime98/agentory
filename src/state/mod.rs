@@ -32,6 +32,7 @@ impl Global for Stores {}
 impl Stores {
     pub fn new(cx: &mut App) -> Self {
         let prefs = cx.new(|_| prefs::PrefsStore::load());
+        prefs.update(cx, |p, cx| p.watch(cx));
         // Language follows the preference; changing it re-renders every window.
         let initial = prefs.read(cx).prefs.language;
         crate::i18n::set(initial);

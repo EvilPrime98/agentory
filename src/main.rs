@@ -4,9 +4,11 @@
 mod app;
 mod assets;
 mod backend;
+mod cli;
 mod i18n;
 mod model;
 mod platform;
+mod registry;
 mod route;
 mod runtime;
 mod selfbuild;
@@ -35,6 +37,10 @@ fn smoke_secs() -> Option<u64> {
 }
 
 fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(code) = cli::run(&args) {
+        std::process::exit(code);
+    }
     // Held until `main` returns so buffered log lines are flushed.
     let _log_guard = platform::logging::init();
     let smoke = smoke_secs();
