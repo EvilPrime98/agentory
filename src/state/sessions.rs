@@ -249,7 +249,7 @@ impl SessionsStore {
         };
         let (rows, cols) = (30, 100);
         let mut env = vec![("AGENTORY_SESSION".into(), id.clone())];
-        if let Some(path) = path_with_exe_dir() {
+        if let Some(path) = path_with_shim_dir() {
             env.push(("PATH".into(), path));
         }
         if prefs.fullscreen_agents {
@@ -957,8 +957,8 @@ pub fn reveal(session_id: &str, window: &mut Window, cx: &mut App) {
     }
 }
 
-fn path_with_exe_dir() -> Option<String> {
-    let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+fn path_with_shim_dir() -> Option<String> {
+    let dir = crate::cli::shim_dir()?;
     let existing = std::env::var_os("PATH").unwrap_or_default();
     let joined = std::env::join_paths(std::iter::once(dir).chain(std::env::split_paths(&existing)));
     joined.ok()?.into_string().ok()

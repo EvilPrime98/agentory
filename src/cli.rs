@@ -11,6 +11,27 @@ const EXIT_USAGE: i32 = 2;
 
 pub const AGENT_PROMPT: &str = "The Agentory app settings can be read and changed with the agentory settings CLI: agentory settings list, get KEY, set KEY VALUE, reset KEY. Run agentory settings --help for the keys and allowed values. Changes apply live in the running app.";
 
+pub fn shim_dir() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let exe = exe.to_str()?;
+    let dir = prefs::config_dir()?.join("cli");
+    std::fs::create_dir_all(&dir).ok()?;
+    let sh = format!("#!/bin/sh\nexec \"{}\" \"$@\"\n", exe.replace('\\', "/"));
+    let cmd = format!("@\"{exe}\" %*\r\n");
+    for (name, body) in [("agentory", sh), ("agentory.cmd", cmd)] {
+        let path = dir.join(name);
+        if std::fs::read_to_string(&path).ok().as_deref() != Some(&body) {
+            std::fs::write(&path, body).ok()?;
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let _ = std::fs::set_permissions(dir.join("agentory"), std::fs::Permissions::from_mode(0o755));
+    }
+    Some(dir)
+}
+
 pub fn run(args: &[String]) -> Option<i32> {
     if args.first().map(String::as_str) != Some("settings") {
         return None;
