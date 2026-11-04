@@ -71,6 +71,15 @@ fn main() {
             cx.open_window(options, |window, cx| cx.new(|cx| AppRoot::new(window, cx)))
                 .unwrap();
             cx.activate(true);
+            platform::notify::init(cx, |id, cx| {
+                cx.activate(true);
+                if let Some(window) = cx.windows().first().copied() {
+                    let _ = window.update(cx, |_, window, cx| {
+                        window.activate_window();
+                        state::sessions::reveal(id, window, cx)
+                    });
+                }
+            });
 
             if let Some(secs) = smoke {
                 cx.spawn(async move |cx| {

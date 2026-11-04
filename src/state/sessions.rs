@@ -436,9 +436,14 @@ impl SessionsStore {
         new: SessionStatus,
         cx: &mut Context<Self>,
     ) {
-        let message = match (old, new) {
-            (_, SessionStatus::NeedsInput) => "sessions.notify.needs_input",
-            (SessionStatus::Working, SessionStatus::Idle) => "sessions.notify.finished",
+        let (message, title) = match (old, new) {
+            (_, SessionStatus::NeedsInput) => (
+                "sessions.notify.needs_input",
+                "sessions.notify.title.needs_input",
+            ),
+            (SessionStatus::Working, SessionStatus::Idle) => {
+                ("sessions.notify.finished", "sessions.notify.title.finished")
+            }
             _ => return,
         };
         let enabled = cx
@@ -454,9 +459,26 @@ impl SessionsStore {
             reveal(&session_id, window, cx)
         });
         if !self.app_active {
-            let (title, body) = ("Agentory".to_string(), message);
-            cx.spawn(async move |_, _| runtime::run(notify::toast(title, body)).await)
-                .detach();
+            let project = self
+                .get(id)
+                .and_then(|s| {
+                    let stores = cx.try_global::<Stores>()?;
+                    stores
+                        .projects
+                        .read(cx)
+                        .get(&s.project_id)
+                        .map(|p| p.name.clone())
+                })
+                .unwrap_or_default();
+            let body = if project.is_empty() {
+                name.to_string()
+            } else {
+                t_args(
+                    "sessions.notify.body",
+                    &[("session", name), ("project", &project)],
+                )
+            };
+            notify::toast(&t(title), &body, id);
         }
     }
 
@@ -909,7 +931,7 @@ mod tests {
 }
 
 /// Toast click: show the sessions page with `session_id` active. A session closed since is skipped.
-fn reveal(session_id: &str, window: &mut Window, cx: &mut App) {
+pub fn reveal(session_id: &str, window: &mut Window, cx: &mut App) {
     let stores = cx.global::<Stores>().clone();
     let Some(project_id) = stores
         .sessions
