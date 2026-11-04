@@ -83,6 +83,24 @@ impl ProjectsStore {
         cx.notify();
     }
 
+    pub fn move_project(&mut self, id: &str, target_id: &str, after: bool, cx: &mut Context<Self>) {
+        let (Some(from), Some(target)) = (
+            self.items.iter().position(|p| p.id == id),
+            self.items.iter().position(|p| p.id == target_id),
+        ) else {
+            return;
+        };
+        let to = target + usize::from(after);
+        if to == from || to == from + 1 {
+            return;
+        }
+        let project = self.items.remove(from);
+        self.items.insert(if to > from { to - 1 } else { to }, project);
+        self.save();
+        self.revision += 1;
+        cx.notify();
+    }
+
     /// Remember (or with `None` forget) whether new sessions of a project use a worktree.
     pub fn set_use_worktree(&mut self, id: &str, value: Option<bool>, cx: &mut Context<Self>) {
         let Some(project) = self.items.iter_mut().find(|p| p.id == id) else {

@@ -91,8 +91,39 @@ impl Fold {
     }
 }
 
+struct DraggedProject {
+    id: String,
+    name: String,
+}
+
+struct DragGhost(String);
+
+impl Render for DragGhost {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .items_center()
+            .gap(px(8.0))
+            .h(px(32.0))
+            .px(px(10.0))
+            .rounded(px(6.0))
+            .border_1()
+            .border_color(theme::border_subtle())
+            .bg(theme::bg_modal())
+            .opacity(0.9)
+            .child(icon(Icon::Folder, px(16.0)).text_color(theme::text_muted()))
+            .child(
+                div()
+                    .text_size(px(13.0))
+                    .text_color(theme::text())
+                    .child(self.0.clone()),
+            )
+    }
+}
+
 pub struct Sidebar {
     stores: Stores,
+    drop_hint: Option<(String, bool)>,
     folds: HashMap<String, Fold>,
     picker_open: bool,
     shell_menu: Option<ShellMenu>,
@@ -139,6 +170,7 @@ impl Sidebar {
         Self::poll_git_count(&stores, cx);
         Self {
             stores,
+            drop_hint: None,
             folds: HashMap::new(),
             picker_open: false,
             shell_menu: None,
@@ -482,13 +514,72 @@ impl Sidebar {
         };
         let show_list = animating.is_some() || fold.is_some_and(|f| f.open());
 
+        let (drag_id, drag_name) = (project.id.clone(), project.name.clone());
+        let (move_id, drop_id) = (project.id.clone(), project.id.clone());
+        let hint = self
+            .drop_hint
+            .as_ref()
+            .filter(|(t, _)| *t == project.id)
+            .map(|(_, after)| *after);
+
         let header = div()
+            .id(gpui::SharedString::from(format!("header-{}", project.id)))
+            .relative()
             .flex()
             .items_center()
             .h(px(32.0))
             .px(px(6.0))
             .rounded(px(6.0))
             .when(selected, |s| s.bg(theme::hover()))
+            .on_drag(
+                DraggedProject {
+                    id: drag_id,
+                    name: drag_name,
+                },
+                |d, _, _, cx| cx.new(|_| DragGhost(d.name.clone())),
+            )
+            .on_drag_move(cx.listener(
+                move |this, ev: &gpui::DragMoveEvent<DraggedProject>, _, cx| {
+                    let dragging_self = ev.drag(cx).id == move_id;
+                    let inside = ev.bounds.contains(&ev.event.position);
+                    let next = (inside && !dragging_self)
+                        .then(|| (move_id.clone(), ev.event.position.y > ev.bounds.center().y));
+                    if next.is_some() {
+                        if this.drop_hint != next {
+                            this.drop_hint = next;
+                            cx.notify();
+                        }
+                    } else if this.drop_hint.as_ref().is_some_and(|(t, _)| *t == move_id) {
+                        this.drop_hint = None;
+                        cx.notify();
+                    }
+                },
+            ))
+            .on_drop(
+                cx.listener(move |this, dragged: &DraggedProject, _, cx| {
+                    if let Some((target, after)) = this.drop_hint.take()
+                        && target == drop_id
+                    {
+                        this.stores
+                            .projects
+                            .update(cx, |p, cx| p.move_project(&dragged.id, &target, after, cx));
+                    }
+                    cx.notify();
+                }),
+            )
+            .when_some(hint, |s, after| {
+                s.child(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .right_0()
+                        .h(px(2.0))
+                        .rounded(px(1.0))
+                        .bg(theme::accent())
+                        .when(after, |l| l.bottom(px(-1.0)))
+                        .when(!after, |l| l.top(px(-1.0))),
+                )
+            })
             .child(
                 div()
                     .id(gpui::SharedString::from(format!(
