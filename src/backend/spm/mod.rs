@@ -24,6 +24,7 @@ use crate::model::{DoctorReport, SpmManifest};
 pub use market::{Hit, parse_ref as parse_market_ref};
 use repo::{Candidate, Pool, entry_spec, load_pool, pick_candidate, repo_key, repo_specs};
 pub use review::Review;
+pub use store::GlobalSkill;
 use store::{Manifest, State};
 
 /// What is on disk for a project.
@@ -33,6 +34,7 @@ pub struct Snapshot {
     pub manifest: Option<SpmManifest>,
     /// Folder names under `.claude/skills`.
     pub installed: Vec<String>,
+    pub globals: Vec<GlobalSkill>,
 }
 
 pub fn read_snapshot(project: &Path) -> Snapshot {
@@ -48,10 +50,26 @@ pub fn read_snapshot(project: &Path) -> Snapshot {
         })
         .unwrap_or_default();
     installed.sort();
+    let p = Paths::of(project);
+    let globals = store::list_globals(&p.settings, &global_skills_dir(), &p.skills);
     Snapshot {
         manifest,
         installed,
+        globals,
     }
+}
+
+pub async fn set_global_enabled(
+    project: &Path,
+    name: &str,
+    enabled: bool,
+) -> Result<String, String> {
+    let (project, name) = (project.to_path_buf(), name.to_string());
+    blocking(move || {
+        store::set_override(&Paths::of(&project).settings, &name, !enabled)?;
+        Ok(name)
+    })
+    .await
 }
 
 /// The folder of global skills that isolation hides: `SPM_GLOBAL_DIR` or `~/.claude/skills`.

@@ -197,6 +197,13 @@ impl SkillsStore {
         });
     }
 
+    pub fn set_global_enabled(&mut self, name: String, enabled: bool, cx: &mut Context<Self>) {
+        let label = t_args("skills.busy.toggle_global", &[("name", &name)]);
+        self.mutate(label, false, cx, move |dir| async move {
+            spm::set_global_enabled(&dir, &name, enabled).await
+        });
+    }
+
     /// Install skills from the pool, or into the global folder with `global`. A `market:skill`
     /// reference goes through the review dialog instead, one at a time.
     pub fn install(&mut self, names: Vec<String>, global: bool, cx: &mut Context<Self>) {

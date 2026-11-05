@@ -470,3 +470,124 @@ pub fn read_overrides(settings_file: &Path) -> BTreeMap<String, String> {
         _ => BTreeMap::new(),
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GlobalSkill {
+    pub name: String,
+    pub description: String,
+    pub enabled: bool,
+}
+
+pub fn list_globals(settings_file: &Path, global_dir: &Path, local_dir: &Path) -> Vec<GlobalSkill> {
+    let mut shadowed: Vec<String> = Vec::new();
+    for folder in list_skills(local_dir) {
+        shadowed.extend(skill_names(local_dir, &folder));
+    }
+    let overrides = read_overrides(settings_file);
+    let mut out: Vec<GlobalSkill> = Vec::new();
+    for folder in list_skills(global_dir) {
+        let description = fs::read_to_string(global_dir.join(&folder).join("SKILL.md"))
+            .map(|t| parse_skill(&t).description)
+            .unwrap_or_default();
+        for name in skill_names(global_dir, &folder) {
+            if shadowed.contains(&name) || out.iter().any(|g| g.name == name) {
+                continue;
+            }
+            let enabled = overrides.get(&name).map(String::as_str) != Some("off");
+            out.push(GlobalSkill {
+                name,
+                description: description.clone(),
+                enabled,
+            });
+        }
+    }
+    out
+}
+
+pub fn set_override(settings_file: &Path, name: &str, off: bool) -> Result<(), String> {
+    let mut settings = read_settings(settings_file)?;
+    let mut overrides = match settings.get("skillOverrides") {
+        Some(Value::Object(o)) => o.clone(),
+        _ => Map::new(),
+    };
+    if off {
+        overrides.insert(name.to_string(), Value::String("off".into()));
+    } else if overrides.get(name).and_then(Value::as_str) == Some("off") {
+        overrides.shift_remove(name);
+    }
+    if overrides.is_empty() {
+        settings.shift_remove("skillOverrides");
+    } else {
+        settings.insert("skillOverrides".into(), Value::Object(overrides));
+    }
+    write_json(settings_file, &Value::Object(settings))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("agentory-store-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn skill(dir: &Path, name: &str) {
+        fs::create_dir_all(dir.join(name)).unwrap();
+        fs::write(
+            dir.join(name).join("SKILL.md"),
+            format!("---\nname: {name}\ndescription: about {name}\n---\nbody\n"),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn set_override_preserves_other_keys_and_values() {
+        let d = tmp("set");
+        let f = d.join("settings.json");
+        fs::write(
+            &f,
+            r#"{"theme":"x","skillOverrides":{"keep":"name-only","a":"off"}}"#,
+        )
+        .unwrap();
+        set_override(&f, "b", true).unwrap();
+        let o = read_overrides(&f);
+        assert_eq!(o.get("b").map(String::as_str), Some("off"));
+        assert_eq!(o.get("keep").map(String::as_str), Some("name-only"));
+        set_override(&f, "a", false).unwrap();
+        set_override(&f, "keep", false).unwrap();
+        let o = read_overrides(&f);
+        assert!(!o.contains_key("a"));
+        assert_eq!(o.get("keep").map(String::as_str), Some("name-only"));
+        let v: Value = serde_json::from_str(&fs::read_to_string(&f).unwrap()).unwrap();
+        assert_eq!(v["theme"], "x");
+    }
+
+    #[test]
+    fn set_override_removes_empty_overrides() {
+        let d = tmp("empty");
+        let f = d.join("settings.json");
+        set_override(&f, "a", true).unwrap();
+        set_override(&f, "a", false).unwrap();
+        let v: Value = serde_json::from_str(&fs::read_to_string(&f).unwrap()).unwrap();
+        assert!(v.get("skillOverrides").is_none());
+    }
+
+    #[test]
+    fn list_globals_hides_shadowed_and_reports_state() {
+        let d = tmp("globals");
+        let (g, l) = (d.join("g"), d.join("l"));
+        skill(&g, "one");
+        skill(&g, "two");
+        skill(&l, "two");
+        let f = d.join("settings.json");
+        fs::write(&f, r#"{"skillOverrides":{"one":"off"}}"#).unwrap();
+        let list = list_globals(&f, &g, &l);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].name, "one");
+        assert!(!list[0].enabled);
+        assert_eq!(list[0].description, "about one");
+    }
+}

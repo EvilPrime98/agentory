@@ -727,6 +727,8 @@ impl SkillsPage {
         let skills = self.stores.skills.read(cx);
         let manifest = skills.snapshot.manifest.clone();
         let is_busy = skills.busy.is_some();
+        let doctor = skills.doctor.clone();
+        let globals = skills.snapshot.globals.clone();
         let repos: Vec<AnyElement> = manifest
             .as_ref()
             .map(|m| m.repos.clone())
@@ -758,6 +760,60 @@ impl SkillsPage {
             .collect();
         let repo_count = repos.len();
         let skills_store = self.stores.skills.clone();
+        let show_globals = manifest.as_ref().is_some_and(|m| !m.isolate);
+        let global_count = globals.len();
+        let global_rows: Vec<AnyElement> = globals
+            .into_iter()
+            .enumerate()
+            .map(|(i, g)| {
+                let cost = doctor.as_ref().and_then(|d| {
+                    d.skills
+                        .iter()
+                        .find(|s| s.name == g.name)
+                        .map(|s| s.description_tokens)
+                });
+                let store = skills_store.clone();
+                let toggle_name = g.name.clone();
+                row_base(i)
+                    .when(is_busy, |d| d.opacity(0.5))
+                    .child(checkbox(
+                        gpui::SharedString::from(format!("global-skill-{}", g.name)),
+                        g.name.clone(),
+                        g.enabled,
+                        move |on, _, cx| {
+                            if !is_busy {
+                                let n = toggle_name.clone();
+                                store.update(cx, |s, cx| s.set_global_enabled(n, on, cx));
+                            }
+                        },
+                    ))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(11.0))
+                            .text_color(theme::text_muted())
+                            .child(g.description),
+                    )
+                    .when_some(cost, |s, tokens| {
+                        s.child(
+                            div()
+                                .flex_none()
+                                .px(px(6.0))
+                                .rounded(px(4.0))
+                                .bg(theme::hover())
+                                .text_size(px(11.0))
+                                .text_color(theme::text_muted())
+                                .child(t_args(
+                                    "skills.tokens_short",
+                                    &[("n", &tokens.to_string())],
+                                )),
+                        )
+                    })
+                    .into_any_element()
+            })
+            .collect();
 
         div()
             .flex()
@@ -793,6 +849,13 @@ impl SkillsPage {
                             },
                         )),
                 )
+            })
+            .when(show_globals, |s| {
+                s.child(group_heading(t("skills.group.globals"), global_count))
+                    .when(global_rows.is_empty(), |s| {
+                        s.child(muted_note(t("skills.globals_empty").into()))
+                    })
+                    .children(global_rows)
             })
             .into_any_element()
     }
