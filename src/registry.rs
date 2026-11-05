@@ -50,6 +50,12 @@ pub const SETTINGS: &[Setting] = &[
         description: "Submit the prompt, not just type it, when running a doc from the Docs page.",
     },
     Setting {
+        key: "doc-prompt",
+        field: "docPrompt",
+        kind: Kind::Text,
+        description: "Prompt for running a doc from the Docs page. {doc} is the doc path under docs/. Empty restores the default.",
+    },
+    Setting {
         key: "notifications",
         field: "notifications",
         kind: Kind::Bool,
