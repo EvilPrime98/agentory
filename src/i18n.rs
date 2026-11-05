@@ -24,14 +24,7 @@ pub enum LanguagePref {
 }
 
 impl LanguagePref {
-    /// Next value when cycling in Settings: System, English, Español.
-    pub fn next(self) -> Self {
-        match self {
-            Self::System => Self::English,
-            Self::English => Self::Spanish,
-            Self::Spanish => Self::System,
-        }
-    }
+    pub const ALL: [Self; 3] = [Self::System, Self::English, Self::Spanish];
 
     pub fn label_key(self) -> &'static str {
         match self {

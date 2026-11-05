@@ -28,14 +28,7 @@ pub enum ThemePref {
 }
 
 impl ThemePref {
-    /// Next value when cycling in Settings: System, Light, Dark.
-    pub fn next(self) -> Self {
-        match self {
-            Self::System => Self::Light,
-            Self::Light => Self::Dark,
-            Self::Dark => Self::System,
-        }
-    }
+    pub const ALL: [Self; 3] = [Self::System, Self::Light, Self::Dark];
 
     pub fn label_key(self) -> &'static str {
         match self {

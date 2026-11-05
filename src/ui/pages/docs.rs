@@ -12,6 +12,7 @@ use crate::i18n::{t, t_args};
 use crate::route::{GoBack, Navigate, Route};
 use crate::state::Stores;
 use crate::state::sessions;
+use crate::ui::components::scrollbar::Scrollbar;
 use crate::ui::confirm::{self, ConfirmOptions};
 use crate::ui::icons::{Icon, icon};
 use crate::ui::{theme, toast};
@@ -30,6 +31,7 @@ enum Scan {
 }
 
 pub struct DocsPage {
+    scrollbar: Scrollbar,
     stores: Stores,
     project_id: String,
     scan: Scan,
@@ -108,6 +110,7 @@ fn scan(root: &Path) -> Scan {
 impl DocsPage {
     pub fn new(stores: Stores, project_id: String, cx: &mut Context<Self>) -> Self {
         let mut this = Self {
+            scrollbar: Scrollbar::new(),
             stores,
             project_id,
             scan: Scan::NoFolder,
@@ -132,8 +135,9 @@ impl DocsPage {
     }
 
     fn start_working(&self, rel: &str, cx: &mut Context<Self>) {
-        let mut input = format!("@docs/{rel} -> implement");
-        if self.stores.prefs.read(cx).prefs.send_doc_prompt {
+        let prefs = &self.stores.prefs.read(cx).prefs;
+        let mut input = prefs.doc_prompt_for(rel);
+        if prefs.send_doc_prompt {
             // Enter, so the prefilled mention is submitted.
             input.push('\r');
         }
@@ -243,54 +247,58 @@ impl Render for DocsPage {
             ),
         };
 
-        div()
-            .id("docs-scroll")
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_w_0()
-            .min_h_0()
-            .overflow_y_scroll()
-            .items_center()
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .w_full()
-                    .max_w(px(1100.0))
-                    .p(px(24.0))
-                    .gap(px(12.0))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .child(
-                                div()
-                                    .text_size(px(20.0))
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .child(t("docs.title")),
-                            )
-                            .child(
-                                div()
-                                    .id("docs-refresh")
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .size(px(26.0))
-                                    .rounded(px(6.0))
-                                    .cursor_pointer()
-                                    .hover(|s| s.bg(theme::hover()))
-                                    .on_click(cx.listener(|this, _, _, cx| this.rescan(cx)))
-                                    .child(icon(Icon::Refresh, px(15.0)).text_color(theme::text())),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .child(card(&t("docs.card.files"), count, None, body)),
-                    ),
-            )
+        self.scrollbar.overlay(
+            div()
+                .id("docs-scroll")
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .overflow_y_scroll()
+                .items_center()
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .w_full()
+                        .max_w(px(1100.0))
+                        .p(px(24.0))
+                        .gap(px(12.0))
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .justify_between()
+                                .child(
+                                    div()
+                                        .text_size(px(20.0))
+                                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                                        .child(t("docs.title")),
+                                )
+                                .child(
+                                    div()
+                                        .id("docs-refresh")
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .size(px(26.0))
+                                        .rounded(px(6.0))
+                                        .cursor_pointer()
+                                        .hover(|s| s.bg(theme::hover()))
+                                        .on_click(cx.listener(|this, _, _, cx| this.rescan(cx)))
+                                        .child(
+                                            icon(Icon::Refresh, px(15.0)).text_color(theme::text()),
+                                        ),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .child(card(&t("docs.card.files"), count, None, body)),
+                        ),
+                ),
+        )
     }
 }
 

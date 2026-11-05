@@ -13,6 +13,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, div, px,
 };
 
+use crate::ui::components::scrollbar::Scrollbar;
 use crate::ui::theme;
 
 /// Fraction of the remaining distance covered each frame.
@@ -21,11 +22,24 @@ const FRAME_PAD: f32 = 12.0;
 /// Distance (px) under which the animation snaps to its target.
 const SETTLE: f32 = 0.5;
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct SmoothScroll {
     handle: ScrollHandle,
     /// Target scroll offset (<= 0, like `ScrollHandle::offset`).
     target: Rc<Cell<f32>>,
+    bar: Scrollbar,
+}
+
+impl Default for SmoothScroll {
+    fn default() -> Self {
+        let handle = ScrollHandle::new();
+        let target = Rc::new(Cell::new(0.0));
+        Self {
+            bar: Scrollbar::linked(handle.clone(), target.clone()),
+            handle,
+            target,
+        }
+    }
 }
 
 impl SmoothScroll {
@@ -57,21 +71,10 @@ impl SmoothScroll {
         E: StatefulInteractiveElement + Styled + IntoElement,
     {
         let list = self.attach(el.pr(px(10.0)), window);
-        let max = f32::from(self.handle.max_offset().y);
-        let view = f32::from(self.handle.bounds().size.height);
-        let thumb = (max > 0.0 && view > 0.0).then(|| {
-            let h = (view * view / (view + max)).max(24.0).min(view);
-            let progress = (-f32::from(self.handle.offset().y) / max).clamp(0.0, 1.0);
-            div()
-                .absolute()
-                .right(px(4.0))
-                .top(px(FRAME_PAD + progress * (view - h).max(0.0)))
-                .w(px(4.0))
-                .h(px(h))
-                .rounded_full()
-                .bg(theme::text_muted())
-                .opacity(0.7)
-        });
+        let thumb = self
+            .bar
+            .bar()
+            .map(|b| b.top(px(FRAME_PAD)).bottom(px(FRAME_PAD)).right(px(4.0)));
         div()
             .relative()
             .p(px(FRAME_PAD))

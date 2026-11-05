@@ -16,6 +16,7 @@ pub struct Prefs {
     pub ask_worktree: bool,
     /// Submit the prompt (not just type it) when running a doc from the Docs page.
     pub send_doc_prompt: bool,
+    pub doc_prompt: String,
     /// Toast (in-app and Windows) when a session needs input or finishes.
     pub notifications: bool,
     /// Launch agent sessions in Claude Code's fullscreen renderer so the prompt sits at the bottom.
@@ -32,12 +33,21 @@ pub struct Prefs {
     pub theme: ThemePref,
 }
 
+impl Prefs {
+    pub fn doc_prompt_for(&self, rel: &str) -> String {
+        let t = self.doc_prompt.trim();
+        let t = if t.is_empty() { DEFAULT_DOC_PROMPT } else { t };
+        t.replace("{doc}", rel)
+    }
+}
+
 impl Default for Prefs {
     fn default() -> Self {
         Self {
             claude_command: String::new(),
             ask_worktree: true,
             send_doc_prompt: false,
+            doc_prompt: DEFAULT_DOC_PROMPT.into(),
             notifications: true,
             fullscreen_agents: true,
             self_build_enabled: false,
@@ -49,6 +59,8 @@ impl Default for Prefs {
         }
     }
 }
+
+pub const DEFAULT_DOC_PROMPT: &str = "@docs/{doc} -> implement";
 
 pub const MIN_FONT: f32 = 9.0;
 pub const MAX_FONT: f32 = 28.0;

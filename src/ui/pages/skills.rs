@@ -12,6 +12,7 @@ use crate::route::{GoBack, Navigate, Route};
 use crate::state::Stores;
 use crate::ui::components::button::small_button;
 use crate::ui::components::checkbox::checkbox;
+use crate::ui::components::scrollbar::Scrollbar;
 use crate::ui::components::smooth_scroll::SmoothScroll;
 use crate::ui::components::text_input::{TextInput, TextInputEvent};
 use crate::ui::icons::{Icon, icon};
@@ -31,6 +32,7 @@ enum DiscoverTab {
 }
 
 pub struct SkillsPage {
+    scrollbar: Scrollbar,
     stores: Stores,
     tab: SkillsTab,
     discover: DiscoverTab,
@@ -258,6 +260,7 @@ impl SkillsPage {
             }),
         ];
         Self {
+            scrollbar: Scrollbar::new(),
             stores,
             tab: SkillsTab::Installed,
             discover: DiscoverTab::Repos,
@@ -841,128 +844,130 @@ impl Render for SkillsPage {
             SkillsTab::Sources => self.sources_tab(cx),
         });
 
-        div()
-            .id("skills-scroll")
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_w_0()
-            .min_h_0()
-            .overflow_y_scroll()
-            .items_center()
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .w_full()
-                    .max_w(px(1100.0))
-                    .p(px(24.0))
-                    .gap(px(12.0))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(10.0))
-                                    .child(
-                                        div()
-                                            .text_size(px(20.0))
-                                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                                            .child(t("skills.title")),
-                                    )
-                                    .when_some(total, |s, tokens| {
-                                        s.child(
-                                            div()
-                                                .px(px(8.0))
-                                                .py(px(2.0))
-                                                .rounded(px(10.0))
-                                                .bg(theme::hover())
-                                                .text_size(px(11.5))
-                                                .text_color(theme::text_muted())
-                                                .child(format!(
-                                                    "{tokens} {}",
-                                                    t("skills.tokens_in_descriptions")
-                                                )),
-                                        )
-                                    }),
-                            )
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(12.0))
-                                    .when_some(busy, |s, label| {
-                                        s.child(
-                                            div()
-                                                .text_size(px(12.0))
-                                                .text_color(theme::accent())
-                                                .child(format!("{label}…")),
-                                        )
-                                    })
-                                    .child(
-                                        div()
-                                            .id("skills-refresh")
-                                            .flex()
-                                            .items_center()
-                                            .justify_center()
-                                            .size(px(26.0))
-                                            .rounded(px(6.0))
-                                            .cursor_pointer()
-                                            .hover(|s| s.bg(theme::hover()))
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.stores
-                                                    .skills
-                                                    .update(cx, |s, cx| s.refresh(cx));
-                                            }))
-                                            .child(
-                                                icon(Icon::Refresh, px(15.0))
-                                                    .text_color(theme::text()),
-                                            ),
-                                    ),
-                            ),
-                    )
-                    .when(!has_project, |s| {
-                        s.child(muted_note(t("skills.no_project").into()))
-                    })
-                    .when(no_manifest, |s| {
-                        s.child(
+        self.scrollbar.overlay(
+            div()
+                .id("skills-scroll")
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .overflow_y_scroll()
+                .items_center()
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .w_full()
+                        .max_w(px(1100.0))
+                        .p(px(24.0))
+                        .gap(px(12.0))
+                        .child(
                             div()
                                 .flex()
-                                .flex_col()
-                                .gap(px(8.0))
-                                .max_w(px(520.0))
+                                .items_center()
+                                .justify_between()
                                 .child(
                                     div()
-                                        .text_size(px(14.0))
-                                        .font_weight(gpui::FontWeight::SEMIBOLD)
-                                        .child(t("skills.setup_title")),
-                                )
-                                .child(
-                                    div()
-                                        .text_size(px(12.5))
-                                        .text_color(theme::text_muted())
-                                        .child(t("skills.no_manifest")),
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(10.0))
+                                        .child(
+                                            div()
+                                                .text_size(px(20.0))
+                                                .font_weight(gpui::FontWeight::SEMIBOLD)
+                                                .child(t("skills.title")),
+                                        )
+                                        .when_some(total, |s, tokens| {
+                                            s.child(
+                                                div()
+                                                    .px(px(8.0))
+                                                    .py(px(2.0))
+                                                    .rounded(px(10.0))
+                                                    .bg(theme::hover())
+                                                    .text_size(px(11.5))
+                                                    .text_color(theme::text_muted())
+                                                    .child(format!(
+                                                        "{tokens} {}",
+                                                        t("skills.tokens_in_descriptions")
+                                                    )),
+                                            )
+                                        }),
                                 )
                                 .child(
                                     div()
                                         .flex()
                                         .items_center()
-                                        .gap(px(6.0))
-                                        .child(field(&self.init_repo_input))
-                                        .child(small_button(
-                                            "init-skills",
-                                            t("skills.initialize"),
-                                            cx.listener(|this, _, _, cx| this.submit_init(cx)),
-                                        )),
+                                        .gap(px(12.0))
+                                        .when_some(busy, |s, label| {
+                                            s.child(
+                                                div()
+                                                    .text_size(px(12.0))
+                                                    .text_color(theme::accent())
+                                                    .child(format!("{label}…")),
+                                            )
+                                        })
+                                        .child(
+                                            div()
+                                                .id("skills-refresh")
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .size(px(26.0))
+                                                .rounded(px(6.0))
+                                                .cursor_pointer()
+                                                .hover(|s| s.bg(theme::hover()))
+                                                .on_click(cx.listener(|this, _, _, cx| {
+                                                    this.stores
+                                                        .skills
+                                                        .update(cx, |s, cx| s.refresh(cx));
+                                                }))
+                                                .child(
+                                                    icon(Icon::Refresh, px(15.0))
+                                                        .text_color(theme::text()),
+                                                ),
+                                        ),
                                 ),
                         )
-                    })
-                    .children(tabs)
-                    .children(content),
-            )
+                        .when(!has_project, |s| {
+                            s.child(muted_note(t("skills.no_project").into()))
+                        })
+                        .when(no_manifest, |s| {
+                            s.child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(8.0))
+                                    .max_w(px(520.0))
+                                    .child(
+                                        div()
+                                            .text_size(px(14.0))
+                                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                                            .child(t("skills.setup_title")),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_size(px(12.5))
+                                            .text_color(theme::text_muted())
+                                            .child(t("skills.no_manifest")),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap(px(6.0))
+                                            .child(field(&self.init_repo_input))
+                                            .child(small_button(
+                                                "init-skills",
+                                                t("skills.initialize"),
+                                                cx.listener(|this, _, _, cx| this.submit_init(cx)),
+                                            )),
+                                    ),
+                            )
+                        })
+                        .children(tabs)
+                        .children(content),
+                ),
+        )
     }
 }
