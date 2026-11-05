@@ -213,6 +213,87 @@ pub fn delete_workflow(project: &Path, id: &str) -> std::io::Result<()> {
     std::fs::remove_file(definitions_dir(project).join(format!("{id}.json")))
 }
 
+pub fn load_workflow(project: &Path, id: &str) -> std::io::Result<Workflow> {
+    if !safe_file_name(id) {
+        return Err(std::io::Error::other("invalid workflow id"));
+    }
+    let text = std::fs::read_to_string(definitions_dir(project).join(format!("{id}.json")))?;
+    serde_json::from_str(&text).map_err(std::io::Error::other)
+}
+
+pub fn slugify(name: &str) -> String {
+    let mut slug = String::new();
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() {
+            slug.push(c.to_ascii_lowercase());
+        } else if !slug.is_empty() && !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    let slug = slug.trim_end_matches('-');
+    if slug.is_empty() {
+        "workflow".into()
+    } else {
+        slug.into()
+    }
+}
+
+pub fn unique_id(project: &Path, name: &str) -> String {
+    let base = slugify(name);
+    let dir = definitions_dir(project);
+    let taken = |id: &str| dir.join(format!("{id}.json")).exists();
+    let mut id = base.clone();
+    let mut n = 2;
+    while taken(&id) {
+        id = format!("{base}-{n}");
+        n += 1;
+    }
+    id
+}
+
+fn step_refs(template: &str) -> Vec<usize> {
+    let mut refs = Vec::new();
+    let mut rest = template;
+    while let Some(start) = rest.find("{{") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("}}") else { break };
+        if let Some(n) = after[..end].trim().strip_prefix("step") {
+            if let Ok(n) = n.parse::<usize>() {
+                refs.push(n);
+            }
+        }
+        rest = &after[end + 2..];
+    }
+    refs
+}
+
+pub fn validate(wf: &Workflow) -> Result<(), String> {
+    if !safe_file_name(&wf.id) {
+        return Err("workflow id may only contain letters, digits, `-` and `_`".into());
+    }
+    if wf.name.trim().is_empty() {
+        return Err("workflow name must not be empty".into());
+    }
+    if wf.steps.is_empty() {
+        return Err("workflow needs at least one step".into());
+    }
+    for (i, step) in wf.steps.iter().enumerate() {
+        let pos = i + 1;
+        if step.name.trim().is_empty() {
+            return Err(format!("step {pos}: name must not be empty"));
+        }
+        if step.prompt.trim().is_empty() {
+            return Err(format!("step {pos}: prompt must not be empty"));
+        }
+        if let Some(n) = step_refs(&step.prompt).into_iter().find(|n| *n >= pos) {
+            return Err(format!(
+                "step {pos}: prompt references {{{{step{n}}}}}, which has not run yet (only earlier steps are available)"
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub fn load_runs(project_id: &str) -> Vec<Run> {
     let Some(dir) = runs_dir(project_id) else {
         return Vec::new();
@@ -393,6 +474,36 @@ pub fn templates() -> Vec<(&'static str, Vec<Step>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn wf(prompts: &[&str]) -> Workflow {
+        Workflow {
+            id: "w".into(),
+            name: "W".into(),
+            steps: prompts
+                .iter()
+                .map(|p| Step {
+                    name: "s".into(),
+                    prompt: (*p).into(),
+                    ..Step::default()
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn slugify_normalizes_names() {
+        assert_eq!(slugify("  Fix the Bug!! "), "fix-the-bug");
+        assert_eq!(slugify("***"), "workflow");
+    }
+
+    #[test]
+    fn validate_rejects_forward_step_references() {
+        assert!(validate(&wf(&["a", "use {{step1}} and {{ prev }}"])).is_ok());
+        assert!(validate(&wf(&["{{step1}}"])).is_err());
+        assert!(validate(&wf(&["a", "{{step3}}"])).is_err());
+        assert!(validate(&wf(&[])).is_err());
+        assert!(validate(&wf(&["  "])).is_err());
+    }
 
     #[test]
     fn render_substitutes_variables() {
