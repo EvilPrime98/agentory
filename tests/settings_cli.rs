@@ -79,7 +79,10 @@ fn invalid_input_fails_with_structured_error() {
             .code(),
         Some(2)
     );
-    assert_eq!(agentory(&dir, &["get", "last-shell"]).status.code(), Some(2));
+    assert_eq!(
+        agentory(&dir, &["get", "last-shell"]).status.code(),
+        Some(2)
+    );
     assert_eq!(agentory(&dir, &["frobnicate"]).status.code(), Some(2));
     assert!(!dir.join("prefs.json").exists());
 }

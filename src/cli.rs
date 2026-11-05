@@ -1,4 +1,3 @@
-
 use std::io::IsTerminal as _;
 
 use serde_json::{Value, json};
@@ -27,7 +26,8 @@ pub fn shim_dir() -> Option<std::path::PathBuf> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
-        let _ = std::fs::set_permissions(dir.join("agentory"), std::fs::Permissions::from_mode(0o755));
+        let _ =
+            std::fs::set_permissions(dir.join("agentory"), std::fs::Permissions::from_mode(0o755));
     }
     Some(dir)
 }
@@ -80,7 +80,10 @@ fn io(e: std::io::Error) -> SettingError {
 }
 
 fn usage(message: &str) -> SettingError {
-    err("usage", format!("{message}. See `agentory settings --help`"))
+    err(
+        "usage",
+        format!("{message}. See `agentory settings --help`"),
+    )
 }
 
 fn dispatch(args: &[&str], json: bool) -> Result<String, SettingError> {
