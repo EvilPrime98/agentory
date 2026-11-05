@@ -29,6 +29,7 @@ icons! {
     ChevronDown => "chevron-down",
     ChevronRight => "chevron-right",
     Close => "close",
+    Eye => "eye",
     File => "file",
     Folder => "folder",
     FolderPlus => "folder-plus",

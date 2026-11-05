@@ -187,7 +187,8 @@ impl Render for DocsPage {
                 docs.iter()
                     .enumerate()
                     .map(|(i, doc)| {
-                        let (work_rel, del_rel) = (doc.rel.clone(), doc.rel.clone());
+                        let (work_rel, del_rel, view_rel) =
+                            (doc.rel.clone(), doc.rel.clone(), doc.rel.clone());
                         row_base(i)
                             .child(
                                 div()
@@ -212,6 +213,16 @@ impl Render for DocsPage {
                                         )
                                     }),
                             )
+                            .child(icon_button(
+                                SharedString::from(format!("view-doc-{}", doc.rel)),
+                                Icon::Eye,
+                                cx.listener(move |this, _, _, cx| {
+                                    cx.emit(Navigate(Route::DocPreview(
+                                        this.project_id.clone(),
+                                        view_rel.clone(),
+                                    )))
+                                }),
+                            ))
                             .child(icon_button(
                                 SharedString::from(format!("work-doc-{}", doc.rel)),
                                 Icon::Play,
