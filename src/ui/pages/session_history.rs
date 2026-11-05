@@ -15,6 +15,7 @@ use crate::runtime;
 use crate::state::Stores;
 use crate::state::sessions;
 use crate::ui::components::button::small_button;
+use crate::ui::components::scrollbar::Scrollbar;
 use crate::ui::components::text_input::{TextInput, TextInputEvent};
 use crate::ui::icons::{Icon, icon};
 use crate::ui::theme;
@@ -27,6 +28,7 @@ const AGE_W: f32 = 130.0;
 const COUNT_W: f32 = 100.0;
 
 pub struct SessionHistoryPage {
+    scrollbar: Scrollbar,
     stores: Stores,
     project_id: String,
     sessions: Vec<SessionMeta>,
@@ -88,6 +90,7 @@ impl SessionHistoryPage {
             }),
         ];
         let mut this = Self {
+            scrollbar: Scrollbar::new(),
             stores,
             project_id,
             sessions: Vec::new(),
@@ -347,113 +350,117 @@ impl Render for SessionHistoryPage {
             )
             .children(rows);
 
-        div()
-            .id("history-scroll")
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_w_0()
-            .min_h_0()
-            .overflow_y_scroll()
-            .items_center()
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .w_full()
-                    .max_w(px(1100.0))
-                    .p(px(24.0))
-                    .gap(px(12.0))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .child(
-                                div()
-                                    .text_size(px(20.0))
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .child(t("history.title")),
-                            )
-                            .child(
-                                div()
-                                    .id("history-refresh")
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .size(px(26.0))
-                                    .rounded(px(6.0))
-                                    .cursor_pointer()
-                                    .hover(|s| s.bg(theme::hover()))
-                                    .on_click(cx.listener(|this, _, _, cx| this.reload(cx)))
-                                    .child(icon(Icon::Refresh, px(15.0)).text_color(theme::text())),
-                            ),
-                    )
-                    .child(
-                        div().flex().items_center().gap(px(8.0)).child(
-                            div()
-                                .flex()
-                                .flex_1()
-                                .min_w_0()
-                                .h(px(26.0))
-                                .px(px(8.0))
-                                .rounded(px(4.0))
-                                .border_1()
-                                .border_color(theme::border_subtle())
-                                .bg(theme::bg_app())
-                                .child(self.search.clone()),
-                        ),
-                    )
-                    .child(table)
-                    .when(pages > 1, |s| {
-                        s.child(
+        self.scrollbar.overlay(
+            div()
+                .id("history-scroll")
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .overflow_y_scroll()
+                .items_center()
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .w_full()
+                        .max_w(px(1100.0))
+                        .p(px(24.0))
+                        .gap(px(12.0))
+                        .child(
                             div()
                                 .flex()
                                 .items_center()
-                                .justify_center()
-                                .gap(px(10.0))
-                                .child(small_button(
-                                    "history-prev",
-                                    t("history.prev"),
-                                    cx.listener(|this, _, _, cx| {
-                                        this.page = this.page.saturating_sub(1);
-                                        cx.notify();
-                                    }),
-                                ))
+                                .justify_between()
                                 .child(
                                     div()
-                                        .text_size(px(12.0))
-                                        .text_color(theme::text_muted())
-                                        .child(t_args(
-                                            "history.page",
-                                            &[
-                                                ("page", &(page + 1).to_string()),
-                                                ("total", &pages.to_string()),
-                                            ],
-                                        )),
+                                        .text_size(px(20.0))
+                                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                                        .child(t("history.title")),
                                 )
-                                .child(small_button(
-                                    "history-next",
-                                    t("history.next"),
-                                    cx.listener(move |this, _, _, cx| {
-                                        this.page = (this.page + 1).min(pages - 1);
-                                        cx.notify();
+                                .child(
+                                    div()
+                                        .id("history-refresh")
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .size(px(26.0))
+                                        .rounded(px(6.0))
+                                        .cursor_pointer()
+                                        .hover(|s| s.bg(theme::hover()))
+                                        .on_click(cx.listener(|this, _, _, cx| this.reload(cx)))
+                                        .child(
+                                            icon(Icon::Refresh, px(15.0)).text_color(theme::text()),
+                                        ),
+                                ),
+                        )
+                        .child(
+                            div().flex().items_center().gap(px(8.0)).child(
+                                div()
+                                    .flex()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .h(px(26.0))
+                                    .px(px(8.0))
+                                    .rounded(px(4.0))
+                                    .border_1()
+                                    .border_color(theme::border_subtle())
+                                    .bg(theme::bg_app())
+                                    .child(self.search.clone()),
+                            ),
+                        )
+                        .child(table)
+                        .when(pages > 1, |s| {
+                            s.child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .gap(px(10.0))
+                                    .child(small_button(
+                                        "history-prev",
+                                        t("history.prev"),
+                                        cx.listener(|this, _, _, cx| {
+                                            this.page = this.page.saturating_sub(1);
+                                            cx.notify();
+                                        }),
+                                    ))
+                                    .child(
+                                        div()
+                                            .text_size(px(12.0))
+                                            .text_color(theme::text_muted())
+                                            .child(t_args(
+                                                "history.page",
+                                                &[
+                                                    ("page", &(page + 1).to_string()),
+                                                    ("total", &pages.to_string()),
+                                                ],
+                                            )),
+                                    )
+                                    .child(small_button(
+                                        "history-next",
+                                        t("history.next"),
+                                        cx.listener(move |this, _, _, cx| {
+                                            this.page = (this.page + 1).min(pages - 1);
+                                            cx.notify();
+                                        }),
+                                    )),
+                            )
+                        })
+                        .when(empty, |s| {
+                            s.child(
+                                div()
+                                    .text_size(px(12.0))
+                                    .text_color(theme::text_muted())
+                                    .child(if self.loading {
+                                        t("history.loading")
+                                    } else {
+                                        t("history.empty")
                                     }),
-                                )),
-                        )
-                    })
-                    .when(empty, |s| {
-                        s.child(
-                            div()
-                                .text_size(px(12.0))
-                                .text_color(theme::text_muted())
-                                .child(if self.loading {
-                                    t("history.loading")
-                                } else {
-                                    t("history.empty")
-                                }),
-                        )
-                    }),
-            )
+                            )
+                        }),
+                ),
+        )
     }
 }

@@ -22,6 +22,7 @@ use crate::route::{GoBack, Navigate};
 use crate::runtime;
 use crate::state::Stores;
 use crate::ui::components::button::{ButtonVariant, button, small_button};
+use crate::ui::components::scrollbar::Scrollbar;
 use crate::ui::components::text_area::{TextArea, TextAreaEvent};
 use crate::ui::components::text_input::{TextInput, TextInputEvent};
 use crate::ui::confirm::{self, ConfirmOptions};
@@ -75,6 +76,7 @@ struct Failure {
 }
 
 pub struct GitPage {
+    changes_bar: Scrollbar,
     stores: Stores,
     project_id: String,
     repo: Repo,
@@ -161,6 +163,7 @@ impl GitPage {
             }),
         ];
         let mut this = Self {
+            changes_bar: Scrollbar::new(),
             stores,
             project_id,
             repo: Repo::Loading,
@@ -1299,14 +1302,16 @@ impl GitPage {
             .gap(px(8.0))
             .child(self.commit_box(cx))
             .child(
-                div()
-                    .id("git-changes-scroll")
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .children(groups),
+                self.changes_bar.overlay(
+                    div()
+                        .id("git-changes-scroll")
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_y_scroll()
+                        .children(groups),
+                ),
             )
             .into_any_element()
     }

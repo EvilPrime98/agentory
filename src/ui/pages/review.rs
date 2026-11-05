@@ -16,6 +16,7 @@ use crate::selfbuild::run::Stage;
 use crate::state::Stores;
 use crate::state::review::{Failure, Run, RunPhase, STAGES, StageState};
 use crate::ui::components::button::{ButtonVariant, button, small_button};
+use crate::ui::components::scrollbar::Scrollbar;
 use crate::ui::confirm::{self, ConfirmOptions};
 use crate::ui::theme;
 
@@ -40,6 +41,7 @@ enum Load {
 }
 
 pub struct ReviewPage {
+    scrollbar: Scrollbar,
     stores: Stores,
     session_id: String,
     name: String,
@@ -119,6 +121,7 @@ impl ReviewPage {
             .unwrap_or_default();
         let sub = cx.observe(&stores.review, |_, _, cx| cx.notify());
         let mut page = Self {
+            scrollbar: Scrollbar::new(),
             stores,
             session_id,
             name,
@@ -486,47 +489,49 @@ impl Render for ReviewPage {
                 ))
             });
 
-        div()
-            .id("review-scroll")
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_w_0()
-            .min_h_0()
-            .overflow_y_scroll()
-            .items_center()
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .w_full()
-                    .max_w(px(1100.0))
-                    .p(px(24.0))
-                    .gap(px(12.0))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .child(
-                                div()
-                                    .text_size(px(20.0))
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .child(t("review.title")),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(12.0))
-                                    .text_color(theme::text_muted())
-                                    .child(self.name.clone()),
-                            ),
-                    )
-                    .child(pill)
-                    .when_some(status, |s, (text, color)| {
-                        s.child(div().text_size(px(12.5)).text_color(color).child(text))
-                    })
-                    .child(buttons)
-                    .when(self.show_log && has_log, |s| s.child(mono_block(log_lines)))
-                    .children(body),
-            )
+        self.scrollbar.overlay(
+            div()
+                .id("review-scroll")
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .overflow_y_scroll()
+                .items_center()
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .w_full()
+                        .max_w(px(1100.0))
+                        .p(px(24.0))
+                        .gap(px(12.0))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .child(
+                                    div()
+                                        .text_size(px(20.0))
+                                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                                        .child(t("review.title")),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(12.0))
+                                        .text_color(theme::text_muted())
+                                        .child(self.name.clone()),
+                                ),
+                        )
+                        .child(pill)
+                        .when_some(status, |s, (text, color)| {
+                            s.child(div().text_size(px(12.5)).text_color(color).child(text))
+                        })
+                        .child(buttons)
+                        .when(self.show_log && has_log, |s| s.child(mono_block(log_lines)))
+                        .children(body),
+                ),
+        )
     }
 }

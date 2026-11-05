@@ -14,6 +14,7 @@ use crate::route::{GoBack, Navigate, Route};
 use crate::state::Stores;
 use crate::state::sessions;
 use crate::ui::components::button::{ButtonVariant, button, small_button};
+use crate::ui::components::scrollbar::Scrollbar;
 use crate::ui::components::text_area::TextArea;
 use crate::ui::components::text_input::TextInput;
 use crate::ui::confirm::{self, ConfirmOptions};
@@ -36,6 +37,7 @@ struct Draft {
 }
 
 pub struct WorkflowsPage {
+    scrollbar: Scrollbar,
     stores: Stores,
     project_id: String,
     draft: Option<Draft>,
@@ -127,6 +129,7 @@ impl WorkflowsPage {
         subs.push(cx.observe(&stores.skills, |_, _, cx| cx.notify()));
         stores.skills.update(cx, |s, cx| s.refresh(cx));
         let mut this = Self {
+            scrollbar: Scrollbar::new(),
             stores,
             project_id,
             draft: None,
@@ -826,53 +829,57 @@ impl Render for WorkflowsPage {
         let editor = self.editor_card(cx);
         let run = self.run_card(cx);
         let history = self.history_card(cx);
-        div()
-            .id("workflows-scroll")
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_w_0()
-            .min_h_0()
-            .overflow_y_scroll()
-            .items_center()
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .w_full()
-                    .max_w(px(1100.0))
-                    .p(px(24.0))
-                    .gap(px(12.0))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .child(
-                                div()
-                                    .text_size(px(20.0))
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .child(t("workflows.title")),
-                            )
-                            .child(
-                                div()
-                                    .id("workflows-refresh")
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .size(px(26.0))
-                                    .rounded(px(6.0))
-                                    .cursor_pointer()
-                                    .hover(|s| s.bg(theme::hover()))
-                                    .on_click(cx.listener(|this, _, _, cx| this.reload(cx)))
-                                    .child(icon(Icon::Refresh, px(15.0)).text_color(theme::text())),
-                            ),
-                    )
-                    .child(list)
-                    .children(editor)
-                    .children(run)
-                    .child(history),
-            )
+        self.scrollbar.overlay(
+            div()
+                .id("workflows-scroll")
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .overflow_y_scroll()
+                .items_center()
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .w_full()
+                        .max_w(px(1100.0))
+                        .p(px(24.0))
+                        .gap(px(12.0))
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .justify_between()
+                                .child(
+                                    div()
+                                        .text_size(px(20.0))
+                                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                                        .child(t("workflows.title")),
+                                )
+                                .child(
+                                    div()
+                                        .id("workflows-refresh")
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .size(px(26.0))
+                                        .rounded(px(6.0))
+                                        .cursor_pointer()
+                                        .hover(|s| s.bg(theme::hover()))
+                                        .on_click(cx.listener(|this, _, _, cx| this.reload(cx)))
+                                        .child(
+                                            icon(Icon::Refresh, px(15.0)).text_color(theme::text()),
+                                        ),
+                                ),
+                        )
+                        .child(list)
+                        .children(editor)
+                        .children(run)
+                        .child(history),
+                ),
+        )
     }
 }
 
