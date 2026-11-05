@@ -11,7 +11,7 @@ use crate::i18n::{t, t_args};
 use crate::route::GoBack;
 use crate::state::Stores;
 use crate::ui::components::button::small_button;
-use crate::ui::components::markdown::markdown;
+use crate::ui::components::preview::preview_pane;
 use crate::ui::components::smooth_scroll::SmoothScroll;
 use crate::ui::components::text_area::{TextArea, TextAreaEvent};
 use crate::ui::theme;
@@ -101,14 +101,6 @@ impl Render for SkillEditorPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let dirty = self.is_dirty(cx);
         let text = self.area.read(cx).value();
-        let preview = if text.trim().is_empty() {
-            div()
-                .text_size(px(12.0))
-                .text_color(theme::text_muted())
-                .child(t("skill_editor.nothing_to_preview"))
-        } else {
-            markdown(&text)
-        };
         div()
             .flex()
             .flex_col()
@@ -217,30 +209,13 @@ impl Render for SkillEditorPage {
                                 .child(self.area.clone()),
                         )
                     })
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .rounded(px(6.0))
-                            .border_1()
-                            .border_color(theme::border_subtle())
-                            .bg(theme::bg_app())
-                            .child(
-                                self.preview_scroll.attach(
-                                    div()
-                                        .id("skill-editor-preview")
-                                        .flex()
-                                        .flex_col()
-                                        .flex_1()
-                                        .min_h_0()
-                                        .p(px(16.0))
-                                        .child(preview),
-                                    window,
-                                ),
-                            ),
-                    ),
+                    .child(preview_pane(
+                        "skill-editor-preview",
+                        &text,
+                        t("skill_editor.nothing_to_preview").into(),
+                        &self.preview_scroll,
+                        window,
+                    )),
             )
     }
 }

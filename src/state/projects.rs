@@ -95,7 +95,8 @@ impl ProjectsStore {
             return;
         }
         let project = self.items.remove(from);
-        self.items.insert(if to > from { to - 1 } else { to }, project);
+        self.items
+            .insert(if to > from { to - 1 } else { to }, project);
         self.save();
         self.revision += 1;
         cx.notify();

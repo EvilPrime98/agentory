@@ -1,4 +1,3 @@
-
 use serde_json::Value;
 
 use crate::state::prefs::{MAX_FONT, MIN_FONT, Map, Prefs, to_map};

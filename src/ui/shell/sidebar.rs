@@ -463,7 +463,8 @@ impl Sidebar {
         );
 
         let skills_active = self.route == Route::Skills(project.id.clone());
-        let docs_active = self.route == Route::Docs(project.id.clone());
+        let docs_active =
+            matches!(&self.route, Route::Docs(id) | Route::DocPreview(id, _) if *id == project.id);
         let git_active = self.route == Route::Git(project.id.clone());
         let git_count = self.stores.git.read(cx).count(&project.id);
         let history_active = self.route == Route::SessionHistory(project.id.clone());
@@ -555,18 +556,16 @@ impl Sidebar {
                     }
                 },
             ))
-            .on_drop(
-                cx.listener(move |this, dragged: &DraggedProject, _, cx| {
-                    if let Some((target, after)) = this.drop_hint.take()
-                        && target == drop_id
-                    {
-                        this.stores
-                            .projects
-                            .update(cx, |p, cx| p.move_project(&dragged.id, &target, after, cx));
-                    }
-                    cx.notify();
-                }),
-            )
+            .on_drop(cx.listener(move |this, dragged: &DraggedProject, _, cx| {
+                if let Some((target, after)) = this.drop_hint.take()
+                    && target == drop_id
+                {
+                    this.stores
+                        .projects
+                        .update(cx, |p, cx| p.move_project(&dragged.id, &target, after, cx));
+                }
+                cx.notify();
+            }))
             .when_some(hint, |s, after| {
                 s.child(
                     div()

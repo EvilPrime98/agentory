@@ -292,7 +292,11 @@ mod persistence_tests {
         std::fs::create_dir_all(&dir).unwrap();
         unsafe { std::env::set_var(CONFIG_DIR_ENV, &dir) };
 
-        std::fs::write(dir.join(FILE_NAME), r#"{"theme":"dark","notifications":true}"#).unwrap();
+        std::fs::write(
+            dir.join(FILE_NAME),
+            r#"{"theme":"dark","notifications":true}"#,
+        )
+        .unwrap();
         let before = Prefs::default();
         let after = Prefs {
             notifications: false,
@@ -307,7 +311,10 @@ mod persistence_tests {
             theme: ThemePref::Light,
             ..merged.clone()
         };
-        assert_eq!(Prefs::save_changes(&merged, &after2).theme, ThemePref::Light);
+        assert_eq!(
+            Prefs::save_changes(&merged, &after2).theme,
+            ThemePref::Light
+        );
         unsafe { std::env::remove_var(CONFIG_DIR_ENV) };
     }
 }
