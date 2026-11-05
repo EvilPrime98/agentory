@@ -3,11 +3,6 @@
     "https://github.com/EvilPrime98/mySkills"
   ],
   "skills": {
-    "domain-modeling": {
-      "repo": "https://github.com/mattpocock/skills/tree/main/skills/engineering/domain-modeling",
-      "ref": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
-      "market": "skillsmp"
-    },
     "ecc-council": {
       "repo": "https://github.com/affaan-m/ECC/tree/main/pi/core/skills/ecc-council",
       "ref": "b38be6a7f6350964d59328b52f0624e1d1d552d1",
@@ -15,12 +10,6 @@
     },
     "git-commit-doctor": "https://github.com/EvilPrime98/mySkills",
     "gpui-desktop": "https://github.com/EvilPrime98/mySkills",
-    "grill-to-docs": "https://github.com/EvilPrime98/mySkills",
-    "grill-with-docs": {
-      "repo": "https://github.com/mattpocock/skills/tree/main/skills/engineering/grill-with-docs",
-      "ref": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
-      "market": "skillsmp"
-    },
     "less-is-more": "https://github.com/EvilPrime98/mySkills",
     "new-skill-doctor": "https://github.com/EvilPrime98/mySkills",
     "pr-doctor": "https://github.com/EvilPrime98/mySkills",
