@@ -14,6 +14,7 @@ pub struct WorkflowsStore {
     pub workflows: HashMap<String, Vec<Workflow>>,
     pub runs: HashMap<String, Vec<Run>>,
     active: HashMap<String, Arc<Notify>>,
+    watchers: HashMap<String, notify::RecommendedWatcher>,
 }
 
 impl WorkflowsStore {
@@ -31,7 +32,51 @@ impl WorkflowsStore {
             }
         }
         self.runs.insert(project_id.to_string(), runs);
+        self.watch(project_id, root, cx);
         cx.notify();
+    }
+
+    fn watch(&mut self, project_id: &str, root: &std::path::Path, cx: &mut Context<Self>) {
+        use futures_util::StreamExt as _;
+        use notify::Watcher as _;
+
+        if self.watchers.contains_key(project_id) {
+            return;
+        }
+        let dir = workflow::definitions_dir(root);
+        if std::fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        let (tx, mut rx) = futures_channel::mpsc::unbounded::<()>();
+        let watcher = notify::recommended_watcher(move |ev: notify::Result<notify::Event>| {
+            if ev.is_ok() {
+                let _ = tx.unbounded_send(());
+            }
+        });
+        let mut watcher = match watcher {
+            Ok(w) => w,
+            Err(e) => return tracing::warn!("could not watch workflows: {e}"),
+        };
+        if let Err(e) = watcher.watch(&dir, notify::RecursiveMode::NonRecursive) {
+            return tracing::warn!("could not watch {}: {e}", dir.display());
+        }
+        self.watchers.insert(project_id.to_string(), watcher);
+        let (id, root) = (project_id.to_string(), root.to_path_buf());
+        cx.spawn(async move |this, cx| {
+            while rx.next().await.is_some() {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(150))
+                    .await;
+                while rx.try_recv().is_ok() {}
+                if this
+                    .update(cx, |this, cx| this.load(&id, &root, cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
     }
 
     pub fn workflows_of(&self, project_id: &str) -> &[Workflow] {
