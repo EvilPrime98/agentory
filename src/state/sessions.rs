@@ -26,6 +26,7 @@ use crate::ui::toast;
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const MAX_TITLE_CHARS: usize = 40;
 const PREFILL_DELAY: Duration = Duration::from_millis(2500);
+const SUBMIT_DELAY: Duration = Duration::from_millis(400);
 
 /// A session name from a terminal title: status glyphs and spinners stripped, long titles
 /// ellipsized. `None` for titles that say nothing about the conversation.
@@ -315,7 +316,15 @@ impl SessionsStore {
         };
         cx.spawn(async move |_, cx| {
             cx.background_executor().timer(PREFILL_DELAY).await;
-            terminal.update(cx, |t, _| t.send(text.as_bytes()));
+            let (body, submit) = match text.strip_suffix('\r') {
+                Some(body) => (body.to_string(), true),
+                None => (text, false),
+            };
+            terminal.update(cx, |t, _| t.send(body.as_bytes()));
+            if submit {
+                cx.background_executor().timer(SUBMIT_DELAY).await;
+                terminal.update(cx, |t, _| t.send(b"\r"));
+            }
         })
         .detach();
     }
