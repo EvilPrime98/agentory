@@ -148,6 +148,7 @@ pub fn skill_names(dir: &Path, folder: &str) -> Vec<String> {
 pub struct ParsedSkill {
     pub name: String,
     pub description: String,
+    pub argument_hint: String,
     pub body: String,
 }
 
@@ -180,6 +181,7 @@ pub fn parse_skill(text: &str) -> ParsedSkill {
     ParsedSkill {
         name: field("name"),
         description: field("description"),
+        argument_hint: field("argument-hint"),
         body: text[body_at..].to_string(),
     }
 }

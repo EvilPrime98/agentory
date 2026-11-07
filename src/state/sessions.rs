@@ -709,6 +709,7 @@ fn self_project(clone_dir: PathBuf) -> Project {
         name: SELF_PROJECT_NAME.to_string(),
         path: clone_dir,
         use_worktree: Some(true),
+        skill_args: Default::default(),
     }
 }
 

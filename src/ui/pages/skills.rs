@@ -10,7 +10,8 @@ use gpui::{
 use crate::i18n::{t, t_args};
 use crate::route::{GoBack, Navigate, Route};
 use crate::state::Stores;
-use crate::ui::components::button::small_button;
+use crate::state::sessions;
+use crate::ui::components::button::{ButtonVariant, button, small_button};
 use crate::ui::components::checkbox::checkbox;
 use crate::ui::components::scrollbar::Scrollbar;
 use crate::ui::components::smooth_scroll::SmoothScroll;
@@ -41,6 +42,8 @@ pub struct SkillsPage {
     search_input: Entity<TextInput>,
     install_global: bool,
     confirm_remove: Option<String>,
+    editing_args: Option<(String, String)>,
+    args_input: Entity<TextInput>,
     installed_scroll: SmoothScroll,
     market_scroll: SmoothScroll,
     pool_scroll: SmoothScroll,
@@ -240,7 +243,13 @@ impl SkillsPage {
         let repo_input = cx.new(|cx| TextInput::new("owner/repo", cx));
         let init_repo_input = cx.new(|cx| TextInput::new(t("skills.init_placeholder"), cx));
         let search_input = cx.new(|cx| TextInput::new(t("skills.search_placeholder"), cx));
+        let args_input = cx.new(|cx| TextInput::new("", cx));
         let subs = vec![
+            cx.subscribe(&args_input, |this, _, ev: &TextInputEvent, cx| {
+                if matches!(ev, TextInputEvent::Submit) {
+                    this.save_args(cx);
+                }
+            }),
             cx.observe(&stores.skills, |_, _, cx| cx.notify()),
             cx.observe(&stores.projects, |_, _, cx| cx.notify()),
             cx.subscribe(&search_input, |this, _, ev: &TextInputEvent, cx| match ev {
@@ -269,11 +278,108 @@ impl SkillsPage {
             search_input,
             install_global: false,
             confirm_remove: None,
+            editing_args: None,
+            args_input,
             installed_scroll: SmoothScroll::new(),
             market_scroll: SmoothScroll::new(),
             pool_scroll: SmoothScroll::new(),
             _subs: subs,
         }
+    }
+
+    fn open_args(&mut self, project: String, skill: String, hint: String, cx: &mut Context<Self>) {
+        let current = self
+            .stores
+            .projects
+            .read(cx)
+            .get(&project)
+            .and_then(|p| p.skill_args.get(&skill).cloned())
+            .unwrap_or_default();
+        self.args_input.update(cx, |i, cx| {
+            i.set_placeholder(hint);
+            i.set_value(current, cx);
+        });
+        self.editing_args = Some((project, skill));
+        cx.notify();
+    }
+
+    fn save_args(&mut self, cx: &mut Context<Self>) {
+        let Some((project, skill)) = self.editing_args.take() else {
+            return;
+        };
+        let value = self.args_input.read(cx).value().to_string();
+        self.stores
+            .projects
+            .update(cx, |p, cx| p.set_skill_args(&project, &skill, &value, cx));
+        cx.notify();
+    }
+
+    fn args_modal(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (_, skill) = self.editing_args.as_ref()?;
+        Some(
+            div()
+                .id("skill-args-overlay")
+                .absolute()
+                .inset_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .p(px(16.0))
+                .bg(theme::scrim())
+                .occlude()
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    cx.listener(|this, _, _, cx| {
+                        this.editing_args = None;
+                        cx.notify();
+                    }),
+                )
+                .child(
+                    div()
+                        .id("skill-args-modal")
+                        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .flex()
+                        .flex_col()
+                        .gap(px(16.0))
+                        .w(px(420.0))
+                        .max_w_full()
+                        .p(px(20.0))
+                        .bg(theme::bg_modal())
+                        .border_1()
+                        .border_color(theme::border_subtle())
+                        .rounded(px(14.0))
+                        .child(
+                            div()
+                                .text_size(px(15.0))
+                                .font_weight(gpui::FontWeight::BOLD)
+                                .text_color(theme::text())
+                                .child(t_args("skills.args.title", &[("name", skill)])),
+                        )
+                        .child(div().flex().child(field(&self.args_input)))
+                        .child(
+                            div()
+                                .flex()
+                                .justify_end()
+                                .gap(px(8.0))
+                                .child(button(
+                                    "skill-args-cancel",
+                                    t("common.cancel"),
+                                    ButtonVariant::Secondary,
+                                    cx.listener(|this, _, _, cx| {
+                                        this.editing_args = None;
+                                        cx.notify();
+                                    }),
+                                ))
+                                .child(button(
+                                    "skill-args-save",
+                                    t("common.save"),
+                                    ButtonVariant::Classic,
+                                    cx.listener(|this, _, _, cx| this.save_args(cx)),
+                                )),
+                        ),
+                )
+                .into_any_element(),
+        )
     }
 
     fn submit_search(&mut self, cx: &mut Context<Self>) {
@@ -334,6 +440,14 @@ impl SkillsPage {
             names.extend(m.skills.keys().cloned());
         }
         let project_id = self.stores.projects.read(cx).selected.clone();
+        let saved_args = self
+            .stores
+            .projects
+            .read(cx)
+            .selected_project()
+            .map(|p| p.skill_args.clone())
+            .unwrap_or_default();
+        let hints = skills.snapshot.hints.clone();
         let confirming = self.confirm_remove.clone();
 
         let rows: Vec<AnyElement> = names
@@ -356,6 +470,18 @@ impl SkillsPage {
                     .clone()
                     .filter(|_| on_disk)
                     .map(|id| Route::SkillEditor(id, name.clone()));
+                let args = saved_args.get(&name).cloned();
+                let play = project_id.clone().filter(|_| on_disk).map(|id| {
+                    let input = match &args {
+                        Some(a) => format!("/{name} {a}\r"),
+                        None => format!("/{name}\r"),
+                    };
+                    (id, input)
+                });
+                let edit_args = project_id
+                    .clone()
+                    .filter(|_| on_disk)
+                    .zip(hints.get(&name).cloned());
                 let is_latest = latest_set.contains(&name);
                 let latest_name = name.clone();
                 let is_confirming = confirming.as_deref() == Some(name.as_str());
@@ -446,6 +572,15 @@ impl SkillsPage {
                                         .text_color(theme::text_muted())
                                         .child(src),
                                 )
+                            })
+                            .when_some(args.clone(), |s, a| {
+                                s.child(
+                                    div()
+                                        .truncate()
+                                        .text_size(px(11.0))
+                                        .text_color(theme::text_muted())
+                                        .child(t_args("skills.args.label", &[("args", &a)])),
+                                )
                             }),
                     )
                     .when_some(cost, |s, tokens| {
@@ -472,6 +607,26 @@ impl SkillsPage {
                                 this.stores
                                     .skills
                                     .update(cx, |s, cx| s.update_latest(n, cx));
+                            }),
+                        ))
+                    })
+                    .when_some(edit_args, |s, (pid, hint)| {
+                        let skill = name.clone();
+                        s.child(icon_button(
+                            gpui::SharedString::from(format!("args-skill-{name}")),
+                            Icon::Pencil,
+                            cx.listener(move |this, _, _, cx| {
+                                this.open_args(pid.clone(), skill.clone(), hint.clone(), cx);
+                            }),
+                        ))
+                    })
+                    .when_some(play, |s, (pid, input)| {
+                        s.child(icon_button(
+                            gpui::SharedString::from(format!("play-skill-{name}")),
+                            Icon::Play,
+                            cx.listener(move |_, _, _, cx| {
+                                sessions::begin_new_input(&pid, Some(input.clone()), cx);
+                                cx.emit(Navigate(Route::Sessions));
                             }),
                         ))
                     })
@@ -907,7 +1062,8 @@ impl Render for SkillsPage {
             SkillsTab::Sources => self.sources_tab(cx),
         });
 
-        self.scrollbar.overlay(
+        let modal = self.args_modal(cx);
+        let page = self.scrollbar.overlay(
             div()
                 .id("skills-scroll")
                 .flex()
@@ -1031,6 +1187,14 @@ impl Render for SkillsPage {
                         .children(tabs)
                         .children(content),
                 ),
-        )
+        );
+        div()
+            .relative()
+            .flex()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .child(page)
+            .children(modal)
     }
 }

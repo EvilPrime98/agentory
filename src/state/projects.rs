@@ -116,6 +116,27 @@ impl ProjectsStore {
         cx.notify();
     }
 
+    pub fn set_skill_args(&mut self, id: &str, skill: &str, args: &str, cx: &mut Context<Self>) {
+        let Some(project) = self.items.iter_mut().find(|p| p.id == id) else {
+            return;
+        };
+        let args = args.trim();
+        let changed = if args.is_empty() {
+            project.skill_args.remove(skill).is_some()
+        } else {
+            project
+                .skill_args
+                .insert(skill.to_string(), args.to_string())
+                .as_deref()
+                != Some(args)
+        };
+        if changed {
+            self.save();
+            self.revision += 1;
+            cx.notify();
+        }
+    }
+
     pub fn select(&mut self, id: &str, cx: &mut Context<Self>) {
         if self.selected.as_deref() != Some(id) && self.get(id).is_some() {
             self.selected = Some(id.to_string());
