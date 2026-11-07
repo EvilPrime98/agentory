@@ -16,6 +16,7 @@ mod repo;
 mod review;
 mod store;
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -35,6 +36,7 @@ pub struct Snapshot {
     /// Folder names under `.claude/skills`.
     pub installed: Vec<String>,
     pub globals: Vec<GlobalSkill>,
+    pub hints: BTreeMap<String, String>,
 }
 
 pub fn read_snapshot(project: &Path) -> Snapshot {
@@ -52,10 +54,19 @@ pub fn read_snapshot(project: &Path) -> Snapshot {
     installed.sort();
     let p = Paths::of(project);
     let globals = store::list_globals(&p.settings, &global_skills_dir(), &p.skills);
+    let hints = installed
+        .iter()
+        .filter_map(|name| {
+            let text = std::fs::read_to_string(p.skills.join(name).join("SKILL.md")).ok()?;
+            let hint = store::parse_skill(&text).argument_hint;
+            (!hint.is_empty()).then(|| (name.clone(), hint))
+        })
+        .collect();
     Snapshot {
         manifest,
         installed,
         globals,
+        hints,
     }
 }
 
