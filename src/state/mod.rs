@@ -60,7 +60,9 @@ impl Stores {
         let sessions = cx.new(sessions::SessionsStore::new);
         // Terminals follow the font size preference whichever page is mounted.
         let sessions_for_font = sessions.clone();
+        crate::ui::terminal::set_debug(prefs.read(cx).prefs.terminal_debug);
         cx.observe(&prefs, move |prefs, cx| {
+            crate::ui::terminal::set_debug(prefs.read(cx).prefs.terminal_debug);
             let size = prefs.read(cx).prefs.terminal_font_size;
             sessions_for_font.update(cx, |s, cx| s.set_font_size(size, cx));
         })

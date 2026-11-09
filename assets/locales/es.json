@@ -48,6 +48,7 @@
   "settings.projects.folder": "Carpeta del proyecto",
   "settings.terminal.title": "Terminal",
   "settings.terminal.font_size": "Tamaño de fuente",
+  "settings.terminal.debug": "Mostrar diagnóstico de scroll sobre las terminales (historial, pantalla alternativa)",
   "settings.data.title": "Datos",
   "settings.data.open_logs": "Abrir registros",
   "settings.data.open_config": "Abrir carpeta de ajustes",

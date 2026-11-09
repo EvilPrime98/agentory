@@ -6,10 +6,11 @@
 //!
 //! Known gaps: no IME, wide glyphs are clipped to their cell width.
 
+use std::collections::VecDeque;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash as _, Hasher as _};
 use std::io::Read as _;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -29,6 +30,35 @@ use crate::ui::selection::{
 use crate::ui::theme;
 
 const SCROLLBACK_LINES: usize = 5000;
+const BAR_W: f32 = 14.0;
+const ARROW_H: f32 = 14.0;
+const ARROW_LINES: i64 = 3;
+const ARROW_REPEAT_DELAY: Duration = Duration::from_millis(350);
+const ARROW_REPEAT: Duration = Duration::from_millis(50);
+
+static DEBUG: AtomicBool = AtomicBool::new(false);
+
+pub fn set_debug(on: bool) {
+    DEBUG.store(on, Ordering::Relaxed);
+}
+
+#[derive(Default)]
+struct Fallback {
+    rows: VecDeque<Vec<Run>>,
+}
+
+impl Fallback {
+    fn push(&mut self, rows: impl IntoIterator<Item = Vec<Run>>) {
+        self.rows.extend(rows);
+        while self.rows.len() > SCROLLBACK_LINES {
+            self.rows.pop_front();
+        }
+    }
+}
+
+fn lock_fb(f: &Mutex<Fallback>) -> MutexGuard<'_, Fallback> {
+    f.lock().unwrap_or_else(|e| e.into_inner())
+}
 /// How long the size must stay stable before the grid and the pty are resized.
 const RESIZE_SETTLE: Duration = Duration::from_millis(40);
 
@@ -52,6 +82,7 @@ const QUERIES: [&[u8]; 3] = [b"\x1b[6n", b"\x1b[c", b"\x1b[0c"];
 fn process_with_replies(
     parser: &Mutex<vt100::Parser>,
     scrolled: &AtomicU64,
+    fallback: &Mutex<Fallback>,
     data: &[u8],
 ) -> Vec<u8> {
     let mut replies = Vec::new();
@@ -66,12 +97,12 @@ fn process_with_replies(
             })
             .min_by_key(|(at, _)| *at);
         let Some((at, query)) = hit else {
-            feed(&mut lock(parser), scrolled, rest);
+            feed(&mut lock(parser), scrolled, fallback, rest);
             return replies;
         };
         let end = at + query.len();
         let mut p = lock(parser);
-        feed(&mut p, scrolled, &rest[..end]);
+        feed(&mut p, scrolled, fallback, &rest[..end]);
         if query == QUERIES[0] {
             let (row, col) = p.screen().cursor_position();
             replies.extend_from_slice(format!("\x1b[{};{}R", row + 1, col + 1).as_bytes());
@@ -90,6 +121,7 @@ enum Drag {
     Select { anchor: Selection, unit: Unit },
     /// Moving the scrollbar thumb, grabbed `grab` px below its top.
     Scrollbar { grab: f32 },
+    Arrow,
     /// Forwarded to the program as mouse reports.
     Report(MouseButton),
 }
@@ -106,6 +138,9 @@ pub struct Terminal {
     /// Rows that have scrolled into the history since the start. Gives selections a stable
     /// coordinate: the row at the top of the view is `scrolled - view_offset`.
     scrolled: Arc<AtomicU64>,
+    fallback: Arc<Mutex<Fallback>>,
+    fb_view: usize,
+    arrow_task: Option<Task<()>>,
     pty: Option<Box<dyn Pty>>,
     rows: u16,
     cols: u16,
@@ -173,8 +208,10 @@ fn live_hashes(p: &mut vt100::Parser) -> Vec<u64> {
 /// Feed `data` to the screen and count the rows that scrolled into the history. Once the history
 /// is full its length stops growing, so the shift is then recovered by comparing the live screen
 /// before and after.
-fn feed(p: &mut vt100::Parser, scrolled: &AtomicU64, data: &[u8]) {
+fn feed(p: &mut vt100::Parser, scrolled: &AtomicU64, fallback: &Mutex<Fallback>, data: &[u8]) {
     let before_len = history_len(p);
+    let snapshot = (before_len == 0 && !p.screen().alternate_screen())
+        .then(|| (p.screen().clone(), live_hashes(p)));
     let before = (before_len + data.len() >= SCROLLBACK_LINES).then(|| live_hashes(p));
     p.process(data);
     let after_len = history_len(p);
@@ -186,6 +223,14 @@ fn feed(p: &mut vt100::Parser, scrolled: &AtomicU64, data: &[u8]) {
     }
     if delta > 0 {
         scrolled.fetch_add(delta as u64, Ordering::Relaxed);
+    }
+    if let Some((screen, hashes)) = snapshot {
+        if after_len == 0 && !p.screen().alternate_screen() {
+            if let Some(shift) = scroll_distance(&hashes, &live_hashes(p)).filter(|s| *s > 0) {
+                let gone = build_rows(&screen, false).into_iter().take(shift);
+                lock_fb(fallback).push(gone);
+            }
+        }
     }
 }
 
@@ -250,6 +295,8 @@ impl Terminal {
         let thread_parser = parser.clone();
         let scrolled = Arc::new(AtomicU64::new(0));
         let thread_scrolled = scrolled.clone();
+        let fallback = Arc::new(Mutex::new(Fallback::default()));
+        let thread_fallback = fallback.clone();
         let mut reader = spawned.reader;
         let spawn_reader = std::thread::Builder::new()
             .name("agentory-pty-reader".into())
@@ -259,8 +306,12 @@ impl Terminal {
                     match reader.read(&mut buf) {
                         Ok(0) | Err(_) => break,
                         Ok(n) => {
-                            let replies =
-                                process_with_replies(&thread_parser, &thread_scrolled, &buf[..n]);
+                            let replies = process_with_replies(
+                                &thread_parser,
+                                &thread_scrolled,
+                                &thread_fallback,
+                                &buf[..n],
+                            );
                             if !replies.is_empty()
                                 && tx.unbounded_send(Msg::Reply(replies)).is_err()
                             {
@@ -316,6 +367,9 @@ impl Terminal {
         Self {
             parser,
             scrolled,
+            fallback,
+            fb_view: 0,
+            arrow_task: None,
             pty: Some(spawned.pty),
             rows,
             cols,
@@ -399,7 +453,7 @@ impl Terminal {
         if self.exited {
             return;
         }
-        lock(&self.parser).set_scrollback(0);
+        self.set_offset(0);
         self.write_raw(bytes);
     }
 
@@ -497,11 +551,11 @@ impl Terminal {
                     true
                 }
                 "home" => {
-                    lock(&self.parser).set_scrollback(usize::MAX);
+                    self.set_offset(usize::MAX);
                     true
                 }
                 "end" => {
-                    lock(&self.parser).set_scrollback(0);
+                    self.set_offset(0);
                     true
                 }
                 _ => false,
@@ -555,9 +609,28 @@ impl Terminal {
 
     /// Move the view `delta` rows into the history (negative: back towards the live screen).
     fn scroll_view(&mut self, delta: i64) {
+        let (_, offset, _) = self.scroll_state();
+        self.set_offset((offset as i64 + delta).max(0) as usize);
+    }
+
+    fn scroll_state(&self) -> (usize, usize, bool) {
         let mut p = lock(&self.parser);
-        let current = p.screen().scrollback() as i64;
-        p.set_scrollback((current + delta).max(0) as usize);
+        let history = history_len(&mut p);
+        if history > 0 {
+            return (history, p.screen().scrollback(), false);
+        }
+        let n = lock_fb(&self.fallback).rows.len();
+        (n, self.fb_view.min(n), n > 0)
+    }
+
+    fn set_offset(&mut self, offset: usize) {
+        let (history, _, fallback) = self.scroll_state();
+        if fallback {
+            self.fb_view = offset.min(history);
+        } else {
+            self.fb_view = 0;
+            lock(&self.parser).set_scrollback(offset);
+        }
     }
 
     fn mouse_protocol(&self) -> (vt100::MouseProtocolMode, vt100::MouseProtocolEncoding) {
@@ -706,7 +779,7 @@ impl Terminal {
             }
             return;
         }
-        if ev.button != MouseButton::Left {
+        if ev.button != MouseButton::Left || self.fb_view > 0 {
             return;
         }
         let unit = match ev.click_count {
@@ -734,6 +807,7 @@ impl Terminal {
                 self.drag_scrollbar(f32::from(ev.position.y - self.origin.y), grab);
                 cx.notify();
             }
+            Some(Drag::Arrow) => {}
             Some(Drag::Report(button)) => {
                 let (mode, _) = self.mouse_protocol();
                 if matches!(
@@ -775,10 +849,11 @@ impl Terminal {
                     }
                 }
             }
-            Some(Drag::Select { .. } | Drag::Scrollbar { .. })
+            Some(Drag::Select { .. } | Drag::Scrollbar { .. } | Drag::Arrow)
                 if ev.button == MouseButton::Left =>
             {
                 self.drag = None;
+                self.arrow_task = None;
             }
             _ => {}
         }
@@ -852,6 +927,10 @@ impl Terminal {
         window.focus(&self.focus, cx);
         let y = f32::from(ev.position.y - self.origin.y);
         let (top, height) = self.thumb;
+        if height == 0.0 {
+            cx.stop_propagation();
+            return;
+        }
         let grab = if y >= top && y <= top + height {
             y - top
         } else {
@@ -866,10 +945,30 @@ impl Terminal {
     /// Put the thumb's top at `y - grab` (px from the track top) and scroll to match.
     fn drag_scrollbar(&mut self, y: f32, grab: f32) {
         let travel = (self.track_h - self.thumb.1).max(1.0);
-        let frac = ((y - grab) / travel).clamp(0.0, 1.0);
-        let mut p = lock(&self.parser);
-        let len = history_len(&mut p);
-        p.set_scrollback(((1.0 - frac) * len as f32).round() as usize);
+        let frac = ((y - grab - ARROW_H) / travel).clamp(0.0, 1.0);
+        let (len, _, _) = self.scroll_state();
+        self.set_offset(((1.0 - frac) * len as f32).round() as usize);
+    }
+
+    fn on_arrow_down(&mut self, dir: i64, window: &mut Window, cx: &mut Context<Self>) {
+        window.focus(&self.focus, cx);
+        self.drag = Some(Drag::Arrow);
+        self.scroll_view(dir * ARROW_LINES);
+        self.arrow_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(ARROW_REPEAT_DELAY).await;
+            loop {
+                let step = this.update(cx, |t, cx| {
+                    t.scroll_view(dir * ARROW_LINES);
+                    cx.notify();
+                });
+                if step.is_err() {
+                    break;
+                }
+                cx.background_executor().timer(ARROW_REPEAT).await;
+            }
+        }));
+        cx.stop_propagation();
+        cx.notify();
     }
 }
 
@@ -1154,34 +1253,100 @@ fn measure(window: &Window, font_size: f32) -> (f32, f32) {
     (width, (font_size * 1.35).round())
 }
 
+fn arrow_button(
+    id: &'static str,
+    glyph: &'static str,
+    enabled: bool,
+    dir: i64,
+    cx: &mut Context<Terminal>,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .absolute()
+        .left_0()
+        .w(px(BAR_W))
+        .h(px(ARROW_H))
+        .when(dir > 0, |s| s.top_0())
+        .when(dir < 0, |s| s.bottom_0())
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_size(px(8.0))
+        .line_height(px(ARROW_H))
+        .text_color(theme::text_muted().opacity(if enabled { 0.8 } else { 0.3 }))
+        .when(enabled, |s| {
+            s.cursor_pointer()
+                .hover(|s| s.bg(theme::text_muted().opacity(0.2)))
+        })
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, _, window, cx| {
+                if enabled {
+                    this.on_arrow_down(dir, window, cx);
+                } else {
+                    cx.stop_propagation();
+                }
+            }),
+        )
+        .child(glyph)
+}
+
 impl Render for Terminal {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.cell = measure(window, self.font_size);
         let (cw, ch) = self.cell;
         let focused = self.focus.is_focused(window);
-        let (rows, selection, history, offset) = {
+        let (history, offset, using_fb) = self.scroll_state();
+        if !using_fb {
+            self.fb_view = 0;
+        }
+        let (rows, selection, vt_history, alt) = {
             let mut p = lock(&self.parser);
-            let history = history_len(&mut p);
-            let offset = p.screen().scrollback();
+            let vt_history = history_len(&mut p);
+            let alt = p.screen().alternate_screen();
             let (screen_rows, cols) = p.screen().size();
             let top = self
                 .scrolled
                 .load(Ordering::Relaxed)
-                .saturating_sub(offset as u64);
+                .saturating_sub(p.screen().scrollback() as u64);
             let selection: Vec<_> = (0..u64::from(screen_rows))
-                .map(|r| self.selection.and_then(|s| s.row_range(top + r, cols)))
+                .map(|r| {
+                    self.selection
+                        .filter(|_| !(using_fb && offset > 0))
+                        .and_then(|s| s.row_range(top + r, cols))
+                })
                 .collect();
-            (build_rows(p.screen(), focused), selection, history, offset)
+            let mut rows = build_rows(p.screen(), focused && !(using_fb && offset > 0));
+            if using_fb && offset > 0 {
+                let fb = lock_fb(&self.fallback);
+                let start = fb.rows.len() - offset;
+                rows = fb
+                    .rows
+                    .iter()
+                    .skip(start)
+                    .cloned()
+                    .chain(rows)
+                    .take(usize::from(screen_rows))
+                    .collect();
+            }
+            (rows, selection, vt_history, alt)
         };
+        let debug = DEBUG.load(Ordering::Relaxed).then(|| {
+            format!(
+                "history {vt_history} · fallback {} · offset {offset} · alt {alt}",
+                if using_fb { history } else { 0 }
+            )
+        });
 
         // Scrollbar thumb: sized by the share of the buffer on screen, parked by the view offset.
-        self.track_h = self.rows as f32 * ch;
-        let show_bar = history > 0;
+        let bar_h = self.rows as f32 * ch;
+        self.track_h = (bar_h - 2.0 * ARROW_H).max(1.0);
+        let has_history = history > 0;
         let thumb_h = (self.track_h * self.rows as f32 / (history + usize::from(self.rows)) as f32)
             .clamp(24.0_f32.min(self.track_h), self.track_h);
         let thumb_top = (self.track_h - thumb_h) * (1.0 - offset as f32 / history.max(1) as f32);
-        self.thumb = if show_bar {
-            (thumb_top, thumb_h)
+        self.thumb = if has_history {
+            (ARROW_H + thumb_top, thumb_h)
         } else {
             (0.0, 0.0)
         };
@@ -1206,7 +1371,9 @@ impl Render for Terminal {
             .flex_1()
             .min_w_0()
             .min_h_0()
-            .p(px(8.0))
+            .py(px(8.0))
+            .pl(px(8.0))
+            .pr(px(BAR_W))
             .bg(theme::bg_terminal())
             .overflow_hidden()
             .font_family(theme::FONT)
@@ -1275,37 +1442,80 @@ impl Render for Terminal {
                             .h(px(ch))
                             .bg(theme::accent().opacity(SELECTION_ALPHA))
                     }))
-                    .when(show_bar, |s| {
-                        s.child(
-                            div()
-                                .id("terminal-scrollbar")
-                                .absolute()
-                                .top_0()
-                                .bottom_0()
-                                .right(px(-8.0))
-                                .w(px(8.0))
-                                .on_mouse_down(
-                                    MouseButton::Left,
-                                    cx.listener(Self::on_scrollbar_down),
-                                )
-                                .child(
-                                    div()
-                                        .id("terminal-scrollbar-thumb")
-                                        .absolute()
-                                        .top(px(thumb_top))
-                                        .left(px(2.0))
-                                        .w(px(4.0))
-                                        .h(px(thumb_h))
-                                        .rounded(px(2.0))
-                                        .bg(if dragging_bar {
+                    .child(
+                        div()
+                            .id("terminal-scrollbar")
+                            .absolute()
+                            .top_0()
+                            .h(px(bar_h))
+                            .right(px(-BAR_W))
+                            .w(px(BAR_W))
+                            .bg(theme::text_muted().opacity(if has_history { 0.1 } else { 0.05 }))
+                            .on_mouse_down(MouseButton::Left, cx.listener(Self::on_scrollbar_down))
+                            .child(arrow_button("terminal-bar-up", "▲", has_history, 1, cx))
+                            .child(
+                                div()
+                                    .id("terminal-scrollbar-thumb")
+                                    .absolute()
+                                    .top(px(thumb_top + ARROW_H))
+                                    .left(px(3.0))
+                                    .w(px(BAR_W - 6.0))
+                                    .h(px(thumb_h))
+                                    .rounded(px(4.0))
+                                    .when(has_history, |s| {
+                                        s.bg(if dragging_bar {
                                             theme::accent()
                                         } else {
-                                            theme::text_muted().opacity(0.35)
+                                            theme::text_muted().opacity(0.45)
                                         })
-                                        .hover(|s| s.bg(theme::text_muted().opacity(0.6))),
-                                ),
+                                        .hover(|s| s.bg(theme::text_muted().opacity(0.7)))
+                                    }),
+                            )
+                            .child(arrow_button("terminal-bar-down", "▼", has_history, -1, cx)),
+                    )
+                    .when(offset > 0, |s| {
+                        s.child(
+                            div()
+                                .id("terminal-jump-bottom")
+                                .absolute()
+                                .right(px(12.0))
+                                .bottom(px(8.0))
+                                .w(px(28.0))
+                                .h(px(28.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(14.0))
+                                .cursor_pointer()
+                                .bg(theme::accent())
+                                .text_color(theme::on_accent())
+                                .hover(|s| s.opacity(0.85))
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(|this, _, window, cx| {
+                                        window.focus(&this.focus, cx);
+                                        this.set_offset(0);
+                                        cx.stop_propagation();
+                                        cx.notify();
+                                    }),
+                                )
+                                .child("↓"),
                         )
-                    }),
+                    })
+                    .children(debug.map(|text| {
+                        div()
+                            .absolute()
+                            .top(px(2.0))
+                            .right(px(8.0))
+                            .px(px(6.0))
+                            .rounded(px(4.0))
+                            .bg(theme::bg_terminal())
+                            .border_1()
+                            .border_color(theme::text_muted().opacity(0.4))
+                            .text_size(px(11.0))
+                            .text_color(theme::text_muted())
+                            .child(text)
+                    })),
             )
     }
 }
@@ -1398,7 +1608,12 @@ mod tests {
     #[test]
     fn cursor_position_query_is_answered() {
         let parser = Mutex::new(vt100::Parser::new(5, 20, 0));
-        let replies = process_with_replies(&parser, &AtomicU64::new(0), b"ab\x1b[6ncd");
+        let replies = process_with_replies(
+            &parser,
+            &AtomicU64::new(0),
+            &Mutex::new(Fallback::default()),
+            b"ab\x1b[6ncd",
+        );
         assert_eq!(replies, b"\x1b[1;3R");
         assert_eq!(lock(&parser).screen().contents(), "abcd");
     }
@@ -1413,8 +1628,23 @@ mod tests {
             let data: String = (start..(start + chunk).min(count))
                 .map(|n| format!("row{n}\r\n"))
                 .collect();
-            feed(p, scrolled, data.as_bytes());
+            feed(p, scrolled, &Mutex::new(Fallback::default()), data.as_bytes());
         }
+    }
+
+    #[test]
+    fn rows_that_vanish_without_history_land_in_the_fallback() {
+        let mut p = vt100::Parser::new(4, 12, 0);
+        let fallback = Mutex::new(Fallback::default());
+        let scrolled = AtomicU64::new(0);
+        for n in 0..10 {
+            feed(&mut p, &scrolled, &fallback, format!("row{n}\r\n").as_bytes());
+        }
+        let fb = lock_fb(&fallback);
+        let text = |runs: &Vec<Run>| runs.iter().map(|r| r.text.as_str()).collect::<String>();
+        assert_eq!(fb.rows.len(), 7);
+        assert_eq!(text(&fb.rows[0]).trim_end(), "row0");
+        assert_eq!(text(&fb.rows[6]).trim_end(), "row6");
     }
 
     #[test]
@@ -1456,7 +1686,12 @@ mod tests {
     fn wrapped_rows_are_flagged() {
         let mut p = vt100::Parser::new(3, 5, SCROLLBACK_LINES);
         let scrolled = AtomicU64::new(0);
-        feed(&mut p, &scrolled, b"abcdefgh\r\nxy");
+        feed(
+            &mut p,
+            &scrolled,
+            &Mutex::new(Fallback::default()),
+            b"abcdefgh\r\nxy",
+        );
         let first = read_line(&mut p, 0, 0).unwrap();
         assert!(first.wrapped);
         assert_eq!(row_text(&first), "abcde");

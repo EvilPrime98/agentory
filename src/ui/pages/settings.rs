@@ -345,9 +345,11 @@ impl SettingsPage {
         col.into_any_element()
     }
 
-    fn terminal_tab(&self, font: f32) -> AnyElement {
+    fn terminal_tab(&self, prefs: &crate::state::prefs::Prefs) -> AnyElement {
+        let font = prefs.terminal_font_size;
         let down = self.stores.clone();
         let up = self.stores.clone();
+        let debug = self.stores.clone();
         list(vec![setting_row(
             t("settings.terminal.font_size"),
             None,
@@ -377,7 +379,18 @@ impl SettingsPage {
                         })
                     });
                 })),
-        )])
+        ),
+        checkbox(
+            "pref-terminal-debug",
+            t("settings.terminal.debug"),
+            prefs.terminal_debug,
+            move |value: bool, _: &mut Window, cx: &mut gpui::App| {
+                debug
+                    .prefs
+                    .update(cx, |p, cx| p.update(cx, |p| p.terminal_debug = value));
+            },
+        )
+        .into_any_element()])
         .into_any_element()
     }
 
@@ -465,7 +478,7 @@ impl Render for SettingsPage {
         let content = match tab {
             SettingsTab::General => self.general_tab(&prefs),
             SettingsTab::Sessions => self.sessions_tab(&prefs, cx),
-            SettingsTab::Terminal => self.terminal_tab(prefs.terminal_font_size),
+            SettingsTab::Terminal => self.terminal_tab(&prefs),
             SettingsTab::Data => self.data_tab(cx),
         };
 

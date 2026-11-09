@@ -48,6 +48,7 @@
   "settings.projects.folder": "Project folder",
   "settings.terminal.title": "Terminal",
   "settings.terminal.font_size": "Font size",
+  "settings.terminal.debug": "Show scroll diagnostics over terminals (history length, alternate screen)",
   "settings.data.title": "Data",
   "settings.data.open_logs": "Open logs",
   "settings.data.open_config": "Open settings folder",

@@ -24,6 +24,7 @@ pub struct Prefs {
     /// Self-build was enabled: the source is cloned and the first build finished.
     pub self_build_enabled: bool,
     pub terminal_font_size: f32,
+    pub terminal_debug: bool,
     pub sidebar_collapsed: bool,
     /// Id of the shell last opened as a project terminal.
     pub last_shell: String,
@@ -52,6 +53,7 @@ impl Default for Prefs {
             fullscreen_agents: true,
             self_build_enabled: false,
             terminal_font_size: 13.0,
+            terminal_debug: false,
             sidebar_collapsed: false,
             last_shell: String::new(),
             language: LanguagePref::System,
