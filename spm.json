@@ -5,7 +5,7 @@
   "skills": {
     "ecc-council": {
       "repo": "https://github.com/affaan-m/ECC/tree/main/pi/core/skills/ecc-council",
-      "ref": "b38be6a7f6350964d59328b52f0624e1d1d552d1",
+      "ref": "d2ef2680594f9a17526a6e1a2e18b3d242c5d17b",
       "market": "skillsmp"
     },
     "git-commit-doctor": "https://github.com/EvilPrime98/mySkills",
