@@ -133,6 +133,7 @@ pub struct Terminal {
     track_h: f32,
     pub exited: bool,
     title: String,
+    link: Option<LinkHit>,
     focus: FocusHandle,
 }
 
@@ -218,6 +219,52 @@ fn read_line(p: &mut vt100::Parser, scrolled: u64, line: u64) -> Option<LineText
     let wrapped = screen.row_wrapped(row);
     p.set_scrollback(view);
     Some(LineText { cells, wrapped })
+}
+
+#[derive(Clone, PartialEq)]
+struct LinkHit {
+    url: String,
+    first: u64,
+    from: usize,
+    to: usize,
+    cols: usize,
+}
+
+impl LinkHit {
+    fn row_range(&self, line: u64) -> Option<(u16, u16)> {
+        let base = usize::try_from(line.checked_sub(self.first)?).ok()? * self.cols;
+        let (lo, hi) = (self.from.max(base), self.to.min(base + self.cols));
+        (lo < hi).then(|| ((lo - base) as u16, (hi - 1 - base) as u16))
+    }
+}
+
+fn url_in_cells(cells: &[String], at: usize) -> Option<(String, usize, usize)> {
+    let mut text = String::new();
+    let mut starts = Vec::with_capacity(cells.len());
+    for c in cells {
+        starts.push(text.len());
+        text.push_str(c);
+    }
+    let click = *starts.get(at)?;
+    let mut from = 0;
+    while let Some(rel) = text[from..].find("http") {
+        let start = from + rel;
+        from = start + 4;
+        let rest = &text[start..];
+        if !(rest.starts_with("http://") || rest.starts_with("https://")) {
+            continue;
+        }
+        let len = rest
+            .find(|c: char| c.is_whitespace() || "<>\"'`".contains(c))
+            .unwrap_or(rest.len());
+        let url = rest[..len].trim_end_matches(['.', ',', ';', ':', '!', '?', ')', ']', '}']);
+        if (start..start + url.len()).contains(&click) {
+            let from = starts.partition_point(|&s| s < start);
+            let to = starts.partition_point(|&s| s < start + url.len());
+            return Some((url.to_string(), from, to));
+        }
+    }
+    None
 }
 
 /// xterm modifier bits for a mouse report (Shift never gets here: it bypasses reporting).
@@ -336,6 +383,7 @@ impl Terminal {
             track_h: 0.0,
             exited: false,
             title: String::new(),
+            link: None,
             focus: cx.focus_handle(),
         }
     }
@@ -656,6 +704,40 @@ impl Terminal {
         )
     }
 
+    fn url_at(&self, pos: Point<Pixels>) -> Option<LinkHit> {
+        let pt = self.point_at(pos);
+        let scrolled = self.scrolled.load(Ordering::Relaxed);
+        let mut p = lock(&self.parser);
+        let cols = usize::from(p.screen().size().1);
+        let mut first = pt.line;
+        while first > 0
+            && pt.line - first < 20
+            && read_line(&mut p, scrolled, first - 1).is_some_and(|l| l.wrapped)
+        {
+            first -= 1;
+        }
+        let mut cells = Vec::new();
+        let mut line = first;
+        loop {
+            let l = read_line(&mut p, scrolled, line)?;
+            let wrapped = l.wrapped;
+            cells.extend(l.cells);
+            if !wrapped || line - first >= 40 {
+                break;
+            }
+            line += 1;
+        }
+        let at = (pt.line - first) as usize * cols + usize::from(pt.col);
+        let (url, from, to) = url_in_cells(&cells, at)?;
+        Some(LinkHit {
+            url,
+            first,
+            from,
+            to,
+            cols,
+        })
+    }
+
     fn selection_text(&self) -> Option<String> {
         let sel = self.selection?;
         let scrolled = self.scrolled.load(Ordering::Relaxed);
@@ -697,6 +779,15 @@ impl Terminal {
 
     fn on_mouse_down(&mut self, ev: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
+        if ev.button == MouseButton::Left
+            && (ev.modifiers.control || ev.modifiers.platform)
+            && self.in_grid(ev.position)
+        {
+            if let Some(hit) = self.url_at(ev.position) {
+                cx.open_url(&hit.url);
+                return;
+            }
+        }
         let (mode, _) = self.mouse_protocol();
         if mode != vt100::MouseProtocolMode::None && !ev.modifiers.shift {
             if let Some(code) = mouse_button_code(ev.button) {
@@ -744,6 +835,14 @@ impl Terminal {
                 }
             }
             None => {
+                let link = self
+                    .in_grid(ev.position)
+                    .then(|| self.url_at(ev.position))
+                    .flatten();
+                if link != self.link {
+                    self.link = link;
+                    cx.notify();
+                }
                 let (mode, _) = self.mouse_protocol();
                 if mode == vt100::MouseProtocolMode::AnyMotion
                     && !ev.modifiers.shift
@@ -1159,7 +1258,7 @@ impl Render for Terminal {
         self.cell = measure(window, self.font_size);
         let (cw, ch) = self.cell;
         let focused = self.focus.is_focused(window);
-        let (rows, selection, history, offset) = {
+        let (rows, selection, link_rows, history, offset) = {
             let mut p = lock(&self.parser);
             let history = history_len(&mut p);
             let offset = p.screen().scrollback();
@@ -1171,7 +1270,16 @@ impl Render for Terminal {
             let selection: Vec<_> = (0..u64::from(screen_rows))
                 .map(|r| self.selection.and_then(|s| s.row_range(top + r, cols)))
                 .collect();
-            (build_rows(p.screen(), focused), selection, history, offset)
+            let link_rows: Vec<_> = (0..u64::from(screen_rows))
+                .map(|r| self.link.as_ref().and_then(|l| l.row_range(top + r)))
+                .collect();
+            (
+                build_rows(p.screen(), focused),
+                selection,
+                link_rows,
+                history,
+                offset,
+            )
         };
 
         // Scrollbar thumb: sized by the share of the buffer on screen, parked by the view offset.
@@ -1186,6 +1294,8 @@ impl Render for Terminal {
             (0.0, 0.0)
         };
         let highlights = selection_rects(&selection, cw, ch);
+        let underlines = selection_rects(&link_rows, cw, ch);
+        let over_link = self.link.is_some();
         let dragging_bar = matches!(self.drag, Some(Drag::Scrollbar { .. }));
 
         let me = cx.entity();
@@ -1209,6 +1319,7 @@ impl Render for Terminal {
             .p(px(8.0))
             .bg(theme::bg_terminal())
             .overflow_hidden()
+            .when(over_link, |s| s.cursor_pointer())
             .font_family(theme::FONT)
             .text_size(px(self.font_size))
             .line_height(px(ch))
@@ -1274,6 +1385,15 @@ impl Render for Terminal {
                             .w(px(w))
                             .h(px(ch))
                             .bg(theme::accent().opacity(SELECTION_ALPHA))
+                    }))
+                    .children(underlines.into_iter().map(|(x, y, w)| {
+                        div()
+                            .absolute()
+                            .left(px(x))
+                            .top(px(y + ch - 2.0))
+                            .w(px(w))
+                            .h(px(1.0))
+                            .bg(theme::accent())
                     }))
                     .when(show_bar, |s| {
                         s.child(
@@ -1461,6 +1581,20 @@ mod tests {
         assert!(first.wrapped);
         assert_eq!(row_text(&first), "abcde");
         assert!(!read_line(&mut p, 0, 1).unwrap().wrapped);
+    }
+
+    #[test]
+    fn urls_are_found_under_the_pointer() {
+        let cells: Vec<String> = "  Local: http://localhost:5173/, ok"
+            .chars()
+            .map(|c| c.to_string())
+            .collect();
+        assert_eq!(
+            url_in_cells(&cells, 12),
+            Some(("http://localhost:5173/".to_string(), 9, 31))
+        );
+        assert_eq!(url_in_cells(&cells, 2), None);
+        assert_eq!(url_in_cells(&cells, 33), None);
     }
 
     #[test]
