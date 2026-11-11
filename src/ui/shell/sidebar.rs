@@ -128,6 +128,7 @@ pub struct Sidebar {
     picker_open: bool,
     shell_menu: Option<ShellMenu>,
     shell_menu_closed_at: Option<Instant>,
+    compact: bool,
     /// The current route: only the Sessions page highlights a session, only Skills its row.
     route: Route,
 }
@@ -175,6 +176,7 @@ impl Sidebar {
             picker_open: false,
             shell_menu: None,
             shell_menu_closed_at: None,
+            compact: false,
             route: Route::home(),
         }
     }
@@ -476,7 +478,10 @@ impl Sidebar {
         let workflows_active = self.route == Route::Workflows(project.id.clone());
         let workflows_id = project.id.clone();
 
-        let full_h = ROW_H * 5.0
+        let compact = self.compact;
+        let page_rows = if compact { 0.0 } else { 5.0 };
+
+        let full_h = ROW_H * page_rows
             + if sessions.is_empty() {
                 0.0
             } else {
@@ -513,7 +518,8 @@ impl Sidebar {
             })
             .into_any_element(),
         };
-        let show_list = animating.is_some() || fold.is_some_and(|f| f.open());
+        let show_list = self.compact || animating.is_some() || fold.is_some_and(|f| f.open());
+        let animating = animating.filter(|_| !self.compact);
 
         let (drag_id, drag_name) = (project.id.clone(), project.name.clone());
         let (move_id, drop_id) = (project.id.clone(), project.id.clone());
@@ -722,152 +728,162 @@ impl Sidebar {
             .flex()
             .flex_col()
             .flex_none()
-            .child(
-                div()
-                    .id(gpui::SharedString::from(format!("skills-{}", project.id)))
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .h(px(ROW_H))
-                    .ml(px(26.0))
-                    .px(px(6.0))
-                    .rounded(px(6.0))
-                    .cursor_pointer()
-                    .when(skills_active, |s| s.bg(theme::accent_soft()))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.stores
-                            .projects
-                            .update(cx, |p, cx| p.select(&skills_id, cx));
-                        cx.emit(Navigate(Route::Skills(skills_id.clone())));
-                    }))
-                    .child(icon(Icon::Puzzle, px(13.0)).text_color(theme::text_muted()))
-                    .child(
-                        div()
-                            .text_size(px(12.5))
-                            .text_color(theme::text())
-                            .child(t("sidebar.skills")),
-                    ),
-            )
-            .child(
-                div()
-                    .id(gpui::SharedString::from(format!("docs-{}", project.id)))
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .h(px(ROW_H))
-                    .ml(px(26.0))
-                    .px(px(6.0))
-                    .rounded(px(6.0))
-                    .cursor_pointer()
-                    .when(docs_active, |s| s.bg(theme::accent_soft()))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.stores
-                            .projects
-                            .update(cx, |p, cx| p.select(&docs_id, cx));
-                        cx.emit(Navigate(Route::Docs(docs_id.clone())));
-                    }))
-                    .child(icon(Icon::File, px(13.0)).text_color(theme::text_muted()))
-                    .child(
-                        div()
-                            .text_size(px(12.5))
-                            .text_color(theme::text())
-                            .child(t("sidebar.docs")),
-                    ),
-            )
-            .child(
-                div()
-                    .id(gpui::SharedString::from(format!("git-{}", project.id)))
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .h(px(ROW_H))
-                    .ml(px(26.0))
-                    .px(px(6.0))
-                    .rounded(px(6.0))
-                    .cursor_pointer()
-                    .when(git_active, |s| s.bg(theme::accent_soft()))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.stores
-                            .projects
-                            .update(cx, |p, cx| p.select(&git_id, cx));
-                        cx.emit(Navigate(Route::Git(git_id.clone())));
-                    }))
-                    .child(icon(Icon::Branch, px(13.0)).text_color(theme::text_muted()))
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_size(px(12.5))
-                            .text_color(theme::text())
-                            .child(t("sidebar.git")),
-                    )
-                    .when(git_count > 0, |s| {
-                        s.child(
+            .when(!compact, |s| {
+                s.child(
+                    div()
+                        .id(gpui::SharedString::from(format!("skills-{}", project.id)))
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .h(px(ROW_H))
+                        .ml(px(26.0))
+                        .px(px(6.0))
+                        .rounded(px(6.0))
+                        .cursor_pointer()
+                        .when(skills_active, |s| s.bg(theme::accent_soft()))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.stores
+                                .projects
+                                .update(cx, |p, cx| p.select(&skills_id, cx));
+                            cx.emit(Navigate(Route::Skills(skills_id.clone())));
+                        }))
+                        .child(icon(Icon::Puzzle, px(13.0)).text_color(theme::text_muted()))
+                        .child(
                             div()
-                                .px(px(6.0))
-                                .rounded(px(8.0))
-                                .bg(theme::accent_soft())
-                                .text_size(px(10.5))
-                                .text_color(theme::accent())
-                                .child(git_count.to_string()),
+                                .text_size(px(12.5))
+                                .text_color(theme::text())
+                                .child(t("sidebar.skills")),
+                        ),
+                )
+            })
+            .when(!compact, |s| {
+                s.child(
+                    div()
+                        .id(gpui::SharedString::from(format!("docs-{}", project.id)))
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .h(px(ROW_H))
+                        .ml(px(26.0))
+                        .px(px(6.0))
+                        .rounded(px(6.0))
+                        .cursor_pointer()
+                        .when(docs_active, |s| s.bg(theme::accent_soft()))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.stores
+                                .projects
+                                .update(cx, |p, cx| p.select(&docs_id, cx));
+                            cx.emit(Navigate(Route::Docs(docs_id.clone())));
+                        }))
+                        .child(icon(Icon::File, px(13.0)).text_color(theme::text_muted()))
+                        .child(
+                            div()
+                                .text_size(px(12.5))
+                                .text_color(theme::text())
+                                .child(t("sidebar.docs")),
+                        ),
+                )
+            })
+            .when(!compact, |s| {
+                s.child(
+                    div()
+                        .id(gpui::SharedString::from(format!("git-{}", project.id)))
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .h(px(ROW_H))
+                        .ml(px(26.0))
+                        .px(px(6.0))
+                        .rounded(px(6.0))
+                        .cursor_pointer()
+                        .when(git_active, |s| s.bg(theme::accent_soft()))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.stores
+                                .projects
+                                .update(cx, |p, cx| p.select(&git_id, cx));
+                            cx.emit(Navigate(Route::Git(git_id.clone())));
+                        }))
+                        .child(icon(Icon::Branch, px(13.0)).text_color(theme::text_muted()))
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_size(px(12.5))
+                                .text_color(theme::text())
+                                .child(t("sidebar.git")),
                         )
-                    }),
-            )
-            .child(
-                div()
-                    .id(gpui::SharedString::from(format!("history-{}", project.id)))
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .h(px(ROW_H))
-                    .ml(px(26.0))
-                    .px(px(6.0))
-                    .rounded(px(6.0))
-                    .cursor_pointer()
-                    .when(history_active, |s| s.bg(theme::accent_soft()))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.stores
-                            .projects
-                            .update(cx, |p, cx| p.select(&history_id, cx));
-                        cx.emit(Navigate(Route::SessionHistory(history_id.clone())));
-                    }))
-                    .child(icon(Icon::History, px(13.0)).text_color(theme::text_muted()))
-                    .child(
-                        div()
-                            .text_size(px(12.5))
-                            .text_color(theme::text())
-                            .child(t("sidebar.history")),
-                    ),
-            )
-            .child(
-                div()
-                    .id(gpui::SharedString::from(format!(
-                        "workflows-{}",
-                        project.id
-                    )))
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .h(px(ROW_H))
-                    .ml(px(26.0))
-                    .px(px(6.0))
-                    .rounded(px(6.0))
-                    .cursor_pointer()
-                    .when(workflows_active, |s| s.bg(theme::accent_soft()))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.stores
-                            .projects
-                            .update(cx, |p, cx| p.select(&workflows_id, cx));
-                        cx.emit(Navigate(Route::Workflows(workflows_id.clone())));
-                    }))
-                    .child(icon(Icon::Play, px(13.0)).text_color(theme::text_muted()))
-                    .child(
-                        div()
-                            .text_size(px(12.5))
-                            .text_color(theme::text())
-                            .child(t("sidebar.workflows")),
-                    ),
-            )
-            .when(!sessions.is_empty(), |s| {
+                        .when(git_count > 0, |s| {
+                            s.child(
+                                div()
+                                    .px(px(6.0))
+                                    .rounded(px(8.0))
+                                    .bg(theme::accent_soft())
+                                    .text_size(px(10.5))
+                                    .text_color(theme::accent())
+                                    .child(git_count.to_string()),
+                            )
+                        }),
+                )
+            })
+            .when(!compact, |s| {
+                s.child(
+                    div()
+                        .id(gpui::SharedString::from(format!("history-{}", project.id)))
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .h(px(ROW_H))
+                        .ml(px(26.0))
+                        .px(px(6.0))
+                        .rounded(px(6.0))
+                        .cursor_pointer()
+                        .when(history_active, |s| s.bg(theme::accent_soft()))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.stores
+                                .projects
+                                .update(cx, |p, cx| p.select(&history_id, cx));
+                            cx.emit(Navigate(Route::SessionHistory(history_id.clone())));
+                        }))
+                        .child(icon(Icon::History, px(13.0)).text_color(theme::text_muted()))
+                        .child(
+                            div()
+                                .text_size(px(12.5))
+                                .text_color(theme::text())
+                                .child(t("sidebar.history")),
+                        ),
+                )
+            })
+            .when(!compact, |s| {
+                s.child(
+                    div()
+                        .id(gpui::SharedString::from(format!(
+                            "workflows-{}",
+                            project.id
+                        )))
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .h(px(ROW_H))
+                        .ml(px(26.0))
+                        .px(px(6.0))
+                        .rounded(px(6.0))
+                        .cursor_pointer()
+                        .when(workflows_active, |s| s.bg(theme::accent_soft()))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.stores
+                                .projects
+                                .update(cx, |p, cx| p.select(&workflows_id, cx));
+                            cx.emit(Navigate(Route::Workflows(workflows_id.clone())));
+                        }))
+                        .child(icon(Icon::Play, px(13.0)).text_color(theme::text_muted()))
+                        .child(
+                            div()
+                                .text_size(px(12.5))
+                                .text_color(theme::text())
+                                .child(t("sidebar.workflows")),
+                        ),
+                )
+            })
+            .when(!compact && !sessions.is_empty(), |s| {
                 s.child(section_header(t("sidebar.agents")))
             })
             .children(sessions.into_iter().map(|(id, name, status, worktree)| {
@@ -935,72 +951,67 @@ impl Sidebar {
                             .child(icon(Icon::Close, px(12.0)).text_color(theme::text_muted())),
                     )
             }))
-            .when(!terminals.is_empty(), |s| {
+            .when(!compact && !terminals.is_empty(), |s| {
                 s.child(section_header(t("sidebar.terminals")))
-                    .children(terminals.into_iter().map(|(id, name)| {
-                        let (pick_id, close_id) = (id.clone(), id.clone());
-                        let is_active = on_sessions && active.as_deref() == Some(id.as_str());
+            })
+            .children(terminals.into_iter().map(|(id, name)| {
+                let (pick_id, close_id) = (id.clone(), id.clone());
+                let is_active = on_sessions && active.as_deref() == Some(id.as_str());
+                div()
+                    .flex()
+                    .items_center()
+                    .h(px(ROW_H))
+                    .ml(px(26.0))
+                    .px(px(6.0))
+                    .rounded(px(6.0))
+                    .when(is_active, |s| s.bg(theme::accent_soft()))
+                    .child(
                         div()
+                            .id(gpui::SharedString::from(format!("terminal-{id}")))
+                            .flex()
+                            .flex_1()
+                            .min_w_0()
+                            .items_center()
+                            .gap(px(8.0))
+                            .h_full()
+                            .cursor_pointer()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.stores
+                                    .sessions
+                                    .update(cx, |s, cx| s.select(&pick_id, cx));
+                                cx.emit(Navigate(Route::Sessions));
+                            }))
+                            .child(icon(Icon::Terminal, px(13.0)).text_color(theme::text_muted()))
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_size(px(12.5))
+                                    .text_color(theme::text())
+                                    .child(name),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id(gpui::SharedString::from(format!("close-terminal-{id}")))
+                            .flex_none()
+                            .size(px(20.0))
                             .flex()
                             .items_center()
-                            .h(px(ROW_H))
-                            .ml(px(26.0))
-                            .px(px(6.0))
-                            .rounded(px(6.0))
-                            .when(is_active, |s| s.bg(theme::accent_soft()))
-                            .child(
-                                div()
-                                    .id(gpui::SharedString::from(format!("terminal-{id}")))
-                                    .flex()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .items_center()
-                                    .gap(px(8.0))
-                                    .h_full()
-                                    .cursor_pointer()
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.stores
-                                            .sessions
-                                            .update(cx, |s, cx| s.select(&pick_id, cx));
-                                        cx.emit(Navigate(Route::Sessions));
-                                    }))
-                                    .child(
-                                        icon(Icon::Terminal, px(13.0))
-                                            .text_color(theme::text_muted()),
-                                    )
-                                    .child(
-                                        div()
-                                            .truncate()
-                                            .text_size(px(12.5))
-                                            .text_color(theme::text())
-                                            .child(name),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .id(gpui::SharedString::from(format!("close-terminal-{id}")))
-                                    .flex_none()
-                                    .size(px(20.0))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .rounded(px(4.0))
-                                    .cursor_pointer()
-                                    .hover(|s| s.bg(theme::hover()))
-                                    .on_click(cx.listener(move |_, _, _, cx| {
-                                        sessions::request_close(&close_id, cx);
-                                    }))
-                                    .child(
-                                        icon(Icon::Close, px(12.0)).text_color(theme::text_muted()),
-                                    ),
-                            )
-                    }))
-            });
+                            .justify_center()
+                            .rounded(px(4.0))
+                            .cursor_pointer()
+                            .hover(|s| s.bg(theme::hover()))
+                            .on_click(cx.listener(move |_, _, _, cx| {
+                                sessions::request_close(&close_id, cx);
+                            }))
+                            .child(icon(Icon::Close, px(12.0)).text_color(theme::text_muted())),
+                    )
+            }));
 
         div()
             .flex()
             .flex_col()
-            .child(header)
+            .when(!compact, |s| s.child(header))
             .when(show_list, |s| {
                 let clip = div().flex().flex_col().overflow_hidden().child(list);
                 s.child(match animating {
@@ -1220,16 +1231,41 @@ impl Render for Sidebar {
                     )
                     .child(
                         div()
-                            .id("add-project")
                             .flex()
                             .items_center()
-                            .justify_center()
-                            .size(px(26.0))
-                            .rounded(px(6.0))
-                            .cursor_pointer()
-                            .hover(|s| s.bg(theme::hover()))
-                            .on_click(cx.listener(|this, _, _, cx| this.add_project(cx)))
-                            .child(icon(Icon::FolderPlus, px(16.0)).text_color(theme::text())),
+                            .gap(px(2.0))
+                            .child(
+                                div()
+                                    .id("compact-toggle")
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .size(px(26.0))
+                                    .rounded(px(6.0))
+                                    .cursor_pointer()
+                                    .when(self.compact, |s| s.bg(theme::accent_soft()))
+                                    .hover(|s| s.bg(theme::hover()))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.compact = !this.compact;
+                                        cx.notify();
+                                    }))
+                                    .child(icon(Icon::Rows, px(16.0)).text_color(theme::text())),
+                            )
+                            .child(
+                                div()
+                                    .id("add-project")
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .size(px(26.0))
+                                    .rounded(px(6.0))
+                                    .cursor_pointer()
+                                    .hover(|s| s.bg(theme::hover()))
+                                    .on_click(cx.listener(|this, _, _, cx| this.add_project(cx)))
+                                    .child(
+                                        icon(Icon::FolderPlus, px(16.0)).text_color(theme::text()),
+                                    ),
+                            ),
                     ),
             )
             .child(
