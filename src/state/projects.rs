@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use gpui::Context;
 
-use crate::model::Project;
+use crate::model::{GLOBAL_ID, Project};
 
 #[derive(Default)]
 pub struct ProjectsStore {
@@ -20,12 +20,20 @@ fn path() -> Option<PathBuf> {
 
 impl ProjectsStore {
     pub fn load() -> Self {
-        let items: Vec<Project> = path()
+        let saved: Vec<Project> = path()
             .and_then(|p| std::fs::read_to_string(p).ok())
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
+        let (globals, rest): (Vec<_>, Vec<_>) = saved.into_iter().partition(Project::is_global);
+        let mut global = Project::global();
+        if let Some(saved) = globals.into_iter().next() {
+            global.skill_args = saved.skill_args;
+        }
+        let selected = rest.first().unwrap_or(&global).id.clone();
+        let mut items = vec![global];
+        items.extend(rest);
         Self {
-            selected: items.first().map(|p| p.id.clone()),
+            selected: Some(selected),
             items,
             revision: 0,
         }
@@ -36,7 +44,12 @@ impl ProjectsStore {
         if let Some(dir) = p.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        if let Ok(json) = serde_json::to_string_pretty(&self.items) {
+        let kept: Vec<&Project> = self
+            .items
+            .iter()
+            .filter(|p| !p.is_global() || !p.skill_args.is_empty())
+            .collect();
+        if let Ok(json) = serde_json::to_string_pretty(&kept) {
             if let Err(e) = std::fs::write(&p, json) {
                 tracing::warn!("could not save projects to {}: {e}", p.display());
             }
@@ -57,7 +70,7 @@ impl ProjectsStore {
 
     /// Add a folder (no-op for one already listed) and select it. Returns the project id.
     pub fn add(&mut self, path: PathBuf, cx: &mut Context<Self>) -> String {
-        let id = match self.items.iter().find(|p| p.path == path) {
+        let id = match self.items.iter().find(|p| !p.is_global() && p.path == path) {
             Some(existing) => existing.id.clone(),
             None => {
                 let project = Project::from_path(path);
@@ -74,6 +87,9 @@ impl ProjectsStore {
     }
 
     pub fn remove(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.get(id).is_none_or(Project::is_global) {
+            return;
+        }
         self.items.retain(|p| p.id != id);
         if self.selected.as_deref() == Some(id) {
             self.selected = self.items.first().map(|p| p.id.clone());
@@ -84,6 +100,9 @@ impl ProjectsStore {
     }
 
     pub fn move_project(&mut self, id: &str, target_id: &str, after: bool, cx: &mut Context<Self>) {
+        if id == GLOBAL_ID || (target_id == GLOBAL_ID && !after) {
+            return;
+        }
         let (Some(from), Some(target)) = (
             self.items.iter().position(|p| p.id == id),
             self.items.iter().position(|p| p.id == target_id),

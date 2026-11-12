@@ -5,6 +5,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+pub const GLOBAL_ID: &str = "global";
+
 /// A folder the user added to the sidebar.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,8 +36,22 @@ impl Project {
         }
     }
 
+    pub fn global() -> Self {
+        Self {
+            id: GLOBAL_ID.to_string(),
+            name: "Global".to_string(),
+            path: dirs::home_dir().unwrap_or_default(),
+            use_worktree: None,
+            skill_args: BTreeMap::new(),
+        }
+    }
+
+    pub fn is_global(&self) -> bool {
+        self.id == GLOBAL_ID
+    }
+
     pub fn is_git_repo(&self) -> bool {
-        self.path.join(".git").exists()
+        !self.is_global() && self.path.join(".git").exists()
     }
 }
 

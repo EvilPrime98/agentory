@@ -19,6 +19,7 @@
   "sidebar.remove_project.body_one": "Se cerrará {n} sesión en ejecución de este proyecto.",
   "sidebar.remove_project.body_other": "Se cerrarán {n} sesiones en ejecución de este proyecto.",
   "sidebar.skills": "Skills",
+  "sidebar.global": "Global",
   "sidebar.docs": "Docs",
   "sidebar.agents": "AGENTES",
   "sidebar.modify": "MODIFICAR AGENTORY",

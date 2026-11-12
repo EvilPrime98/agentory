@@ -478,8 +478,19 @@ impl Sidebar {
         let workflows_active = self.route == Route::Workflows(project.id.clone());
         let workflows_id = project.id.clone();
 
+        let is_global = project.is_global();
+        let display_name = if is_global {
+            t("sidebar.global").to_string()
+        } else {
+            project.name.clone()
+        };
         let compact = self.compact;
-        let page_rows = if compact { 0.0 } else { 5.0 };
+        let full_page = !compact && !is_global;
+        let page_rows = match (compact, is_global) {
+            (true, _) => 0.0,
+            (false, true) => 1.0,
+            (false, false) => 5.0,
+        };
 
         let full_h = ROW_H * page_rows
             + if sessions.is_empty() {
@@ -521,7 +532,7 @@ impl Sidebar {
         let show_list = self.compact || animating.is_some() || fold.is_some_and(|f| f.open());
         let animating = animating.filter(|_| !self.compact);
 
-        let (drag_id, drag_name) = (project.id.clone(), project.name.clone());
+        let (drag_id, drag_name) = (project.id.clone(), display_name.clone());
         let (move_id, drop_id) = (project.id.clone(), project.id.clone());
         let hint = self
             .drop_hint
@@ -622,13 +633,16 @@ impl Sidebar {
                         cx.emit(Navigate(Route::Sessions));
                         let _ = window;
                     }))
-                    .child(icon(Icon::Folder, px(16.0)).text_color(theme::text_muted()))
+                    .child(
+                        icon(if is_global { Icon::Globe } else { Icon::Folder }, px(16.0))
+                            .text_color(theme::text_muted()),
+                    )
                     .child(
                         div()
                             .truncate()
                             .text_size(px(13.0))
                             .text_color(theme::text())
-                            .child(project.name.clone()),
+                            .child(display_name),
                     ),
             )
             .child(
@@ -702,27 +716,27 @@ impl Sidebar {
                             .map(|m| self.shell_menu_popup(m, cx)),
                     ),
             )
-            .child(
-                div()
-                    .id(gpui::SharedString::from(format!(
-                        "remove-project-{}",
-                        project.id.clone()
-                    )))
-                    .flex_none()
-                    .size(px(24.0))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(4.0))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(theme::hover()))
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| {
+            .when(!is_global, |s| {
+                s.child(
+                    div()
+                        .id(gpui::SharedString::from(format!(
+                            "remove-project-{}",
+                            project.id.clone()
+                        )))
+                        .flex_none()
+                        .size(px(24.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(4.0))
+                        .cursor_pointer()
+                        .hover(|s| s.bg(theme::hover()))
+                        .on_click(cx.listener(move |this, _, _, cx| {
                             this.remove_project(remove_id.clone(), cx)
-                        }),
-                    )
-                    .child(icon(Icon::Trash, px(14.0)).text_color(theme::text_muted())),
-            );
+                        }))
+                        .child(icon(Icon::Trash, px(14.0)).text_color(theme::text_muted())),
+                )
+            });
 
         let list = div()
             .flex()
@@ -756,7 +770,7 @@ impl Sidebar {
                         ),
                 )
             })
-            .when(!compact, |s| {
+            .when(full_page, |s| {
                 s.child(
                     div()
                         .id(gpui::SharedString::from(format!("docs-{}", project.id)))
@@ -784,7 +798,7 @@ impl Sidebar {
                         ),
                 )
             })
-            .when(!compact, |s| {
+            .when(full_page, |s| {
                 s.child(
                     div()
                         .id(gpui::SharedString::from(format!("git-{}", project.id)))
@@ -824,7 +838,7 @@ impl Sidebar {
                         }),
                 )
             })
-            .when(!compact, |s| {
+            .when(full_page, |s| {
                 s.child(
                     div()
                         .id(gpui::SharedString::from(format!("history-{}", project.id)))
@@ -852,7 +866,7 @@ impl Sidebar {
                         ),
                 )
             })
-            .when(!compact, |s| {
+            .when(full_page, |s| {
                 s.child(
                     div()
                         .id(gpui::SharedString::from(format!(
@@ -1203,7 +1217,7 @@ impl Render for Sidebar {
         let projects: Vec<Project> = self.stores.projects.read(cx).items.clone();
         let modify = self.modify_block(cx);
         let blocks: Vec<_> = projects.iter().map(|p| self.project_block(p, cx)).collect();
-        let empty = projects.is_empty();
+        let empty = projects.iter().all(Project::is_global);
 
         div()
             .flex()

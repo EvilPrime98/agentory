@@ -239,6 +239,14 @@ impl EventEmitter<Navigate> for SkillsPage {}
 impl EventEmitter<GoBack> for SkillsPage {}
 
 impl SkillsPage {
+    fn on_global(&self, cx: &gpui::App) -> bool {
+        self.stores
+            .projects
+            .read(cx)
+            .selected_project()
+            .is_some_and(|p| p.is_global())
+    }
+
     pub fn new(stores: Stores, cx: &mut Context<Self>) -> Self {
         let repo_input = cx.new(|cx| TextInput::new("owner/repo", cx));
         let init_repo_input = cx.new(|cx| TextInput::new(t("skills.init_placeholder"), cx));
@@ -706,7 +714,8 @@ impl SkillsPage {
         let hits = skills.hits.clone();
         let search_error = skills.search_error.clone();
         let searching = skills.searching;
-        let install_global = self.install_global;
+        let on_global = self.on_global(cx);
+        let install_global = self.install_global && !on_global;
 
         let pool_rows: Vec<AnyElement> = pool
             .into_iter()
@@ -720,7 +729,7 @@ impl SkillsPage {
                         Icon::Plus,
                         cx.listener(move |this, _, _, cx| {
                             let n = install_name.clone();
-                            let global = this.install_global;
+                            let global = install_global;
                             this.stores
                                 .skills
                                 .update(cx, |s, cx| s.install(vec![n], global, cx));
@@ -753,7 +762,7 @@ impl SkillsPage {
                         Icon::Plus,
                         cx.listener(move |this, _, _, cx| {
                             let id = install_id.clone();
-                            let global = this.install_global;
+                            let global = install_global;
                             this.stores.skills.update(cx, |s, cx| {
                                 s.review_install("skillsmp".into(), id, global, cx)
                             });
@@ -776,34 +785,36 @@ impl SkillsPage {
                     .items_center()
                     .gap(px(10.0))
                     .child(field(&self.search_input))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_none()
-                            .items_center()
-                            .p(px(2.0))
-                            .rounded(px(6.0))
-                            .border_1()
-                            .border_color(theme::border_subtle())
-                            .child(segment(
-                                "target-project",
-                                t("skills.target.project"),
-                                !install_global,
-                                cx.listener(|this, _, _, cx| {
-                                    this.install_global = false;
-                                    cx.notify();
-                                }),
-                            ))
-                            .child(segment(
-                                "target-global",
-                                t("skills.target.global"),
-                                install_global,
-                                cx.listener(|this, _, _, cx| {
-                                    this.install_global = true;
-                                    cx.notify();
-                                }),
-                            )),
-                    ),
+                    .when(!on_global, |s| {
+                        s.child(
+                            div()
+                                .flex()
+                                .flex_none()
+                                .items_center()
+                                .p(px(2.0))
+                                .rounded(px(6.0))
+                                .border_1()
+                                .border_color(theme::border_subtle())
+                                .child(segment(
+                                    "target-project",
+                                    t("skills.target.project"),
+                                    !install_global,
+                                    cx.listener(|this, _, _, cx| {
+                                        this.install_global = false;
+                                        cx.notify();
+                                    }),
+                                ))
+                                .child(segment(
+                                    "target-global",
+                                    t("skills.target.global"),
+                                    install_global,
+                                    cx.listener(|this, _, _, cx| {
+                                        this.install_global = true;
+                                        cx.notify();
+                                    }),
+                                )),
+                        )
+                    }),
             )
             .child(
                 div()
@@ -915,7 +926,8 @@ impl SkillsPage {
             .collect();
         let repo_count = repos.len();
         let skills_store = self.stores.skills.clone();
-        let show_globals = manifest.as_ref().is_some_and(|m| !m.isolate);
+        let on_global = self.on_global(cx);
+        let show_globals = !on_global && manifest.as_ref().is_some_and(|m| !m.isolate);
         let global_count = globals.len();
         let global_rows: Vec<AnyElement> = globals
             .into_iter()

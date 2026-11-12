@@ -19,6 +19,7 @@
   "sidebar.remove_project.body_one": "{n} running session of this project will be terminated.",
   "sidebar.remove_project.body_other": "{n} running sessions of this project will be terminated.",
   "sidebar.skills": "Skills",
+  "sidebar.global": "Global",
   "sidebar.docs": "Docs",
   "sidebar.agents": "AGENTS",
   "sidebar.modify": "MODIFY AGENTORY",
