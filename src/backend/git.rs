@@ -755,6 +755,126 @@ pub async fn stash_drop(root: &Path, index: usize) -> Result<(), String> {
     stash_cmd(root, "drop", index).await
 }
 
+pub const LOG_PAGE: usize = 50;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Commit {
+    pub hash: String,
+    pub subject: String,
+    pub author: String,
+    pub date: String,
+}
+
+impl Commit {
+    pub fn short_hash(&self) -> &str {
+        self.hash.get(..7).unwrap_or(&self.hash)
+    }
+}
+
+pub fn parse_log(out: &str) -> Vec<Commit> {
+    out.split('\x1e')
+        .filter_map(|rec| {
+            let mut f = rec.trim_start_matches('\n').split('\x1f');
+            let hash = f.next().filter(|h| !h.is_empty())?;
+            Some(Commit {
+                hash: hash.to_string(),
+                author: f.next()?.to_string(),
+                date: f.next()?.to_string(),
+                subject: f.next()?.to_string(),
+            })
+        })
+        .collect()
+}
+
+pub async fn log(root: &Path, skip: usize) -> Result<Vec<Commit>, String> {
+    let skip = format!("--skip={skip}");
+    let max = format!("--max-count={LOG_PAGE}");
+    match git(
+        root,
+        &[
+            "--no-optional-locks",
+            "log",
+            &max,
+            &skip,
+            "--format=%H%x1f%an%x1f%as%x1f%s%x1e",
+        ],
+    )
+    .await
+    {
+        Ok(out) => Ok(parse_log(&out)),
+        Err(e) if e.contains("does not have any commits yet") => Ok(Vec::new()),
+        Err(e) => Err(e),
+    }
+}
+
+pub fn parse_name_status(out: &str) -> Vec<Change> {
+    let mut files = Vec::new();
+    let mut it = out.split('\0');
+    while let Some(code) = it.next() {
+        let Some(c) = code.chars().next() else {
+            continue;
+        };
+        let Some(first) = it.next() else { break };
+        if c == 'R' || c == 'C' {
+            let Some(path) = it.next() else { break };
+            files.push(Change {
+                path: path.to_string(),
+                kind: ChangeKind::from_code(c),
+                from: (c == 'R').then(|| first.to_string()),
+            });
+        } else {
+            files.push(Change {
+                path: first.to_string(),
+                kind: ChangeKind::from_code(c),
+                from: None,
+            });
+        }
+    }
+    files
+}
+
+pub async fn commit_detail(root: &Path, hash: &str) -> Result<(String, Vec<Change>), String> {
+    let message = git(
+        root,
+        &["--no-optional-locks", "log", "-1", "--format=%B", hash],
+    )
+    .await?;
+    let names = git(
+        root,
+        &[
+            "--no-optional-locks",
+            "diff-tree",
+            "--root",
+            "--no-commit-id",
+            "-r",
+            "-M",
+            "--name-status",
+            "-z",
+            hash,
+        ],
+    )
+    .await?;
+    Ok((message.trim().to_string(), parse_name_status(&names)))
+}
+
+pub async fn commit_file_diff(root: &Path, hash: &str, change: &Change) -> Result<String, String> {
+    let mut args = vec![
+        "--no-optional-locks",
+        "show",
+        "--no-color",
+        "--no-ext-diff",
+        "-M",
+        "--format=",
+        hash,
+        "--",
+    ];
+    if let Some(from) = &change.from {
+        args.push(from);
+    }
+    args.push(&change.path);
+    gitl(root, &args).await
+}
+
 #[cfg(test)]
 mod source_control_tests {
     use super::*;
@@ -872,6 +992,61 @@ u UU N... 1 2 3 4 a b c clash.rs\0\
         let lines = parse_diff("diff --git a/x b/x\nBinary files a/x and b/x differ\n");
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].kind, LineKind::Note);
+    }
+
+    #[test]
+    fn parses_log_and_name_status() {
+        let log = parse_log(
+            "abc1234567\x1fAda\x1f2026-01-02\x1ffix: a\x1e\ndef7654321\x1fBo\x1f2026-01-01\x1fadd b\x1e",
+        );
+        assert_eq!(log.len(), 2);
+        assert_eq!(log[0].short_hash(), "abc1234");
+        assert_eq!(log[1].subject, "add b");
+        assert!(parse_log("").is_empty());
+
+        let files = parse_name_status("M\0a.rs\0A\0b.rs\0R100\0old.rs\0new.rs\0D\0c.rs\0");
+        assert_eq!(files.len(), 4);
+        assert_eq!(files[1].kind, ChangeKind::Added);
+        assert_eq!(files[2].kind, ChangeKind::Renamed);
+        assert_eq!(files[2].path, "new.rs");
+        assert_eq!(files[2].from.as_deref(), Some("old.rs"));
+        assert_eq!(files[3].kind, ChangeKind::Deleted);
+    }
+
+    #[tokio::test]
+    async fn history_roundtrip() {
+        let dir = std::env::temp_dir().join(format!("agentory-hist-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        init(&dir).await.unwrap();
+        let root = repo_root(&dir).await.unwrap().unwrap();
+        assert!(log(&root, 0).await.unwrap().is_empty());
+
+        fs::write(root.join("a.txt"), "one\n").unwrap();
+        stage_everything(&root).await.unwrap();
+        commit(&root, "first\n\nbody line").await.unwrap();
+        fs::write(root.join("a.txt"), "two\n").unwrap();
+        stage_everything(&root).await.unwrap();
+        commit(&root, "second").await.unwrap();
+
+        let commits = log(&root, 0).await.unwrap();
+        assert_eq!(commits.len(), 2);
+        assert_eq!(commits[0].subject, "second");
+        assert_eq!(log(&root, 1).await.unwrap().len(), 1);
+
+        let (msg, files) = commit_detail(&root, &commits[1].hash).await.unwrap();
+        assert_eq!(msg, "first\n\nbody line");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].kind, ChangeKind::Added);
+        let diff = commit_file_diff(&root, &commits[0].hash, &files[0])
+            .await
+            .unwrap();
+        assert!(
+            parse_diff(&diff)
+                .iter()
+                .any(|l| l.kind == LineKind::Add && l.text == "two")
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

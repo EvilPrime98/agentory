@@ -16,7 +16,9 @@ use gpui::{
 };
 
 use super::skills::{icon_button, muted_note};
-use crate::backend::git::{self, Branch, Change, ChangeKind, DiffLine, LineKind, Stash, Status};
+use crate::backend::git::{
+    self, Branch, Change, ChangeKind, Commit, DiffLine, LineKind, Stash, Status,
+};
 use crate::i18n::{t, t_args, t_n};
 use crate::route::{GoBack, Navigate};
 use crate::runtime;
@@ -69,6 +71,12 @@ struct Pick {
     group: Group,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum View {
+    Changes,
+    History,
+}
+
 /// The output of the last failed git command.
 struct Failure {
     op: String,
@@ -107,6 +115,17 @@ pub struct GitPage {
     refresh_again: bool,
     failure: Option<Failure>,
     failure_open: bool,
+    view: View,
+    commits: Vec<Commit>,
+    commits_more: bool,
+    commits_loading: bool,
+    commits_error: Option<String>,
+    log_gen: u64,
+    commit: Option<Commit>,
+    commit_message: String,
+    commit_files: Vec<Change>,
+    commit_file: Option<usize>,
+    commit_gen: u64,
     _subs: Vec<Subscription>,
 }
 
@@ -188,6 +207,17 @@ impl GitPage {
             refresh_again: false,
             failure: None,
             failure_open: false,
+            view: View::Changes,
+            commits: Vec::new(),
+            commits_more: false,
+            commits_loading: false,
+            commits_error: None,
+            log_gen: 0,
+            commit: None,
+            commit_message: String::new(),
+            commit_files: Vec::new(),
+            commit_file: None,
+            commit_gen: 0,
             _subs: subs,
         };
         this.refresh(cx);
@@ -336,6 +366,9 @@ impl GitPage {
     }
 
     fn load_diff(&mut self, cx: &mut Context<Self>) {
+        if self.view != View::Changes {
+            return;
+        }
         let (Some(root), Some(pick)) = (self.root.clone(), self.pick.clone()) else {
             return;
         };
@@ -352,21 +385,160 @@ impl GitPage {
                 if this.diff_gen != generation {
                     return;
                 }
-                let mut lines = match text {
-                    Ok(text) => git::parse_diff(&text),
-                    Err(e) => vec![DiffLine {
-                        kind: LineKind::Note,
-                        old: None,
-                        new: None,
-                        text: e,
-                    }],
-                };
-                let hidden = lines.len().saturating_sub(MAX_DIFF_LINES);
-                lines.truncate(MAX_DIFF_LINES);
-                if lines != this.diff || hidden != this.diff_hidden {
-                    this.diff = lines;
-                    this.diff_hidden = hidden;
-                    cx.notify();
+                this.set_diff(text, cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn set_diff(&mut self, text: Result<String, String>, cx: &mut Context<Self>) {
+        let mut lines = match text {
+            Ok(text) => git::parse_diff(&text),
+            Err(e) => vec![DiffLine {
+                kind: LineKind::Note,
+                old: None,
+                new: None,
+                text: e,
+            }],
+        };
+        let hidden = lines.len().saturating_sub(MAX_DIFF_LINES);
+        lines.truncate(MAX_DIFF_LINES);
+        if lines != self.diff || hidden != self.diff_hidden {
+            self.diff = lines;
+            self.diff_hidden = hidden;
+            cx.notify();
+        }
+    }
+
+    fn clear_diff(&mut self) {
+        self.diff_gen += 1;
+        self.diff.clear();
+        self.diff_hidden = 0;
+        self.diff_scroll.set_offset(Point::default());
+    }
+
+    fn set_view(&mut self, view: View, cx: &mut Context<Self>) {
+        if self.view == view {
+            return;
+        }
+        self.view = view;
+        self.clear_diff();
+        match view {
+            View::Changes => self.load_diff(cx),
+            View::History => self.load_log(true, cx),
+        }
+        cx.notify();
+    }
+
+    fn load_log(&mut self, reset: bool, cx: &mut Context<Self>) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        if self.commits_loading && !reset {
+            return;
+        }
+        let skip = if reset { 0 } else { self.commits.len() };
+        self.log_gen += 1;
+        let generation = self.log_gen;
+        self.commits_loading = true;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = runtime::run(async move { git::log(&root, skip).await }).await;
+            this.update(cx, |this, cx| {
+                if this.log_gen != generation {
+                    return;
+                }
+                this.commits_loading = false;
+                match result {
+                    Ok(page) => {
+                        this.commits_error = None;
+                        this.commits_more = page.len() == git::LOG_PAGE;
+                        if reset {
+                            this.commits = page;
+                            let gone = this
+                                .commit
+                                .as_ref()
+                                .is_some_and(|c| !this.commits.iter().any(|x| x.hash == c.hash));
+                            if gone {
+                                this.commit = None;
+                                this.commit_files.clear();
+                                this.commit_file = None;
+                                this.clear_diff();
+                            }
+                        } else {
+                            this.commits.extend(page);
+                        }
+                    }
+                    Err(e) => this.commits_error = Some(e),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn select_commit(&mut self, commit: Commit, cx: &mut Context<Self>) {
+        if self.commit.as_ref() == Some(&commit) {
+            return;
+        }
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        self.commit_gen += 1;
+        let generation = self.commit_gen;
+        let hash = commit.hash.clone();
+        self.commit = Some(commit);
+        self.commit_message.clear();
+        self.commit_files.clear();
+        self.commit_file = None;
+        self.clear_diff();
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = runtime::run(async move { git::commit_detail(&root, &hash).await }).await;
+            this.update(cx, |this, cx| {
+                if this.commit_gen != generation {
+                    return;
+                }
+                match result {
+                    Ok((message, files)) => {
+                        this.commit_message = message;
+                        this.commit_files = files;
+                        if !this.commit_files.is_empty() {
+                            this.select_commit_file(0, cx);
+                        }
+                    }
+                    Err(e) => this.commit_message = e,
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn select_commit_file(&mut self, index: usize, cx: &mut Context<Self>) {
+        let (Some(root), Some(commit), Some(change)) = (
+            self.root.clone(),
+            self.commit.clone(),
+            self.commit_files.get(index).cloned(),
+        ) else {
+            return;
+        };
+        self.commit_file = Some(index);
+        self.clear_diff();
+        let generation = self.diff_gen;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let text =
+                runtime::run(
+                    async move { git::commit_file_diff(&root, &commit.hash, &change).await },
+                )
+                .await;
+            this.update(cx, |this, cx| {
+                if this.diff_gen == generation {
+                    this.set_diff(text, cx);
                 }
             })
             .ok();
@@ -428,6 +600,9 @@ impl GitPage {
                 }
                 match result {
                     Ok(()) => {
+                        if this.view == View::History {
+                            this.load_log(true, cx);
+                        }
                         if let Some(text) = success {
                             toast::success(cx, text);
                         }
@@ -764,7 +939,12 @@ impl GitPage {
                     .rounded(px(6.0))
                     .cursor_pointer()
                     .hover(|s| s.bg(theme::hover()))
-                    .on_click(cx.listener(|this, _, _, cx| this.refresh(cx)))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.refresh(cx);
+                        if this.view == View::History {
+                            this.load_log(true, cx);
+                        }
+                    }))
                     .child(icon(Icon::Refresh, px(15.0)).text_color(theme::text())),
             )
             .into_any_element()
@@ -1316,7 +1496,214 @@ impl GitPage {
             .into_any_element()
     }
 
-    fn diff_pane(&self, window: &Window) -> AnyElement {
+    fn tabs(&self, cx: &mut Context<Self>) -> AnyElement {
+        let tab = |id: &'static str, label: String, view: View| {
+            let active = self.view == view;
+            div()
+                .id(id)
+                .px(px(10.0))
+                .h(px(24.0))
+                .flex()
+                .items_center()
+                .rounded(px(4.0))
+                .cursor_pointer()
+                .text_size(px(12.5))
+                .when(active, |s| {
+                    s.bg(theme::accent_soft()).text_color(theme::accent())
+                })
+                .when(!active, |s| {
+                    s.text_color(theme::text_muted())
+                        .hover(|s| s.bg(theme::hover()))
+                })
+                .on_click(cx.listener(move |this, _, _, cx| this.set_view(view, cx)))
+                .child(label)
+        };
+        div()
+            .flex()
+            .items_center()
+            .gap(px(4.0))
+            .child(tab("git-tab-changes", t("git.tab.changes"), View::Changes))
+            .child(tab("git-tab-history", t("git.tab.history"), View::History))
+            .into_any_element()
+    }
+
+    fn history_list(&self, cx: &mut Context<Self>) -> AnyElement {
+        let mut rows: Vec<AnyElement> = Vec::new();
+        for c in &self.commits {
+            let selected = self.commit.as_ref().is_some_and(|s| s.hash == c.hash);
+            let pick = c.clone();
+            rows.push(
+                div()
+                    .id(SharedString::from(format!("git-commit-{}", c.hash)))
+                    .flex()
+                    .flex_col()
+                    .flex_none()
+                    .gap(px(2.0))
+                    .px(px(8.0))
+                    .py(px(5.0))
+                    .rounded(px(4.0))
+                    .cursor_pointer()
+                    .when(selected, |s| s.bg(theme::accent_soft()))
+                    .when(!selected, |s| s.hover(|s| s.bg(theme::hover())))
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.select_commit(pick.clone(), cx)),
+                    )
+                    .child(
+                        div()
+                            .truncate()
+                            .text_size(px(12.5))
+                            .text_color(theme::text())
+                            .child(c.subject.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .gap(px(8.0))
+                            .text_size(px(11.0))
+                            .text_color(theme::text_muted())
+                            .child(
+                                div()
+                                    .font_family(theme::FONT)
+                                    .child(c.short_hash().to_string()),
+                            )
+                            .child(div().flex_1().min_w_0().truncate().child(c.author.clone()))
+                            .child(div().flex_none().child(c.date.clone())),
+                    )
+                    .into_any_element(),
+            );
+        }
+        if let Some(e) = &self.commits_error {
+            rows.push(
+                muted_note(t_args("git.read_failed", &[("error", e)]).into()).into_any_element(),
+            );
+        } else if self.commits_loading && self.commits.is_empty() {
+            rows.push(muted_note(t("git.loading").into()).into_any_element());
+        } else if self.commits.is_empty() {
+            rows.push(muted_note(t("git.history.empty").into()).into_any_element());
+        }
+        if self.commits_more {
+            let label = if self.commits_loading {
+                "…".to_string()
+            } else {
+                t("git.history.load_more")
+            };
+            rows.push(
+                div()
+                    .flex_none()
+                    .pt(px(6.0))
+                    .child(small_button(
+                        "git-history-more",
+                        label,
+                        cx.listener(|this, _, _, cx| this.load_log(false, cx)),
+                    ))
+                    .into_any_element(),
+            );
+        }
+        div()
+            .id("git-history-scroll")
+            .flex()
+            .flex_col()
+            .flex_none()
+            .w(px(LEFT_PANE_W))
+            .min_h_0()
+            .overflow_y_scroll()
+            .children(rows)
+            .into_any_element()
+    }
+
+    fn history_detail(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        let Some(commit) = &self.commit else {
+            return self.diff_pane(window, None, t("git.history.select"));
+        };
+        let files: Vec<AnyElement> = self
+            .commit_files
+            .iter()
+            .enumerate()
+            .map(|(i, f)| {
+                let selected = self.commit_file == Some(i);
+                div()
+                    .id(SharedString::from(format!("git-commit-file-{i}")))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .flex_none()
+                    .px(px(6.0))
+                    .h(px(24.0))
+                    .rounded(px(4.0))
+                    .cursor_pointer()
+                    .when(selected, |s| s.bg(theme::accent_soft()))
+                    .when(!selected, |s| s.hover(|s| s.bg(theme::hover())))
+                    .on_click(cx.listener(move |this, _, _, cx| this.select_commit_file(i, cx)))
+                    .child(
+                        div()
+                            .w(px(12.0))
+                            .flex_none()
+                            .text_size(px(11.0))
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .text_color(kind_color(f.kind))
+                            .child(f.kind.letter()),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(12.0))
+                            .text_color(theme::text())
+                            .child(f.path.clone()),
+                    )
+                    .into_any_element()
+            })
+            .collect();
+        let summary = div()
+            .id("git-commit-summary")
+            .flex()
+            .flex_col()
+            .flex_none()
+            .max_h(px(220.0))
+            .overflow_y_scroll()
+            .gap(px(6.0))
+            .p(px(10.0))
+            .rounded(px(6.0))
+            .border_1()
+            .border_color(theme::border_subtle())
+            .bg(theme::bg_app())
+            .child(
+                div()
+                    .text_size(px(11.0))
+                    .font_family(theme::FONT)
+                    .text_color(theme::text_muted())
+                    .child(format!(
+                        "{} · {} · {}",
+                        commit.short_hash(),
+                        commit.author,
+                        commit.date
+                    )),
+            )
+            .child(
+                div()
+                    .text_size(px(12.5))
+                    .text_color(theme::text())
+                    .child(self.commit_message.clone()),
+            )
+            .children(files);
+        let title = self
+            .commit_file
+            .and_then(|i| self.commit_files.get(i))
+            .map(|f| f.path.clone());
+        div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .gap(px(8.0))
+            .child(summary)
+            .child(self.diff_pane(window, title, t("git.no_diff")))
+            .into_any_element()
+    }
+
+    fn diff_pane(&self, window: &Window, title: Option<String>, empty: String) -> AnyElement {
         let pane = div()
             .flex()
             .flex_col()
@@ -1327,11 +1714,11 @@ impl GitPage {
             .border_1()
             .border_color(theme::border_subtle())
             .bg(theme::bg_app());
-        let Some(pick) = &self.pick else {
+        let Some(title) = title else {
             return pane
                 .items_center()
                 .justify_center()
-                .child(muted_note(t("git.select_file").into()))
+                .child(muted_note(empty.into()))
                 .into_any_element();
         };
         let total = self.diff.len();
@@ -1375,7 +1762,7 @@ impl GitPage {
                 .text_size(px(12.5))
                 .font_weight(gpui::FontWeight::SEMIBOLD)
                 .truncate()
-                .child(pick.path.clone()),
+                .child(title),
         )
         .child(
             div()
@@ -1479,8 +1866,18 @@ impl Render for GitPage {
                 .flex_1()
                 .min_h_0()
                 .gap(px(12.0))
-                .child(self.left_pane(cx))
-                .child(self.diff_pane(window))
+                .child(match self.view {
+                    View::Changes => self.left_pane(cx),
+                    View::History => self.history_list(cx),
+                })
+                .child(match self.view {
+                    View::Changes => self.diff_pane(
+                        window,
+                        self.pick.as_ref().map(|p| p.path.clone()),
+                        t("git.select_file"),
+                    ),
+                    View::History => self.history_detail(window, cx),
+                })
                 .into_any_element(),
         };
         div()
@@ -1492,6 +1889,7 @@ impl Render for GitPage {
             .p(px(24.0))
             .gap(px(12.0))
             .child(self.header(cx))
+            .when(matches!(self.repo, Repo::Ready), |s| s.child(self.tabs(cx)))
             .children(self.failure_banner(cx))
             .child(body)
     }
