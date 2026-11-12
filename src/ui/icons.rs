@@ -24,6 +24,7 @@ macro_rules! icons {
 }
 
 icons! {
+    ArrowUp => "arrow-up",
     Branch => "branch",
     Burger => "burger",
     ChevronDown => "chevron-down",

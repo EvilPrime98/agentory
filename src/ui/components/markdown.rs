@@ -13,10 +13,33 @@ use gpui::{
 };
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
+use crate::ui::components::selectable::Sink;
 use crate::ui::theme;
 
 /// Render `source` (a whole markdown file, frontmatter included).
 pub fn markdown(source: &str) -> Div {
+    render(source, None)
+}
+
+pub fn markdown_selectable(source: &str, sink: &Sink) -> Div {
+    render(source, Some(sink))
+}
+
+struct Ctx<'s> {
+    ids: usize,
+    sink: Option<&'s Sink>,
+}
+
+impl Ctx<'_> {
+    fn text(&self, text: String, highlights: Vec<(Range<usize>, HighlightStyle)>) -> StyledText {
+        match self.sink {
+            Some(sink) => sink.text(text, highlights),
+            None => StyledText::new(text).with_highlights(highlights),
+        }
+    }
+}
+
+fn render(source: &str, sink: Option<&Sink>) -> Div {
     let (meta, body) = split_frontmatter(source);
     let mut root = div()
         .flex()
@@ -32,8 +55,8 @@ pub fn markdown(source: &str) -> Div {
         | Options::ENABLE_TASKLISTS
         | Options::ENABLE_FOOTNOTES;
     let mut events = Parser::new_ext(body, opts);
-    let mut ids = 0usize;
-    root.children(blocks(&mut events, None, &mut ids))
+    let mut ctx = Ctx { ids: 0, sink };
+    root.children(blocks(&mut events, None, &mut ctx))
 }
 
 /// Split a leading `---` block off. Returns its key/value pairs and the remaining body. A block
@@ -185,14 +208,14 @@ impl Inline {
         self.text.is_empty()
     }
 
-    fn into_element(self, ids: &mut usize) -> AnyElement {
-        let styled = StyledText::new(self.text).with_highlights(self.highlights);
+    fn into_element(self, ids: &mut Ctx<'_>) -> AnyElement {
+        let styled = ids.text(self.text, self.highlights);
         if self.links.is_empty() {
             return styled.into_any_element();
         }
-        *ids += 1;
+        ids.ids += 1;
         let (ranges, urls): (Vec<_>, Vec<_>) = self.links.into_iter().unzip();
-        InteractiveText::new(("md-text", *ids), styled)
+        InteractiveText::new(("md-text", ids.ids), styled)
             .on_click(ranges, move |i, _, cx| cx.open_url(&urls[i]))
             .into_any_element()
     }
@@ -236,14 +259,14 @@ fn inline_event(inline: &mut Inline, ev: &Event) -> bool {
 
 type Events<'a, 'b> = &'b mut dyn Iterator<Item = Event<'a>>;
 
-fn flush(inline: &mut Inline, out: &mut Vec<AnyElement>, ids: &mut usize) {
+fn flush(inline: &mut Inline, out: &mut Vec<AnyElement>, ids: &mut Ctx<'_>) {
     if !inline.is_empty() {
         out.push(std::mem::take(inline).into_element(ids));
     }
 }
 
 /// Parse blocks until `end` (or the end of the stream).
-fn blocks<'a>(events: Events<'a, '_>, end: Option<TagEnd>, ids: &mut usize) -> Vec<AnyElement> {
+fn blocks<'a>(events: Events<'a, '_>, end: Option<TagEnd>, ids: &mut Ctx<'_>) -> Vec<AnyElement> {
     let mut out: Vec<AnyElement> = Vec::new();
     // Tight list items carry bare inline events; they gather here until a block boundary.
     let mut inline = Inline::default();
@@ -298,7 +321,7 @@ fn blocks<'a>(events: Events<'a, '_>, end: Option<TagEnd>, ids: &mut usize) -> V
                         .rounded(px(6.0))
                         .bg(theme::bg_terminal())
                         .text_size(px(12.0))
-                        .child(code.trim_end_matches('\n').to_string())
+                        .child(ids.text(code.trim_end_matches('\n').to_string(), Vec::new()))
                         .into_any_element(),
                 );
             }
@@ -346,7 +369,7 @@ fn blocks<'a>(events: Events<'a, '_>, end: Option<TagEnd>, ids: &mut usize) -> V
 }
 
 /// Collect inline events up to `end` into one text element.
-fn inline_until<'a>(events: Events<'a, '_>, end: TagEnd, ids: &mut usize) -> AnyElement {
+fn inline_until<'a>(events: Events<'a, '_>, end: TagEnd, ids: &mut Ctx<'_>) -> AnyElement {
     let mut inline = Inline::default();
     for ev in &mut *events {
         if let Event::End(e) = &ev
@@ -359,7 +382,7 @@ fn inline_until<'a>(events: Events<'a, '_>, end: TagEnd, ids: &mut usize) -> Any
     inline.into_element(ids)
 }
 
-fn list<'a>(events: Events<'a, '_>, first: Option<u64>, ids: &mut usize) -> AnyElement {
+fn list<'a>(events: Events<'a, '_>, first: Option<u64>, ids: &mut Ctx<'_>) -> AnyElement {
     let mut col = div().flex().flex_col().gap(px(4.0));
     let mut n = first.unwrap_or(1);
     while let Some(ev) = events.next() {
@@ -372,7 +395,20 @@ fn list<'a>(events: Events<'a, '_>, first: Option<u64>, ids: &mut usize) -> AnyE
                 } else {
                     "•".to_string()
                 };
+                let depth = ids.sink.map_or(0, |s| s.depth());
+                if let Some(sink) = ids.sink {
+                    let bullet = if first.is_some() {
+                        format!("{marker} ")
+                    } else {
+                        "- ".to_string()
+                    };
+                    sink.item_marker(format!("{}{bullet}", "  ".repeat(depth)));
+                    sink.set_depth(depth + 1);
+                }
                 let inner = blocks(events, Some(TagEnd::Item), ids);
+                if let Some(sink) = ids.sink {
+                    sink.set_depth(depth);
+                }
                 col = col.child(
                     div()
                         .flex()
@@ -401,7 +437,7 @@ fn list<'a>(events: Events<'a, '_>, first: Option<u64>, ids: &mut usize) -> AnyE
     div().pl(px(6.0)).child(col).into_any_element()
 }
 
-fn table<'a>(events: Events<'a, '_>, ids: &mut usize) -> AnyElement {
+fn table<'a>(events: Events<'a, '_>, ids: &mut Ctx<'_>) -> AnyElement {
     let mut rows: Vec<(bool, Vec<AnyElement>)> = Vec::new();
     let mut head = false;
     let mut cells: Vec<AnyElement> = Vec::new();

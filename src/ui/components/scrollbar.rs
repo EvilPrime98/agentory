@@ -32,6 +32,10 @@ impl Scrollbar {
         }
     }
 
+    pub fn handle(&self) -> &ScrollHandle {
+        &self.handle
+    }
+
     pub fn overlay<E>(&self, scroll: E) -> Div
     where
         E: StatefulInteractiveElement + Styled + IntoElement,

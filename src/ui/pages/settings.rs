@@ -10,6 +10,7 @@ use crate::i18n::{LanguagePref, t};
 use crate::platform::logging;
 use crate::route::{GoBack, Navigate};
 use crate::state::Stores;
+use crate::state::prefs::SessionView;
 use crate::state::prefs::{DEFAULT_DOC_PROMPT, DEFAULT_WORKFLOW_TOOLS, MAX_FONT, MIN_FONT};
 use crate::ui::components::button::{ButtonVariant, button, small_button};
 use crate::ui::components::checkbox::checkbox;
@@ -274,7 +275,30 @@ impl SettingsPage {
             .collect();
         let projects_store = self.stores.projects.clone();
 
+        let view_stores = self.stores.clone();
+        let default_view = prefs.default_view;
         let mut col = div().flex().flex_col().gap(px(16.0)).child(list(vec![
+            setting_row(
+                t("settings.sessions.view_title"),
+                Some(t("settings.sessions.view_hint").into()),
+                segmented(
+                    "pref-view",
+                    SessionView::ALL
+                        .iter()
+                        .map(|v| t(v.label_key()).into())
+                        .collect(),
+                    SessionView::ALL
+                        .iter()
+                        .position(|v| *v == default_view)
+                        .unwrap_or(0),
+                    move |i, _, cx| {
+                        view_stores.prefs.update(cx, |p, cx| {
+                            p.update(cx, |p| p.default_view = SessionView::ALL[i])
+                        });
+                    },
+                )
+                .w_full(),
+            ),
             checkbox(
                 "pref-worktree",
                 t("settings.sessions.worktree"),

@@ -7,9 +7,29 @@ use serde::{Deserialize, Serialize};
 use crate::i18n::LanguagePref;
 use crate::ui::theme::ThemePref;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SessionView {
+    #[default]
+    Terminal,
+    Chat,
+}
+
+impl SessionView {
+    pub const ALL: [Self; 2] = [Self::Terminal, Self::Chat];
+
+    pub fn label_key(self) -> &'static str {
+        match self {
+            Self::Terminal => "sessions.view.terminal",
+            Self::Chat => "sessions.view.chat",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Prefs {
+    pub default_view: SessionView,
     /// Program started in each session. Empty means `claude` from PATH.
     pub claude_command: String,
     pub workflow_allowed_tools: String,
@@ -45,6 +65,7 @@ impl Prefs {
 impl Default for Prefs {
     fn default() -> Self {
         Self {
+            default_view: SessionView::Terminal,
             claude_command: String::new(),
             workflow_allowed_tools: DEFAULT_WORKFLOW_TOOLS.into(),
             ask_worktree: true,

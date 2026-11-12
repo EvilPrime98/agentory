@@ -53,6 +53,7 @@ pub struct TextArea {
     metrics: Rc<Cell<Metrics>>,
     /// Cached first visual row of each line (plus a total at the end) for the given `cols`.
     layout: RefCell<Option<(usize, Rc<Vec<usize>>)>>,
+    submit_on_enter: bool,
 }
 
 #[derive(Clone)]
@@ -86,7 +87,55 @@ impl TextArea {
             scroll: ScrollHandle::new(),
             metrics: Rc::default(),
             layout: RefCell::new(None),
+            submit_on_enter: false,
         }
+    }
+
+    pub fn submit_on_enter(mut self) -> Self {
+        self.submit_on_enter = true;
+        self
+    }
+
+    pub fn text_before_caret(&self) -> String {
+        let (line, col) = self.caret;
+        let mut out = self.lines[..line].join("\n");
+        if line > 0 {
+            out.push('\n');
+        }
+        out.extend(self.lines[line].chars().take(col));
+        out
+    }
+
+    pub fn replace_before_caret(&mut self, chars: usize, with: &str, cx: &mut Context<Self>) {
+        let (line, col) = self.caret;
+        if chars > col {
+            return;
+        }
+        self.undo.push(self.snapshot());
+        self.redo.clear();
+        self.typing = false;
+        self.anchor = Some((line, col - chars));
+        self.insert(with);
+        cx.emit(TextAreaEvent::Changed);
+        cx.notify();
+    }
+
+    pub fn set_text(&mut self, value: &str, cx: &mut Context<Self>) {
+        self.set_value(value, cx);
+        let last = self.lines.len() - 1;
+        self.caret = (last, self.line_len(last));
+    }
+
+    pub fn caret_on_first_line(&self) -> bool {
+        self.caret.0 == 0
+    }
+
+    pub fn caret_on_last_line(&self) -> bool {
+        self.caret.0 + 1 == self.lines.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.lines.iter().all(|l| l.is_empty())
     }
 
     pub fn value(&self) -> String {
@@ -153,6 +202,10 @@ impl TextArea {
     fn selection(&self) -> Option<((usize, usize), (usize, usize))> {
         let anchor = self.anchor?;
         (anchor != self.caret).then(|| (anchor.min(self.caret), anchor.max(self.caret)))
+    }
+
+    pub fn has_selection(&self) -> bool {
+        self.selection().is_some()
     }
 
     fn selected_text(&self) -> Option<String> {
@@ -364,12 +417,14 @@ impl TextArea {
 
     fn on_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
         let ks = &event.keystroke;
-        let command = ks.modifiers.control || ks.modifiers.platform;
+        let altgr = super::is_altgr(ks);
+        let command = (ks.modifiers.control && !altgr) || ks.modifiers.platform;
+        let alt = ks.modifiers.alt && !altgr;
         let shift = ks.modifiers.shift;
         let (line, col) = self.caret;
         let mut vertical = false;
         let before = self.snapshot();
-        let typed = !command && !ks.modifiers.alt && ks.key_char.is_some() && ks.key != "enter";
+        let typed = !command && !alt && ks.key_char.is_some() && ks.key != "enter";
         match ks.key.as_str() {
             "z" if command && !shift => {
                 if self.undo() {
@@ -382,7 +437,9 @@ impl TextArea {
                 }
             }
             "s" if command => cx.emit(TextAreaEvent::Save),
-            "enter" if command => cx.emit(TextAreaEvent::Submit),
+            "enter" if command || (self.submit_on_enter && !shift) => {
+                cx.emit(TextAreaEvent::Submit)
+            }
             "enter" => {
                 self.insert("\n");
                 cx.emit(TextAreaEvent::Changed);
@@ -478,7 +535,7 @@ impl TextArea {
                 }
             }
             "escape" => return,
-            _ if command || ks.modifiers.alt => return,
+            _ if command || alt => return,
             _ => match &ks.key_char {
                 Some(ch) => {
                     self.insert(ch);
