@@ -34,6 +34,7 @@ icons! {
     Folder => "folder",
     FolderPlus => "folder-plus",
     Gear => "gear",
+    Globe => "globe",
     Heart => "heart",
     History => "history",
     Minus => "minus",

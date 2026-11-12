@@ -357,6 +357,7 @@ pub async fn run_step(
     dir: &Path,
     model: &str,
     prompt: &str,
+    allowed_tools: &str,
     cancel: Arc<Notify>,
 ) -> StepOutcome {
     let resolved =
@@ -368,7 +369,11 @@ pub async fn run_step(
     } else {
         Command::new(&resolved)
     };
-    cmd.arg("-p");
+    cmd.arg("-p").arg("--permission-mode").arg("acceptEdits");
+    let tools: Vec<&str> = allowed_tools.split_whitespace().collect();
+    if !tools.is_empty() {
+        cmd.arg("--allowedTools").args(tools);
+    }
     if !model.trim().is_empty() {
         cmd.arg("--model").arg(model.trim());
     }

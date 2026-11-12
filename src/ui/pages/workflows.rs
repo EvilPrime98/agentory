@@ -313,12 +313,14 @@ impl WorkflowsPage {
             return;
         };
         let input = self.task.read(cx).value().trim().to_string();
-        let program = self.stores.prefs.read(cx).prefs.program().to_string();
+        let (program, tools) = {
+            let p = &self.stores.prefs.read(cx).prefs;
+            (p.program().to_string(), p.workflow_allowed_tools.clone())
+        };
         let pid = self.project_id.clone();
-        let started = self
-            .stores
-            .workflows
-            .update(cx, |s, cx| s.start(&pid, root, &target, input, program, cx));
+        let started = self.stores.workflows.update(cx, |s, cx| {
+            s.start(&pid, root, &target, input, program, tools, cx)
+        });
         match started {
             Some(id) => self.viewing = Some(id),
             None => toast::error(cx, t("workflows.cannot_start")),
@@ -328,11 +330,14 @@ impl WorkflowsPage {
 
     fn resume_run(&mut self, run_id: &str, from: usize, cx: &mut Context<Self>) {
         let Some(root) = self.root(cx) else { return };
-        let program = self.stores.prefs.read(cx).prefs.program().to_string();
+        let (program, tools) = {
+            let p = &self.stores.prefs.read(cx).prefs;
+            (p.program().to_string(), p.workflow_allowed_tools.clone())
+        };
         let (pid, rid) = (self.project_id.clone(), run_id.to_string());
-        self.stores
-            .workflows
-            .update(cx, |s, cx| s.resume(&pid, root, &rid, from, program, cx));
+        self.stores.workflows.update(cx, |s, cx| {
+            s.resume(&pid, root, &rid, from, program, tools, cx)
+        });
     }
 
     fn open_as_session(&self, prompt: &str, cx: &mut Context<Self>) {

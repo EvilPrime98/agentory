@@ -12,6 +12,7 @@ use crate::ui::theme::ThemePref;
 pub struct Prefs {
     /// Program started in each session. Empty means `claude` from PATH.
     pub claude_command: String,
+    pub workflow_allowed_tools: String,
     /// Offer a git worktree when starting a session in a git project.
     pub ask_worktree: bool,
     /// Submit the prompt (not just type it) when running a doc from the Docs page.
@@ -45,6 +46,7 @@ impl Default for Prefs {
     fn default() -> Self {
         Self {
             claude_command: String::new(),
+            workflow_allowed_tools: DEFAULT_WORKFLOW_TOOLS.into(),
             ask_worktree: true,
             send_doc_prompt: false,
             doc_prompt: DEFAULT_DOC_PROMPT.into(),
@@ -59,6 +61,8 @@ impl Default for Prefs {
         }
     }
 }
+
+pub const DEFAULT_WORKFLOW_TOOLS: &str = "Bash(cargo:*) Bash(git:*) Bash(graphify:*)";
 
 pub const DEFAULT_DOC_PROMPT: &str = "@docs/{doc} -> implement";
 
