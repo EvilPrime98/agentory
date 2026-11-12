@@ -148,6 +148,7 @@ impl WorkflowsStore {
         workflow_id: &str,
         input: String,
         program: String,
+        allowed_tools: String,
         cx: &mut Context<Self>,
     ) -> Option<String> {
         if self.workflow_busy(project_id, workflow_id) {
@@ -165,7 +166,15 @@ impl WorkflowsStore {
             .entry(project_id.to_string())
             .or_default()
             .insert(0, run);
-        self.drive(project_id.to_string(), root, id.clone(), 0, program, cx);
+        self.drive(
+            project_id.to_string(),
+            root,
+            id.clone(),
+            0,
+            program,
+            allowed_tools,
+            cx,
+        );
         Some(id)
     }
 
@@ -176,6 +185,7 @@ impl WorkflowsStore {
         run_id: &str,
         from: usize,
         program: String,
+        allowed_tools: String,
         cx: &mut Context<Self>,
     ) {
         if self.is_active(run_id) {
@@ -215,6 +225,7 @@ impl WorkflowsStore {
             run_id.to_string(),
             from,
             program,
+            allowed_tools,
             cx,
         );
     }
@@ -239,6 +250,7 @@ impl WorkflowsStore {
         run_id: String,
         from: usize,
         program: String,
+        allowed_tools: String,
         cx: &mut Context<Self>,
     ) {
         let cancel = Arc::new(Notify::new());
@@ -253,8 +265,9 @@ impl WorkflowsStore {
                     .flatten();
                 let Some((prompt, model)) = begun else { break };
                 let (prog, dir, c) = (program.clone(), root.clone(), cancel.clone());
+                let tools = allowed_tools.clone();
                 let outcome = runtime::run(async move {
-                    workflow::run_step(&prog, &dir, &model, &prompt, c).await
+                    workflow::run_step(&prog, &dir, &model, &prompt, &tools, c).await
                 })
                 .await;
                 let go_on = this

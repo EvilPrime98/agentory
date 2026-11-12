@@ -35,6 +35,8 @@
   "settings.tab.data": "Datos",
   "settings.sessions.doc_prompt_title": "Prompt de docs",
   "settings.sessions.doc_prompt": "Prompt de la página Docs. {doc} es la ruta del doc. Déjalo vacío para el valor por defecto.",
+  "settings.sessions.tools_title": "Herramientas de workflows",
+  "settings.sessions.tools": "Herramientas que los pasos de un workflow pueden usar sin preguntar (`--allowedTools`), separadas por espacios. Las ediciones siempre se permiten.",
   "settings.claude.title": "Claude Code",
   "settings.claude.hint": "Comando que se inicia en cada sesión. Déjalo vacío para usar `claude` del PATH.",
   "settings.sessions.title": "Sesiones",

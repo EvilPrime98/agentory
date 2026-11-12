@@ -35,6 +35,8 @@
   "settings.tab.data": "Data",
   "settings.sessions.doc_prompt_title": "Doc prompt",
   "settings.sessions.doc_prompt": "Docs page prompt. {doc} is the doc path. Leave empty for the default.",
+  "settings.sessions.tools_title": "Workflow tools",
+  "settings.sessions.tools": "Tools workflow steps may run without asking (`--allowedTools`), space separated. Edits are always allowed.",
   "settings.claude.title": "Claude Code",
   "settings.claude.hint": "Command started in each session. Leave empty for `claude` on PATH.",
   "settings.sessions.title": "Sessions",

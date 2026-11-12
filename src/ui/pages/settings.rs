@@ -10,7 +10,7 @@ use crate::i18n::{LanguagePref, t};
 use crate::platform::logging;
 use crate::route::{GoBack, Navigate};
 use crate::state::Stores;
-use crate::state::prefs::{DEFAULT_DOC_PROMPT, MAX_FONT, MIN_FONT};
+use crate::state::prefs::{DEFAULT_DOC_PROMPT, DEFAULT_WORKFLOW_TOOLS, MAX_FONT, MIN_FONT};
 use crate::ui::components::button::{ButtonVariant, button, small_button};
 use crate::ui::components::checkbox::checkbox;
 use crate::ui::components::scrollbar::Scrollbar;
@@ -45,6 +45,7 @@ pub struct SettingsPage {
     stores: Stores,
     claude_input: Entity<TextInput>,
     doc_prompt_input: Entity<TextInput>,
+    tools_input: Entity<TextInput>,
     tab: SettingsTab,
     _subs: Vec<Subscription>,
 }
@@ -151,6 +152,9 @@ impl SettingsPage {
         let initial = stores.prefs.read(cx).prefs.doc_prompt.clone();
         let doc_prompt_input =
             cx.new(|cx| TextInput::new(DEFAULT_DOC_PROMPT, cx).with_value(initial));
+        let initial = stores.prefs.read(cx).prefs.workflow_allowed_tools.clone();
+        let tools_input =
+            cx.new(|cx| TextInput::new(DEFAULT_WORKFLOW_TOOLS, cx).with_value(initial));
         let subs = vec![
             cx.observe(&stores.prefs, |_, _, cx| cx.notify()),
             cx.observe(&stores.projects, |_, _, cx| cx.notify()),
@@ -161,6 +165,14 @@ impl SettingsPage {
                     this.stores
                         .prefs
                         .update(cx, |p, cx| p.update(cx, |p| p.claude_command = value));
+                }
+            }),
+            cx.subscribe(&tools_input, |this, input, ev: &TextInputEvent, cx| {
+                if matches!(ev, TextInputEvent::Changed) {
+                    let value = input.read(cx).value().to_string();
+                    this.stores.prefs.update(cx, |p, cx| {
+                        p.update(cx, |p| p.workflow_allowed_tools = value)
+                    });
                 }
             }),
             cx.subscribe(&doc_prompt_input, |this, input, ev: &TextInputEvent, cx| {
@@ -178,6 +190,7 @@ impl SettingsPage {
             stores,
             claude_input,
             doc_prompt_input,
+            tools_input,
             tab: SettingsTab::General,
             _subs: subs,
         }
@@ -280,6 +293,11 @@ impl SettingsPage {
                 t("settings.sessions.doc_prompt_title"),
                 Some(t("settings.sessions.doc_prompt").into()),
                 self.doc_prompt_input.clone(),
+            ),
+            wide_row(
+                t("settings.sessions.tools_title"),
+                Some(t("settings.sessions.tools").into()),
+                self.tools_input.clone(),
             ),
             checkbox(
                 "pref-notify",
