@@ -151,11 +151,22 @@ impl ChatView {
                     .background_executor()
                     .spawn(async move {
                         let items = tail.poll();
-                        (tail, items)
+                        let reset = tail.take_reset();
+                        (tail, (reset, items))
                     })
                     .await;
                 tail = back;
-                if this.update(cx, |this, cx| this.refresh(items, cx)).is_err() {
+                let (reset, items) = items;
+                if this
+                    .update(cx, |this, cx| {
+                        if reset {
+                            this.entries.clear();
+                            cx.notify();
+                        }
+                        this.refresh(items, cx)
+                    })
+                    .is_err()
+                {
                     break;
                 }
                 cx.background_executor().timer(POLL).await;

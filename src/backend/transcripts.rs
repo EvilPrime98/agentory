@@ -409,6 +409,7 @@ pub struct Tail {
     path: Option<PathBuf>,
     offset: u64,
     partial: Vec<u8>,
+    reset: bool,
 }
 
 impl Tail {
@@ -418,7 +419,12 @@ impl Tail {
             path: None,
             offset: 0,
             partial: Vec::new(),
+            reset: false,
         }
+    }
+
+    pub fn take_reset(&mut self) -> bool {
+        std::mem::take(&mut self.reset)
     }
 
     pub fn poll(&mut self) -> Vec<ChatItem> {
@@ -435,6 +441,7 @@ impl Tail {
         if len < self.offset {
             self.offset = 0;
             self.partial.clear();
+            self.reset = true;
         }
         if len == self.offset || file.seek(SeekFrom::Start(self.offset)).is_err() {
             return Vec::new();
@@ -637,6 +644,23 @@ mod tests {
         fs::write(&path, format!("{line}\n")).unwrap();
         assert_eq!(tail.poll(), vec![ChatItem::User("hello".into())]);
         assert!(tail.poll().is_empty());
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn tail_flags_reset_when_file_shrinks() {
+        let dir = std::env::temp_dir().join(format!("agentory-tail-reset-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("t.jsonl");
+        let mut tail = Tail::new("t");
+        tail.path = Some(path.clone());
+        fs::write(&path, format!("{}\n{}\n", user("one"), user("two"))).unwrap();
+        assert_eq!(tail.poll().len(), 2);
+        assert!(!tail.take_reset());
+        fs::write(&path, format!("{}\n", user("a"))).unwrap();
+        assert_eq!(tail.poll(), vec![ChatItem::User("a".into())]);
+        assert!(tail.take_reset());
+        assert!(!tail.take_reset());
         fs::remove_dir_all(&dir).ok();
     }
 
