@@ -1,4 +1,5 @@
 pub mod app_loader;
+pub mod chat;
 pub mod components;
 pub mod confirm;
 pub mod icons;

@@ -224,7 +224,9 @@ impl TextInput {
         let ks = &event.keystroke;
         self.last_activity = Instant::now();
         let len = self.len();
-        let command = ks.modifiers.control || ks.modifiers.platform;
+        let altgr = super::is_altgr(ks);
+        let command = (ks.modifiers.control && !altgr) || ks.modifiers.platform;
+        let alt = ks.modifiers.alt && !altgr;
         let shift = ks.modifiers.shift;
         match ks.key.as_str() {
             "enter" => cx.emit(TextInputEvent::Submit),
@@ -295,7 +297,7 @@ impl TextInput {
                     self.insert(&text, cx);
                 }
             }
-            _ if command || ks.modifiers.alt => return,
+            _ if command || alt => return,
             _ => match &ks.key_char {
                 Some(ch) => self.insert(ch, cx),
                 None => return,

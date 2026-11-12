@@ -1,6 +1,7 @@
 //! Plain async functions over the outside world (`git`, the built-in `spm`). Call them only through
 //! `runtime::run`.
 
+pub mod completions;
 pub mod git;
 pub mod spm;
 pub mod transcripts;

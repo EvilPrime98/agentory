@@ -443,6 +443,16 @@ impl Terminal {
         }
     }
 
+    pub fn screen_text(&self) -> String {
+        let mut p = lock(&self.parser);
+        let view = p.screen().scrollback();
+        p.set_scrollback(0);
+        let cols = p.screen().size().1;
+        let text = p.screen().rows(0, cols).collect::<Vec<_>>().join("\n");
+        p.set_scrollback(view);
+        text
+    }
+
     pub fn send(&mut self, bytes: &[u8]) {
         if self.exited {
             return;

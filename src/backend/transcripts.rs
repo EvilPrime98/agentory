@@ -277,6 +277,184 @@ pub fn age(modified_ms: i64, now_ms: i64) -> (&'static str, i64) {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum ChatItem {
+    User(String),
+    Assistant(String),
+    ToolCall {
+        id: String,
+        name: String,
+        summary: String,
+        input: String,
+    },
+    ToolResult {
+        id: String,
+        text: String,
+        is_error: bool,
+    },
+}
+
+const MAX_TOOL_TEXT: usize = 20_000;
+
+fn tool_summary(input: &Value) -> String {
+    const KEYS: [&str; 7] = [
+        "command",
+        "file_path",
+        "path",
+        "pattern",
+        "description",
+        "url",
+        "query",
+    ];
+    let found = KEYS
+        .iter()
+        .find_map(|k| input.get(*k).and_then(Value::as_str))
+        .or_else(|| input.as_object()?.values().find_map(Value::as_str));
+    truncate(found.unwrap_or(""), 120)
+}
+
+fn clip(text: &str) -> String {
+    if text.len() <= MAX_TOOL_TEXT {
+        return text.to_string();
+    }
+    let mut end = MAX_TOOL_TEXT;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &text[..end])
+}
+
+fn result_text(content: Option<&Value>) -> String {
+    match content {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Array(blocks)) => blocks
+            .iter()
+            .filter_map(|b| b.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
+}
+
+pub fn parse_chat_line(line: &str) -> Vec<ChatItem> {
+    let Ok(entry) = serde_json::from_str::<Value>(line) else {
+        return Vec::new();
+    };
+    if entry.get("isSidechain").and_then(Value::as_bool) == Some(true) {
+        return Vec::new();
+    }
+    match entry.get("type").and_then(Value::as_str) {
+        Some("user") => {
+            let mut out = Vec::new();
+            if let Some(blocks) = entry.pointer("/message/content").and_then(Value::as_array) {
+                for b in blocks {
+                    if b.get("type").and_then(Value::as_str) == Some("tool_result") {
+                        out.push(ChatItem::ToolResult {
+                            id: b
+                                .get("tool_use_id")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default()
+                                .to_string(),
+                            text: clip(&result_text(b.get("content"))),
+                            is_error: b.get("is_error").and_then(Value::as_bool) == Some(true),
+                        });
+                    }
+                }
+            }
+            if let Some(text) = prompt_text(&entry) {
+                out.push(ChatItem::User(text));
+            }
+            out
+        }
+        Some("assistant") => {
+            let Some(blocks) = entry.pointer("/message/content").and_then(Value::as_array) else {
+                return Vec::new();
+            };
+            blocks
+                .iter()
+                .filter_map(|b| match b.get("type").and_then(Value::as_str)? {
+                    "text" => {
+                        let text = b.get("text").and_then(Value::as_str)?.trim();
+                        (!text.is_empty()).then(|| ChatItem::Assistant(text.to_string()))
+                    }
+                    "tool_use" => {
+                        let input = b.get("input").cloned().unwrap_or(Value::Null);
+                        Some(ChatItem::ToolCall {
+                            id: b.get("id").and_then(Value::as_str)?.to_string(),
+                            name: b.get("name").and_then(Value::as_str)?.to_string(),
+                            summary: tool_summary(&input),
+                            input: clip(&serde_json::to_string_pretty(&input).unwrap_or_default()),
+                        })
+                    }
+                    _ => None,
+                })
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+pub fn find_file(id: &str) -> Option<PathBuf> {
+    let root = claude_dir()?.join("projects");
+    let name = format!("{id}.jsonl");
+    fs::read_dir(root)
+        .ok()?
+        .flatten()
+        .map(|d| d.path().join(&name))
+        .find(|p| p.is_file())
+}
+
+pub struct Tail {
+    id: String,
+    path: Option<PathBuf>,
+    offset: u64,
+    partial: Vec<u8>,
+}
+
+impl Tail {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            path: None,
+            offset: 0,
+            partial: Vec::new(),
+        }
+    }
+
+    pub fn poll(&mut self) -> Vec<ChatItem> {
+        if self.path.is_none() {
+            self.path = find_file(&self.id);
+        }
+        let Some(path) = &self.path else {
+            return Vec::new();
+        };
+        let Ok(mut file) = File::open(path) else {
+            return Vec::new();
+        };
+        let len = file.metadata().map_or(0, |m| m.len());
+        if len < self.offset {
+            self.offset = 0;
+            self.partial.clear();
+        }
+        if len == self.offset || file.seek(SeekFrom::Start(self.offset)).is_err() {
+            return Vec::new();
+        }
+        let mut buf = Vec::new();
+        let _ = file.take(len - self.offset).read_to_end(&mut buf);
+        self.offset += buf.len() as u64;
+        self.partial.extend_from_slice(&buf);
+        let Some(end) = self.partial.iter().rposition(|&b| b == b'\n') else {
+            return Vec::new();
+        };
+        let rest = self.partial.split_off(end + 1);
+        let done = std::mem::replace(&mut self.partial, rest);
+        String::from_utf8_lossy(&done)
+            .lines()
+            .flat_map(parse_chat_line)
+            .collect()
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Rename sidecar
 // ---------------------------------------------------------------------------------------------
@@ -420,6 +598,46 @@ mod tests {
             Path::new("c:/users/a/p/")
         ));
         assert!(!same_dir(Path::new("C:/a"), Path::new("C:/b")));
+    }
+
+    #[test]
+    fn chat_lines() {
+        assert_eq!(
+            parse_chat_line(&user("hi")),
+            vec![ChatItem::User("hi".into())]
+        );
+        let a = r#"{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"x"},{"type":"text","text":"ok"},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}"#;
+        let items = parse_chat_line(a);
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0], ChatItem::Assistant("ok".into()));
+        assert!(matches!(&items[1], ChatItem::ToolCall { summary, .. } if summary == "ls"));
+        let r = r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"out"}],"is_error":true}]}}"#;
+        assert_eq!(
+            parse_chat_line(r),
+            vec![ChatItem::ToolResult {
+                id: "t1".into(),
+                text: "out".into(),
+                is_error: true
+            }]
+        );
+        let side = r#"{"type":"user","isSidechain":true,"message":{"content":"x"}}"#;
+        assert!(parse_chat_line(side).is_empty());
+    }
+
+    #[test]
+    fn tail_waits_for_complete_lines() {
+        let dir = std::env::temp_dir().join(format!("agentory-tail-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("t.jsonl");
+        let mut tail = Tail::new("t");
+        tail.path = Some(path.clone());
+        let line = user("hello");
+        fs::write(&path, &line.as_bytes()[..10]).unwrap();
+        assert!(tail.poll().is_empty());
+        fs::write(&path, format!("{line}\n")).unwrap();
+        assert_eq!(tail.poll(), vec![ChatItem::User("hello".into())]);
+        assert!(tail.poll().is_empty());
+        fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

@@ -18,7 +18,7 @@ use crate::route::Route;
 use crate::runtime;
 use crate::selfbuild::upstream;
 use crate::state::Stores;
-use crate::state::prefs::Prefs;
+use crate::state::prefs::{Prefs, SessionView};
 use crate::ui::confirm::{self, ConfirmOptions};
 use crate::ui::terminal::{Terminal, TerminalExited, TerminalTitle};
 use crate::ui::toast;
@@ -27,6 +27,25 @@ const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const MAX_TITLE_CHARS: usize = 40;
 const PREFILL_DELAY: Duration = Duration::from_millis(2500);
 const SUBMIT_DELAY: Duration = Duration::from_millis(400);
+
+fn new_uuid() -> String {
+    use sha2::{Digest, Sha256};
+    let seed = format!("{}{}", new_id("u"), std::process::id());
+    let mut b: [u8; 16] = Sha256::digest(seed.as_bytes())[..16]
+        .try_into()
+        .unwrap_or_default();
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    let h: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    format!(
+        "{}-{}-{}-{}-{}",
+        &h[0..8],
+        &h[8..12],
+        &h[12..16],
+        &h[16..20],
+        &h[20..32]
+    )
+}
 
 /// A session name from a terminal title: status glyphs and spinners stripped, long titles
 /// ellipsized. `None` for titles that say nothing about the conversation.
@@ -84,6 +103,8 @@ pub struct Session {
     pub worktree: Option<Worktree>,
     /// Claude's session id when this session was started with `--resume`.
     pub resume_id: Option<String>,
+    pub claude_id: Option<String>,
+    pub view: SessionView,
     pub status: SessionStatus,
     pub terminal: Entity<Terminal>,
     _exit_sub: Subscription,
@@ -123,6 +144,34 @@ impl SessionsStore {
             revision: 0,
             app_active: true,
         }
+    }
+
+    pub fn set_view(&mut self, id: &str, view: SessionView, cx: &mut Context<Self>) {
+        let Some(s) = self.items.iter_mut().find(|s| s.id == id) else {
+            return;
+        };
+        if !s.kind.is_agent() || s.view == view {
+            return;
+        }
+        s.view = view;
+        cx.notify();
+    }
+
+    pub fn submit(&self, id: &str, text: &str, cx: &mut Context<Self>) {
+        let Some(terminal) = self.get(id).map(|s| s.terminal.clone()) else {
+            return;
+        };
+        let body = if text.contains('\n') {
+            format!("\x1b[200~{text}\x1b[201~")
+        } else {
+            text.to_string()
+        };
+        terminal.update(cx, |t, _| t.send(body.as_bytes()));
+        cx.spawn(async move |_, cx| {
+            cx.background_executor().timer(SUBMIT_DELAY).await;
+            terminal.update(cx, |t, _| t.send(b"\r"));
+        })
+        .detach();
     }
 
     pub fn get(&self, id: &str) -> Option<&Session> {
@@ -222,6 +271,7 @@ impl SessionsStore {
         let cwd = worktree
             .as_ref()
             .map_or_else(|| project.path.clone(), |w| w.path.clone());
+        let claude_id = resume_id.clone().unwrap_or_else(new_uuid);
         let (program, args) = if std::env::var_os("AGENTORY_SHELL").is_some() {
             // Dev aid: a plain shell instead of Claude.
             ("powershell.exe".to_string(), Vec::new())
@@ -245,6 +295,9 @@ impl SessionsStore {
             if let Some(resume) = &resume_id {
                 args.push("--resume".to_string());
                 args.push(resume.clone());
+            } else {
+                args.push("--session-id".to_string());
+                args.push(claude_id.clone());
             }
             (program.to_string_lossy().into_owned(), args)
         };
@@ -294,6 +347,8 @@ impl SessionsStore {
             cwd,
             worktree,
             resume_id,
+            claude_id: Some(claude_id),
+            view: prefs.default_view,
             status: SessionStatus::Starting,
             terminal,
             _exit_sub: exit_sub,
@@ -366,6 +421,8 @@ impl SessionsStore {
             cwd,
             worktree: None,
             resume_id: None,
+            claude_id: None,
+            view: SessionView::Terminal,
             status: SessionStatus::Starting,
             terminal,
             _exit_sub: exit_sub,
