@@ -2,7 +2,7 @@
 
 use crate::i18n::t;
 
-/// App pages. `Skills`, `Docs`, `Git` and `SessionHistory` carry the id of the project it manages; `SkillEditor` the project id and
+/// App pages. `Skills`, `Docs`, `Git`, `Github` and `SessionHistory` carry the id of the project it manages; `SkillEditor` the project id and
 /// the name of the installed skill being edited.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Route {
@@ -12,6 +12,7 @@ pub enum Route {
     Docs(String),
     /// Source control of this project id's repo.
     Git(String),
+    Github(String),
     /// Previous Claude Code sessions, opened filtered to this project id.
     SessionHistory(String),
     SkillEditor(String, String),
@@ -34,6 +35,7 @@ impl Route {
             Self::Skills(_) => "skills.title",
             Self::Docs(_) => "docs.title",
             Self::Git(_) => "git.title",
+            Self::Github(_) => "github.title",
             Self::SessionHistory(_) => "history.title",
             Self::SkillEditor(..) => "skill_editor.title",
             Self::DocPreview(..) => "doc_preview.title",

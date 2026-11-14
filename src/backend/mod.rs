@@ -2,6 +2,7 @@
 //! `runtime::run`.
 
 pub mod completions;
+pub mod gh;
 pub mod git;
 pub mod spm;
 pub mod transcripts;

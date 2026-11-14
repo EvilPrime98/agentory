@@ -469,6 +469,8 @@ impl Sidebar {
             matches!(&self.route, Route::Docs(id) | Route::DocPreview(id, _) if *id == project.id);
         let git_active = self.route == Route::Git(project.id.clone());
         let git_count = self.stores.git.read(cx).count(&project.id);
+        let github_active = self.route == Route::Github(project.id.clone());
+        let github_id = project.id.clone();
         let history_active = self.route == Route::SessionHistory(project.id.clone());
         let on_sessions = self.route == Route::Sessions;
         let skills_id = project.id.clone();
@@ -489,7 +491,7 @@ impl Sidebar {
         let page_rows = match (compact, is_global) {
             (true, _) => 0.0,
             (false, true) => 1.0,
-            (false, false) => 5.0,
+            (false, false) => 6.0,
         };
 
         let full_h = ROW_H * page_rows
@@ -836,6 +838,34 @@ impl Sidebar {
                                     .child(git_count.to_string()),
                             )
                         }),
+                )
+            })
+            .when(full_page, |s| {
+                s.child(
+                    div()
+                        .id(gpui::SharedString::from(format!("github-{}", project.id)))
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .h(px(ROW_H))
+                        .ml(px(26.0))
+                        .px(px(6.0))
+                        .rounded(px(6.0))
+                        .cursor_pointer()
+                        .when(github_active, |s| s.bg(theme::accent_soft()))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.stores
+                                .projects
+                                .update(cx, |p, cx| p.select(&github_id, cx));
+                            cx.emit(Navigate(Route::Github(github_id.clone())));
+                        }))
+                        .child(icon(Icon::Github, px(13.0)).text_color(theme::text_muted()))
+                        .child(
+                            div()
+                                .text_size(px(12.5))
+                                .text_color(theme::text())
+                                .child(t("sidebar.github")),
+                        ),
                 )
             })
             .when(full_page, |s| {

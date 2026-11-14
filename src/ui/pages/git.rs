@@ -34,7 +34,7 @@ use crate::ui::{theme, toast};
 /// How often the status is re-read while the page is open.
 const POLL: Duration = Duration::from_secs(3);
 /// Diff lines drawn; a bigger diff is cut with a note.
-const MAX_DIFF_LINES: usize = 3000;
+pub(super) const MAX_DIFF_LINES: usize = 3000;
 const LEFT_PANE_W: f32 = 340.0;
 const DIFF_ROW_H: f32 = 18.0;
 const DIFF_FONT_SIZE: f32 = 12.0;
@@ -152,7 +152,7 @@ fn kind_color(kind: ChangeKind) -> Rgba {
     }
 }
 
-fn tint(color: Rgba) -> Rgba {
+pub(super) fn tint(color: Rgba) -> Rgba {
     Rgba {
         alpha: 0.14,
         ..color
@@ -1704,99 +1704,116 @@ impl GitPage {
     }
 
     fn diff_pane(&self, window: &Window, title: Option<String>, empty: String) -> AnyElement {
-        let pane = div()
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_w_0()
-            .min_h_0()
-            .rounded(px(6.0))
-            .border_1()
-            .border_color(theme::border_subtle())
-            .bg(theme::bg_app());
-        let Some(title) = title else {
-            return pane
-                .items_center()
-                .justify_center()
-                .child(muted_note(empty.into()))
-                .into_any_element();
-        };
-        let total = self.diff.len();
-        let ts = window.text_system();
-        let char_w = ts
-            .advance(
-                ts.resolve_font(&gpui::font(theme::FONT)),
-                px(DIFF_FONT_SIZE),
-                'm',
-            )
-            .map(|s| f32::from(s.width))
-            .unwrap_or(7.0);
-        let longest = self
-            .diff
-            .iter()
-            .map(|l| l.text.chars().count())
-            .max()
-            .unwrap_or(0);
-        let content_w = DIFF_GUTTER_W + longest as f32 * char_w;
-
-        let view_h = f32::from(self.diff_scroll.bounds().size.height);
-        let visible = if view_h > 0.0 {
-            (view_h / DIFF_ROW_H).ceil() as usize
-        } else {
-            60
-        };
-        let top = (-f32::from(self.diff_scroll.offset().y)).max(0.0);
-        let first = ((top / DIFF_ROW_H) as usize)
-            .saturating_sub(DIFF_OVERSCAN)
-            .min(total);
-        let end = (first + visible + 2 * DIFF_OVERSCAN).min(total);
-        let rows: Vec<AnyElement> = self.diff[first..end].iter().map(diff_row).collect();
-        let above = div().flex_none().h(px(first as f32 * DIFF_ROW_H));
-        let below = div().flex_none().h(px((total - end) as f32 * DIFF_ROW_H));
-        pane.child(
-            div()
-                .px(px(12.0))
-                .py(px(8.0))
-                .border_b_1()
-                .border_color(theme::border_subtle())
-                .text_size(px(12.5))
-                .font_weight(gpui::FontWeight::SEMIBOLD)
-                .truncate()
-                .child(title),
+        diff_view(
+            window,
+            &self.diff,
+            self.diff_hidden,
+            &self.diff_scroll,
+            title,
+            empty,
         )
-        .child(
-            div()
-                .id("git-diff-scroll")
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_h_0()
-                .overflow_scroll()
-                .track_scroll(&self.diff_scroll)
-                .py(px(6.0))
-                .when(total == 0, |s| s.child(muted_note(t("git.no_diff").into())))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .flex_none()
-                        .min_w(px(content_w))
-                        .child(above)
-                        .children(rows)
-                        .child(below),
-                )
-                .when(self.diff_hidden > 0, |s| {
-                    s.child(muted_note(
-                        t_args("git.diff_cut", &[("n", &self.diff_hidden.to_string())]).into(),
-                    ))
-                }),
-        )
-        .into_any_element()
     }
 }
 
+pub(super) fn diff_view(
+    window: &Window,
+    diff: &[DiffLine],
+    hidden: usize,
+    scroll: &ScrollHandle,
+    title: Option<String>,
+    empty: String,
+) -> AnyElement {
+    let pane = div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w_0()
+        .min_h_0()
+        .rounded(px(6.0))
+        .border_1()
+        .border_color(theme::border_subtle())
+        .bg(theme::bg_app());
+    let Some(title) = title else {
+        return pane
+            .items_center()
+            .justify_center()
+            .child(muted_note(empty.into()))
+            .into_any_element();
+    };
+    let total = diff.len();
+    let ts = window.text_system();
+    let char_w = ts
+        .advance(
+            ts.resolve_font(&gpui::font(theme::FONT)),
+            px(DIFF_FONT_SIZE),
+            'm',
+        )
+        .map(|s| f32::from(s.width))
+        .unwrap_or(7.0);
+    let longest = diff
+        .iter()
+        .map(|l| l.text.chars().count())
+        .max()
+        .unwrap_or(0);
+    let content_w = DIFF_GUTTER_W + longest as f32 * char_w;
+
+    let view_h = f32::from(scroll.bounds().size.height);
+    let visible = if view_h > 0.0 {
+        (view_h / DIFF_ROW_H).ceil() as usize
+    } else {
+        60
+    };
+    let top = (-f32::from(scroll.offset().y)).max(0.0);
+    let first = ((top / DIFF_ROW_H) as usize)
+        .saturating_sub(DIFF_OVERSCAN)
+        .min(total);
+    let end = (first + visible + 2 * DIFF_OVERSCAN).min(total);
+    let rows: Vec<AnyElement> = diff[first..end].iter().map(diff_row).collect();
+    let above = div().flex_none().h(px(first as f32 * DIFF_ROW_H));
+    let below = div().flex_none().h(px((total - end) as f32 * DIFF_ROW_H));
+    pane.child(
+        div()
+            .px(px(12.0))
+            .py(px(8.0))
+            .border_b_1()
+            .border_color(theme::border_subtle())
+            .text_size(px(12.5))
+            .font_weight(gpui::FontWeight::SEMIBOLD)
+            .truncate()
+            .child(title),
+    )
+    .child(
+        div()
+            .id("git-diff-scroll")
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h_0()
+            .overflow_scroll()
+            .track_scroll(&scroll)
+            .py(px(6.0))
+            .when(total == 0, |s| s.child(muted_note(t("git.no_diff").into())))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_none()
+                    .min_w(px(content_w))
+                    .child(above)
+                    .children(rows)
+                    .child(below),
+            )
+            .when(hidden > 0, |s| {
+                s.child(muted_note(
+                    t_args("git.diff_cut", &[("n", &hidden.to_string())]).into(),
+                ))
+            }),
+    )
+    .into_any_element()
+}
+
 /// One diff line: old and new line numbers, then the text, tinted by kind.
-fn diff_row(line: &DiffLine) -> AnyElement {
+pub(super) fn diff_row(line: &DiffLine) -> AnyElement {
     let num = |n: Option<u32>| {
         div()
             .flex_none()
