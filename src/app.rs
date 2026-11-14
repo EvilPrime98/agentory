@@ -19,6 +19,7 @@ use crate::ui::confirm::{self, ConfirmHost, ConfirmOptions};
 use crate::ui::pages::doc_preview::DocPreviewPage;
 use crate::ui::pages::docs::DocsPage;
 use crate::ui::pages::git::GitPage;
+use crate::ui::pages::github::GithubPage;
 use crate::ui::pages::review::ReviewPage;
 use crate::ui::pages::session_history::SessionHistoryPage;
 use crate::ui::pages::sessions::SessionsPage;
@@ -67,6 +68,7 @@ enum Page {
     Docs(Entity<DocsPage>),
     DocPreview(Entity<DocPreviewPage>),
     Git(Entity<GitPage>),
+    Github(Entity<GithubPage>),
     SessionHistory(Entity<SessionHistoryPage>),
     SkillEditor(Entity<SkillEditorPage>),
     Review(Entity<ReviewPage>),
@@ -204,6 +206,7 @@ impl AppRoot {
                 | Route::Docs(id)
                 | Route::DocPreview(id, _)
                 | Route::Git(id)
+                | Route::Github(id)
                 | Route::Workflows(id)
                 | Route::SessionHistory(id) = this.history.current()
                 {
@@ -482,6 +485,21 @@ impl AppRoot {
                 ));
                 Page::Git(page)
             }
+            Route::Github(id) => {
+                self.stores.projects.update(cx, |p, cx| p.select(&id, cx));
+                let page = cx.new(|cx| GithubPage::new(self.stores.clone(), id, cx));
+                self._page_subs.push(cx.subscribe_in(
+                    &page,
+                    window,
+                    |this, _, ev: &Navigate, window, cx| this.navigate(ev.0.clone(), window, cx),
+                ));
+                self._page_subs.push(cx.subscribe_in(
+                    &page,
+                    window,
+                    |this, _, _: &GoBack, window, cx| this.go_back(window, cx),
+                ));
+                Page::Github(page)
+            }
             Route::SessionHistory(id) => {
                 self.stores.projects.update(cx, |p, cx| p.select(&id, cx));
                 let page =
@@ -617,6 +635,7 @@ impl Render for AppRoot {
             Page::Docs(page) => AnyView::from(page.clone()).into_any_element(),
             Page::DocPreview(page) => AnyView::from(page.clone()).into_any_element(),
             Page::Git(page) => AnyView::from(page.clone()).into_any_element(),
+            Page::Github(page) => AnyView::from(page.clone()).into_any_element(),
             Page::SessionHistory(page) => AnyView::from(page.clone()).into_any_element(),
             Page::SkillEditor(page) => AnyView::from(page.clone()).into_any_element(),
             Page::Review(page) => AnyView::from(page.clone()).into_any_element(),
