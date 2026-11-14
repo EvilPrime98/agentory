@@ -433,6 +433,7 @@
   "github.close.title": "Close #{n}?",
   "github.close.body": "#{n} will be closed. You can reopen it later.",
   "github.failed": "{op} failed",
+  "github.busy": "Another GitHub action is still running. Try again in a moment.",
   "github.delete_branch": "Delete branch",
   "github.delete_branch.title": "Delete branch?",
   "github.delete_branch.body": "The branch {branch} will be deleted on GitHub. The pull request stays merged; local copies of the branch are not touched."

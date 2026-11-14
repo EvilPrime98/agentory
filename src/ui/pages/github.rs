@@ -163,6 +163,8 @@ impl GithubPage {
 
     fn check_setup(&mut self, cx: &mut Context<Self>) {
         let Some(dir) = self.dir(cx) else {
+            self.setup = Some(Setup::NoRemote);
+            cx.notify();
             return;
         };
         self.setup = None;
@@ -187,6 +189,7 @@ impl GithubPage {
         match self.tab {
             Tab::Prs if self.pr.is_some() => {
                 self.load_pr(cx);
+                self.clear_diff();
                 if self.pr_view == PrView::Files {
                     self.load_diff(cx);
                 }
@@ -246,6 +249,7 @@ impl GithubPage {
         self.tab = tab;
         self.creating = false;
         self.list_error = None;
+        self.detail_error = None;
         self.load_list(cx);
         if tab == Tab::Prs && self.pr.is_some() && self.pr_detail.is_none() {
             self.load_pr(cx);
@@ -371,6 +375,7 @@ impl GithubPage {
                 if this.diff_gen != generation {
                     return;
                 }
+                let text_ok = text.is_ok();
                 let mut lines = match text {
                     Ok(text) => parse_diff(&text),
                     Err(e) => vec![DiffLine {
@@ -380,6 +385,7 @@ impl GithubPage {
                         text: e,
                     }],
                 };
+                this.diff_loaded = text_ok;
                 this.diff_hidden = lines.len().saturating_sub(MAX_DIFF_LINES);
                 lines.truncate(MAX_DIFF_LINES);
                 this.diff = lines;
@@ -411,6 +417,7 @@ impl GithubPage {
             return;
         };
         if self.busy {
+            toast::error(cx, t("github.busy"));
             return;
         }
         self.busy = true;

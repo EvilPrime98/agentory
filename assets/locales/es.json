@@ -433,6 +433,7 @@
   "github.close.title": "¿Cerrar #{n}?",
   "github.close.body": "#{n} se cerrará. Podrás reabrirlo después.",
   "github.failed": "{op} falló",
+  "github.busy": "Otra acción de GitHub sigue en curso. Inténtalo de nuevo en un momento.",
   "github.delete_branch": "Eliminar rama",
   "github.delete_branch.title": "¿Eliminar la rama?",
   "github.delete_branch.body": "La rama {branch} se eliminará en GitHub. El pull request sigue fusionado; las copias locales de la rama no se tocan."
