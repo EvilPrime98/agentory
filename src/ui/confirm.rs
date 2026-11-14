@@ -205,6 +205,10 @@ impl Render for ConfirmHost {
                     )
                     .child(
                         div()
+                            .id("confirm-message")
+                            .min_w_0()
+                            .max_h(px(320.0))
+                            .overflow_y_scroll()
                             .text_size(px(13.0))
                             .line_height(px(19.5))
                             .text_color(theme::text_secondary())
