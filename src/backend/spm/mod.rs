@@ -467,6 +467,15 @@ pub async fn prepare_install(
     .await
 }
 
+pub async fn prepare_install_from_hit(
+    project: &Path,
+    hit: Hit,
+    global: bool,
+) -> Result<Prepared, String> {
+    let project = project.to_path_buf();
+    blocking(move || prepare_install_hit(&project, &hit, market::SKILLSMP, global)).await
+}
+
 fn prepare_install_hit(
     project: &Path,
     hit: &Hit,
@@ -543,6 +552,35 @@ pub async fn prepare_update_latest(project: &Path, skill: &str) -> Result<Prepar
     .await
 }
 
+pub async fn outdated_skills(project: &Path) -> Result<Vec<String>, String> {
+    let project = project.to_path_buf();
+    blocking(move || {
+        let cfg = load(&Paths::of(&project))?;
+        let mut heads: BTreeMap<String, Option<String>> = BTreeMap::new();
+        let mut out = Vec::new();
+        for (name, entry) in &cfg.manifest.skills {
+            let Value::Object(o) = entry else { continue };
+            let (Some(repo), Some(pinned)) = (
+                o.get("repo").and_then(Value::as_str),
+                o.get("ref").and_then(Value::as_str),
+            ) else {
+                continue;
+            };
+            let head = heads.entry(repo.to_string()).or_insert_with(|| {
+                repo::remote_head(repo)
+                    .inspect_err(|e| tracing::warn!("update check for {repo} failed: {e}"))
+                    .ok()
+                    .flatten()
+            });
+            if head.as_deref().is_some_and(|h| !h.eq_ignore_ascii_case(pinned)) {
+                out.push(name.clone());
+            }
+        }
+        Ok(out)
+    })
+    .await
+}
+
 /// Second phase: copy a reviewed skill. A global install records nothing; a project install pins
 /// the manifest entry to the reviewed commit.
 pub async fn confirm(project: &Path, review: Review) -> Result<String, String> {
@@ -595,6 +633,7 @@ pub struct AvailableSkill {
     pub name: String,
     /// Empty when the pool has no usable description.
     pub description: String,
+    pub repo: String,
 }
 
 /// Every skill in the repo pool with its full description, by name.
@@ -619,6 +658,7 @@ fn available_rows(pool: &Pool) -> Vec<AvailableSkill> {
             description: std::fs::read_to_string(c.src.join("SKILL.md"))
                 .map(|t| store::parse_skill(&t).description)
                 .unwrap_or_default(),
+            repo: c.repo.clone(),
         })
         .collect()
 }

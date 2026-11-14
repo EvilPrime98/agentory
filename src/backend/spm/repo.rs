@@ -248,6 +248,20 @@ fn clone_at(repo: &RepoSpec, dir: &Path) -> Result<(), String> {
     })
 }
 
+pub fn remote_head(spec: &str) -> Result<Option<String>, String> {
+    let repo = parse_repo(spec)?;
+    if is_sha(repo.r#ref.as_deref()) {
+        return Ok(None);
+    }
+    let want = repo.r#ref.as_deref().unwrap_or("HEAD");
+    let out = git(&["ls-remote", "--", &repo.url, want], None)?;
+    Ok(out
+        .lines()
+        .next()
+        .and_then(|l| l.split_whitespace().next())
+        .map(str::to_lowercase))
+}
+
 /// `spec` pinned to `sha`, replacing any `#ref`.
 pub fn pin_spec(spec: &str, sha: &str) -> String {
     let base = spec.rfind('#').map_or(spec, |i| &spec[..i]);
