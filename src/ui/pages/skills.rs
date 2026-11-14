@@ -441,7 +441,7 @@ impl SkillsPage {
         let manifest = skills.snapshot.manifest.clone();
         let doctor = skills.doctor.clone();
         let on_disk_set: BTreeSet<String> = skills.snapshot.installed.iter().cloned().collect();
-        let latest_set = skills.latest.clone();
+        let outdated_set = skills.outdated.clone();
         // Declared in spm.json plus anything on disk.
         let mut names = on_disk_set.clone();
         if let Some(m) = &manifest {
@@ -490,7 +490,7 @@ impl SkillsPage {
                     .clone()
                     .filter(|_| on_disk)
                     .zip(hints.get(&name).cloned());
-                let is_latest = latest_set.contains(&name);
+                let is_outdated = outdated_set.contains(&name);
                 let latest_name = name.clone();
                 let is_confirming = confirming.as_deref() == Some(name.as_str());
 
@@ -606,7 +606,7 @@ impl SkillsPage {
                                 )),
                         )
                     })
-                    .when(is_market && !is_latest, |s| {
+                    .when(is_market && is_outdated, |s| {
                         s.child(small_button(
                             gpui::SharedString::from(format!("latest-skill-{name}")),
                             t("skills.update_latest"),
@@ -723,7 +723,10 @@ impl SkillsPage {
             .map(|(i, a)| {
                 let install_name = a.name.clone();
                 row_base(i)
-                    .child(result_text(a.name.clone(), vec![a.description.clone()]))
+                    .child(result_text(
+                        a.name.clone(),
+                        vec![a.repo.clone(), a.description.clone()],
+                    ))
                     .child(icon_button(
                         gpui::SharedString::from(format!("add-skill-{}", a.name)),
                         Icon::Plus,
@@ -746,7 +749,7 @@ impl SkillsPage {
             .enumerate()
             .map(|(i, h)| {
                 let id = h.id();
-                let install_id = id.clone();
+                let hit = h.clone();
                 let meta = if h.stars > 0 {
                     format!("{}  ★ {}", id, h.stars)
                 } else {
@@ -761,11 +764,11 @@ impl SkillsPage {
                         gpui::SharedString::from(format!("add-hit-{id}")),
                         Icon::Plus,
                         cx.listener(move |this, _, _, cx| {
-                            let id = install_id.clone();
+                            let hit = hit.clone();
                             let global = install_global;
-                            this.stores.skills.update(cx, |s, cx| {
-                                s.review_install("skillsmp".into(), id, global, cx)
-                            });
+                            this.stores
+                                .skills
+                                .update(cx, |s, cx| s.review_install_hit(hit, global, cx));
                         }),
                     ))
                     .into_any_element()
