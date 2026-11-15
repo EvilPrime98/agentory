@@ -13,10 +13,11 @@ use crate::backend::gh::{
     self, Check, CheckState, Comment, IssueDetail, IssueSummary, PrDetail, PrSummary, Setup,
 };
 use crate::backend::git::{DiffLine, LineKind, parse_diff};
-use crate::i18n::{t, t_args};
-use crate::route::{GoBack, Navigate};
+use crate::backend::transcripts;
+use crate::i18n::{t, t_args, t_n};
+use crate::route::{GoBack, Navigate, Route};
 use crate::runtime;
-use crate::state::Stores;
+use crate::state::{Stores, sessions};
 use crate::ui::components::button::{ButtonVariant, button, small_button};
 use crate::ui::components::scrollbar::Scrollbar;
 use crate::ui::components::text_area::TextArea;
@@ -106,6 +107,20 @@ fn day(iso: &str) -> &str {
     iso.get(..10).unwrap_or(iso)
 }
 
+fn byline(key: &str, author: &str, created_at: &str) -> String {
+    let Some(ms) = crate::backend::spm::doctor::parse_ms(created_at) else {
+        return author.to_string();
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as i64);
+    let age = match transcripts::age(ms, now) {
+        ("now", _) => t("history.age.now"),
+        (unit, n) => t_n(&format!("history.age.{unit}"), n as usize),
+    };
+    t_args(key, &[("author", author), ("age", &age)])
+}
+
 impl GithubPage {
     pub fn new(stores: Stores, project_id: String, cx: &mut Context<Self>) -> Self {
         let comment = cx.new(TextArea::new);
@@ -159,7 +174,6 @@ impl GithubPage {
     fn dir(&self, cx: &Context<Self>) -> Option<PathBuf> {
         self.stores.projects.read(cx).path_of(&self.project_id)
     }
-
 
     fn check_setup(&mut self, cx: &mut Context<Self>) {
         let Some(dir) = self.dir(cx) else {
@@ -407,7 +421,6 @@ impl GithubPage {
         cx.notify();
     }
 
-
     fn op<F, Fut>(&mut self, label: String, reset: bool, cx: &mut Context<Self>, f: F)
     where
         F: FnOnce(PathBuf) -> Fut,
@@ -462,6 +475,31 @@ impl GithubPage {
                 page.update(cx, |this, cx| run(this, cx));
             }
         });
+    }
+
+    fn send_issue_to_agent(&self, cx: &mut Context<Self>) {
+        let Some(issue) = &self.issue_detail else {
+            return;
+        };
+        let dir = std::env::temp_dir().join("agentory").join("issues");
+        let path = dir.join(format!("{}-{}.md", self.project_id, issue.number));
+        let written = std::fs::create_dir_all(&dir)
+            .and_then(|()| std::fs::write(&path, issue_markdown(issue)));
+        if let Err(e) = written {
+            tracing::error!("write issue file {}: {e}", path.display());
+            toast::error(
+                cx,
+                t_args("github.send_to_agent_failed", &[("error", &e.to_string())]),
+            );
+            return;
+        }
+        let prefs = &self.stores.prefs.read(cx).prefs;
+        let mut input = prefs.issue_prompt_for(&path.to_string_lossy(), issue.number, &issue.title);
+        if prefs.send_issue_prompt {
+            input.push('\r');
+        }
+        sessions::begin_new_input(&self.project_id, Some(input), cx);
+        cx.emit(Navigate(Route::Sessions));
     }
 
     fn ask_merge(&mut self, number: u64, cx: &mut Context<Self>) {
@@ -583,7 +621,6 @@ impl GithubPage {
             }
         });
     }
-
 
     fn header(&self, cx: &mut Context<Self>) -> AnyElement {
         div()
@@ -952,56 +989,95 @@ impl GithubPage {
             .into_any_element()
     }
 
-    fn comment_block(c: &Comment, index: usize) -> AnyElement {
+    fn card(
+        id: &'static str,
+        index: usize,
+        header: String,
+        sub: Option<String>,
+        body: AnyElement,
+    ) -> AnyElement {
         div()
-            .id(SharedString::from(format!("github-comment-{index}")))
+            .id(SharedString::from(format!("{id}-{index}")))
             .flex()
             .flex_col()
             .flex_none()
-            .gap(px(4.0))
-            .p(px(10.0))
             .rounded(px(6.0))
             .border_1()
             .border_color(theme::border_subtle())
+            .overflow_hidden()
             .child(
                 div()
+                    .flex()
+                    .flex_wrap()
+                    .gap(px(6.0))
+                    .px(px(10.0))
+                    .py(px(6.0))
+                    .bg(theme::bg_chrome())
+                    .border_b_1()
+                    .border_color(theme::border_subtle())
                     .text_size(px(11.5))
                     .text_color(theme::text_muted())
-                    .child(format!("{} · {}", c.author.login, day(&c.created_at))),
+                    .child(header)
+                    .children(sub),
             )
-            .child(
-                div()
-                    .text_size(px(12.5))
-                    .text_color(theme::text())
-                    .child(c.body.clone()),
-            )
+            .child(div().p(px(10.0)).child(body))
             .into_any_element()
     }
 
-    fn body_block(body: &str) -> AnyElement {
+    fn comment_block(c: &Comment, index: usize) -> AnyElement {
+        Self::card(
+            "github-comment",
+            index,
+            byline("github.commented", &c.author.login, &c.created_at),
+            None,
+            div()
+                .text_size(px(12.5))
+                .text_color(theme::text())
+                .child(c.body.clone())
+                .into_any_element(),
+        )
+    }
+
+    fn body_block(
+        body: &str,
+        author: &str,
+        created_at: &str,
+        branches: Option<String>,
+    ) -> AnyElement {
         let empty = body.trim().is_empty();
-        div()
-            .flex_none()
-            .text_size(px(12.5))
-            .text_color(if empty {
-                theme::text_muted()
-            } else {
-                theme::text()
-            })
-            .child(if empty {
-                t("github.no_description")
-            } else {
-                body.to_string()
-            })
-            .into_any_element()
+        Self::card(
+            "github-body",
+            0,
+            byline("github.opened", author, created_at),
+            branches,
+            div()
+                .text_size(px(12.5))
+                .text_color(if empty {
+                    theme::text_muted()
+                } else {
+                    theme::text()
+                })
+                .child(if empty {
+                    t("github.no_description")
+                } else {
+                    body.to_string()
+                })
+                .into_any_element(),
+        )
     }
 
-    fn comment_box(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn comment_box(&self, toggle: Option<AnyElement>, cx: &mut Context<Self>) -> AnyElement {
         div()
             .flex()
             .flex_col()
             .flex_none()
             .gap(px(8.0))
+            .child(
+                div()
+                    .text_size(px(13.0))
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .child(t("github.add_comment")),
+            )
             .child(
                 div()
                     .flex()
@@ -1011,13 +1087,44 @@ impl GithubPage {
                     .border_color(theme::border_subtle())
                     .child(self.comment.clone()),
             )
-            .child(div().flex().child(button(
-                "github-comment",
-                t("github.comment"),
-                ButtonVariant::Classic,
-                cx.listener(|this, _, _, cx| this.submit_comment(cx)),
-            )))
+            .child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap(px(8.0))
+                    .children(toggle)
+                    .child(button(
+                        "github-comment",
+                        t("github.comment"),
+                        ButtonVariant::Classic,
+                        cx.listener(|this, _, _, cx| this.submit_comment(cx)),
+                    )),
+            )
             .into_any_element()
+    }
+
+    fn state_toggle(&self, number: u64, state: &str, cx: &mut Context<Self>) -> Option<AnyElement> {
+        match state {
+            "OPEN" => Some(
+                button(
+                    "github-close",
+                    t("github.close"),
+                    ButtonVariant::Secondary,
+                    cx.listener(move |this, _, _, cx| this.ask_close(number, cx)),
+                )
+                .into_any_element(),
+            ),
+            "CLOSED" => Some(
+                button(
+                    "github-reopen",
+                    t("github.reopen"),
+                    ButtonVariant::Secondary,
+                    cx.listener(move |this, _, _, cx| this.reopen(number, cx)),
+                )
+                .into_any_element(),
+            ),
+            _ => None,
+        }
     }
 
     fn detail_head(
@@ -1026,45 +1133,44 @@ impl GithubPage {
         title: &str,
         state: &str,
         draft: bool,
-        subtitle: String,
         actions: Vec<AnyElement>,
     ) -> AnyElement {
         div()
             .flex()
             .flex_col()
             .flex_none()
-            .gap(px(6.0))
+            .gap(px(8.0))
             .child(
                 div()
                     .flex()
                     .items_start()
                     .gap(px(8.0))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_size(px(15.0))
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .child(format!("{title} #{number}")),
-                    )
+                    .text_size(px(28.0))
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .child(div().min_w_0().child(title.to_string()))
                     .child(
                         div()
                             .flex_none()
-                            .px(px(8.0))
-                            .rounded(px(8.0))
-                            .text_size(px(11.0))
-                            .text_color(state_color(state))
-                            .bg(tint(state_color(state)))
-                            .child(state_label(state, draft)),
+                            .font_weight(gpui::FontWeight::NORMAL)
+                            .text_color(theme::text_muted())
+                            .child(format!("#{number}")),
                     ),
             )
             .child(
-                div()
-                    .text_size(px(11.5))
-                    .text_color(theme::text_muted())
-                    .child(subtitle),
+                div().flex().child(
+                    div()
+                        .flex_none()
+                        .px(px(8.0))
+                        .rounded(px(8.0))
+                        .text_size(px(11.0))
+                        .text_color(state_color(state))
+                        .bg(tint(state_color(state)))
+                        .child(state_label(state, draft)),
+                ),
             )
-            .child(div().flex().flex_wrap().gap(px(8.0)).children(actions))
+            .when(!actions.is_empty(), |s| {
+                s.child(div().flex().flex_wrap().gap(px(8.0)).children(actions))
+            })
             .into_any_element()
     }
 
@@ -1130,14 +1236,6 @@ impl GithubPage {
                 )
                 .into_any_element(),
             );
-            actions.push(
-                small_button(
-                    "github-close",
-                    t("github.close"),
-                    cx.listener(move |this, _, _, cx| this.ask_close(number, cx)),
-                )
-                .into_any_element(),
-            );
         } else if pr.state == "MERGED" && self.branch_deletable {
             let branch = pr.head_ref_name.clone();
             actions.push(
@@ -1148,27 +1246,8 @@ impl GithubPage {
                 )
                 .into_any_element(),
             );
-        } else if pr.state == "CLOSED" {
-            actions.push(
-                small_button(
-                    "github-reopen",
-                    t("github.reopen"),
-                    cx.listener(move |this, _, _, cx| this.reopen(number, cx)),
-                )
-                .into_any_element(),
-            );
         }
-        let head = self.detail_head(
-            number,
-            &pr.title,
-            &pr.state,
-            pr.is_draft,
-            format!(
-                "{} · {} → {}",
-                pr.author.login, pr.head_ref_name, pr.base_ref_name
-            ),
-            actions,
-        );
+        let head = self.detail_head(number, &pr.title, &pr.state, pr.is_draft, actions);
         let views = div()
             .flex()
             .gap(px(4.0))
@@ -1192,14 +1271,20 @@ impl GithubPage {
             ));
         let content: AnyElement = match self.pr_view {
             PrView::Conversation => {
-                let mut items: Vec<AnyElement> = vec![Self::body_block(&pr.body)];
+                let branches = format!("{} → {}", pr.head_ref_name, pr.base_ref_name);
+                let mut items: Vec<AnyElement> = vec![Self::body_block(
+                    &pr.body,
+                    &pr.author.login,
+                    &pr.created_at,
+                    Some(branches),
+                )];
                 items.extend(
                     pr.comments
                         .iter()
                         .enumerate()
                         .map(|(i, c)| Self::comment_block(c, i)),
                 );
-                items.push(self.comment_box(cx));
+                items.push(self.comment_box(self.state_toggle(number, &pr.state, cx), cx));
                 self.scroll_body("github-pr-scroll", items)
             }
             PrView::Files => diff_view(
@@ -1258,28 +1343,21 @@ impl GithubPage {
             });
         };
         let number = issue.number;
-        let action = if issue.state == "OPEN" {
+        let actions = vec![
             small_button(
-                "github-close",
-                t("github.close"),
-                cx.listener(move |this, _, _, cx| this.ask_close(number, cx)),
+                "github-send-agent",
+                t("github.send_to_agent"),
+                cx.listener(|this, _, _, cx| this.send_issue_to_agent(cx)),
             )
-        } else {
-            small_button(
-                "github-reopen",
-                t("github.reopen"),
-                cx.listener(move |this, _, _, cx| this.reopen(number, cx)),
-            )
-        };
-        let head = self.detail_head(
-            number,
-            &issue.title,
-            &issue.state,
-            false,
-            issue.author.login.clone(),
-            vec![action.into_any_element()],
-        );
-        let mut items: Vec<AnyElement> = vec![Self::body_block(&issue.body)];
+            .into_any_element(),
+        ];
+        let head = self.detail_head(number, &issue.title, &issue.state, false, actions);
+        let mut items: Vec<AnyElement> = vec![Self::body_block(
+            &issue.body,
+            &issue.author.login,
+            &issue.created_at,
+            None,
+        )];
         items.extend(
             issue
                 .comments
@@ -1287,7 +1365,7 @@ impl GithubPage {
                 .enumerate()
                 .map(|(i, c)| Self::comment_block(c, i)),
         );
-        items.push(self.comment_box(cx));
+        items.push(self.comment_box(self.state_toggle(number, &issue.state, cx), cx));
         Self::panel()
             .gap(px(10.0))
             .p(px(12.0))
@@ -1345,5 +1423,56 @@ impl Render for GithubPage {
             .when(ready, |s| s.child(self.tabs(cx)))
             .children(self.failure_banner(cx))
             .child(body)
+    }
+}
+
+fn issue_markdown(issue: &IssueDetail) -> String {
+    let mut out = format!(
+        "# {} (#{})\n\nState: {}\nAuthor: {}\n\n## Description\n\n",
+        issue.title, issue.number, issue.state, issue.author.login
+    );
+    if issue.body.trim().is_empty() {
+        out.push_str(&t("github.issue.no_description"));
+    } else {
+        out.push_str(issue.body.trim());
+    }
+    out.push('\n');
+    for c in &issue.comments {
+        out.push_str(&format!(
+            "\n## Comment by {} ({})\n\n{}\n",
+            c.author.login,
+            c.created_at,
+            c.body.trim()
+        ));
+    }
+    out
+}
+
+#[cfg(test)]
+mod issue_tests {
+    use super::*;
+
+    fn issue(body: &str) -> IssueDetail {
+        serde_json::from_value(serde_json::json!({
+            "number": 5, "title": "Crash", "state": "OPEN", "body": body,
+            "author": {"login": "ann"},
+            "comments": [{"author": {"login": "bob"}, "body": "me too", "createdAt": "2026-01-01"}]
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn markdown_has_header_body_and_comments() {
+        let md = issue_markdown(&issue("It breaks"));
+        assert!(md.starts_with("# Crash (#5)"));
+        assert!(md.contains("Author: ann"));
+        assert!(md.contains("It breaks"));
+        assert!(md.contains("## Comment by bob"));
+        assert!(md.contains("me too"));
+    }
+
+    #[test]
+    fn empty_body_is_noted() {
+        assert!(issue_markdown(&issue("  ")).contains("## Description\n\n"));
     }
 }

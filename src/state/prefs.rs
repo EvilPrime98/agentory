@@ -38,6 +38,8 @@ pub struct Prefs {
     /// Submit the prompt (not just type it) when running a doc from the Docs page.
     pub send_doc_prompt: bool,
     pub doc_prompt: String,
+    pub send_issue_prompt: bool,
+    pub issue_prompt: String,
     /// Toast (in-app and Windows) when a session needs input or finishes.
     pub notifications: bool,
     /// Launch agent sessions in Claude Code's fullscreen renderer so the prompt sits at the bottom.
@@ -60,6 +62,18 @@ impl Prefs {
         let t = if t.is_empty() { DEFAULT_DOC_PROMPT } else { t };
         t.replace("{doc}", rel)
     }
+
+    pub fn issue_prompt_for(&self, path: &str, number: u64, title: &str) -> String {
+        let t = self.issue_prompt.trim();
+        let t = if t.is_empty() {
+            DEFAULT_ISSUE_PROMPT
+        } else {
+            t
+        };
+        t.replace("{issue}", path)
+            .replace("{number}", &number.to_string())
+            .replace("{title}", title)
+    }
 }
 
 impl Default for Prefs {
@@ -71,6 +85,8 @@ impl Default for Prefs {
             ask_worktree: true,
             send_doc_prompt: false,
             doc_prompt: DEFAULT_DOC_PROMPT.into(),
+            send_issue_prompt: false,
+            issue_prompt: DEFAULT_ISSUE_PROMPT.into(),
             notifications: true,
             fullscreen_agents: true,
             self_build_enabled: false,
@@ -86,6 +102,8 @@ impl Default for Prefs {
 pub const DEFAULT_WORKFLOW_TOOLS: &str = "Bash(cargo:*) Bash(git:*) Bash(graphify:*)";
 
 pub const DEFAULT_DOC_PROMPT: &str = "@docs/{doc} -> implement";
+
+pub const DEFAULT_ISSUE_PROMPT: &str = "Investigate this @{issue}";
 
 pub const MIN_FONT: f32 = 9.0;
 pub const MAX_FONT: f32 = 28.0;
@@ -270,6 +288,22 @@ mod tests {
         assert!(!p.self_build_enabled);
         assert_eq!(p.terminal_font_size, 13.0);
         assert_eq!(p.program(), "claude");
+    }
+
+    #[test]
+    fn issue_prompt_replaces_placeholders_and_falls_back() {
+        let mut p = Prefs::default();
+        assert_eq!(
+            p.issue_prompt_for("/t/a.md", 7, "Bug"),
+            "Investigate this @/t/a.md"
+        );
+        p.issue_prompt = "fix #{number} {title}: @{issue}".into();
+        assert_eq!(
+            p.issue_prompt_for("/t/a.md", 7, "Bug"),
+            "fix #7 Bug: @/t/a.md"
+        );
+        p.issue_prompt = "  ".into();
+        assert_eq!(p.issue_prompt_for("x", 1, "t"), "Investigate this @x");
     }
 
     #[test]

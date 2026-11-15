@@ -128,6 +128,8 @@ pub struct PrDetail {
     #[serde(default)]
     pub body: String,
     #[serde(default)]
+    pub created_at: String,
+    #[serde(default)]
     pub author: Author,
     #[serde(default)]
     pub head_ref_name: String,
@@ -165,6 +167,8 @@ pub struct IssueDetail {
     pub state: String,
     #[serde(default)]
     pub body: String,
+    #[serde(default)]
+    pub created_at: String,
     #[serde(default)]
     pub author: Author,
     #[serde(default)]
@@ -205,7 +209,7 @@ pub async fn pr_view(dir: &Path, number: u64) -> Result<PrDetail, String> {
             "view",
             &n,
             "--json",
-            "number,title,state,body,author,headRefName,baseRefName,isDraft,isCrossRepository,url,comments,statusCheckRollup",
+            "number,title,state,body,createdAt,author,headRefName,baseRefName,isDraft,isCrossRepository,url,comments,statusCheckRollup",
         ],
         dir,
     )
@@ -250,7 +254,7 @@ pub async fn issue_view(dir: &Path, number: u64) -> Result<IssueDetail, String> 
             "view",
             &n,
             "--json",
-            "number,title,state,body,author,url,comments",
+            "number,title,state,body,createdAt,author,url,comments",
         ],
         dir,
     )

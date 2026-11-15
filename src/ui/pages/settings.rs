@@ -11,7 +11,9 @@ use crate::platform::logging;
 use crate::route::{GoBack, Navigate};
 use crate::state::Stores;
 use crate::state::prefs::SessionView;
-use crate::state::prefs::{DEFAULT_DOC_PROMPT, DEFAULT_WORKFLOW_TOOLS, MAX_FONT, MIN_FONT};
+use crate::state::prefs::{
+    DEFAULT_DOC_PROMPT, DEFAULT_ISSUE_PROMPT, DEFAULT_WORKFLOW_TOOLS, MAX_FONT, MIN_FONT,
+};
 use crate::ui::components::button::{ButtonVariant, button, small_button};
 use crate::ui::components::checkbox::checkbox;
 use crate::ui::components::scrollbar::Scrollbar;
@@ -46,6 +48,7 @@ pub struct SettingsPage {
     stores: Stores,
     claude_input: Entity<TextInput>,
     doc_prompt_input: Entity<TextInput>,
+    issue_prompt_input: Entity<TextInput>,
     tools_input: Entity<TextInput>,
     tab: SettingsTab,
     _subs: Vec<Subscription>,
@@ -55,6 +58,7 @@ impl EventEmitter<Navigate> for SettingsPage {}
 impl EventEmitter<GoBack> for SettingsPage {}
 
 const CONTROL_W: f32 = 280.0;
+const TOGGLE_W: f32 = 190.0;
 
 fn list(rows: Vec<AnyElement>) -> gpui::Div {
     div()
@@ -119,12 +123,21 @@ fn wide_row(
     label: impl Into<SharedString>,
     hint: Option<SharedString>,
     input: Entity<TextInput>,
+    toggle: Option<AnyElement>,
 ) -> AnyElement {
     div()
         .flex()
         .flex_col()
         .gap(px(8.0))
-        .child(label_block(label, hint))
+        .child(
+            div()
+                .flex()
+                .items_start()
+                .justify_between()
+                .gap(px(16.0))
+                .child(label_block(label, hint))
+                .children(toggle.map(|t| div().flex_none().w(px(TOGGLE_W)).child(t))),
+        )
         .child(
             div()
                 .flex()
@@ -153,6 +166,9 @@ impl SettingsPage {
         let initial = stores.prefs.read(cx).prefs.doc_prompt.clone();
         let doc_prompt_input =
             cx.new(|cx| TextInput::new(DEFAULT_DOC_PROMPT, cx).with_value(initial));
+        let initial = stores.prefs.read(cx).prefs.issue_prompt.clone();
+        let issue_prompt_input =
+            cx.new(|cx| TextInput::new(DEFAULT_ISSUE_PROMPT, cx).with_value(initial));
         let initial = stores.prefs.read(cx).prefs.workflow_allowed_tools.clone();
         let tools_input =
             cx.new(|cx| TextInput::new(DEFAULT_WORKFLOW_TOOLS, cx).with_value(initial));
@@ -184,6 +200,17 @@ impl SettingsPage {
                         .update(cx, |p, cx| p.update(cx, |p| p.doc_prompt = value));
                 }
             }),
+            cx.subscribe(
+                &issue_prompt_input,
+                |this, input, ev: &TextInputEvent, cx| {
+                    if matches!(ev, TextInputEvent::Changed) {
+                        let value = input.read(cx).value().to_string();
+                        this.stores
+                            .prefs
+                            .update(cx, |p, cx| p.update(cx, |p| p.issue_prompt = value));
+                    }
+                },
+            ),
         ];
         selfbuild_section::recheck(&stores, cx);
         Self {
@@ -191,6 +218,7 @@ impl SettingsPage {
             stores,
             claude_input,
             doc_prompt_input,
+            issue_prompt_input,
             tools_input,
             tab: SettingsTab::General,
             _subs: subs,
@@ -249,6 +277,7 @@ impl SettingsPage {
                 t("settings.claude.title"),
                 Some(t("settings.claude.hint").into()),
                 self.claude_input.clone(),
+                None,
             ),
         ])
         .into_any_element()
@@ -306,22 +335,39 @@ impl SettingsPage {
                 set(|p, v| p.ask_worktree = v),
             )
             .into_any_element(),
-            checkbox(
-                "pref-send-doc",
-                t("settings.sessions.send_doc"),
-                prefs.send_doc_prompt,
-                set(|p, v| p.send_doc_prompt = v),
-            )
-            .into_any_element(),
             wide_row(
                 t("settings.sessions.doc_prompt_title"),
                 Some(t("settings.sessions.doc_prompt").into()),
                 self.doc_prompt_input.clone(),
+                Some(
+                    checkbox(
+                        "pref-send-doc",
+                        t("settings.sessions.send_doc"),
+                        prefs.send_doc_prompt,
+                        set(|p, v| p.send_doc_prompt = v),
+                    )
+                    .into_any_element(),
+                ),
+            ),
+            wide_row(
+                t("settings.sessions.issue_prompt_title"),
+                Some(t("settings.sessions.issue_prompt").into()),
+                self.issue_prompt_input.clone(),
+                Some(
+                    checkbox(
+                        "pref-send-issue",
+                        t("settings.sessions.send_issue"),
+                        prefs.send_issue_prompt,
+                        set(|p, v| p.send_issue_prompt = v),
+                    )
+                    .into_any_element(),
+                ),
             ),
             wide_row(
                 t("settings.sessions.tools_title"),
                 Some(t("settings.sessions.tools").into()),
                 self.tools_input.clone(),
+                None,
             ),
             checkbox(
                 "pref-notify",
