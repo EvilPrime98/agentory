@@ -10,7 +10,7 @@
 //! The work is blocking (filesystem, `git`, HTTP), so every public function runs on the blocking
 //! pool.
 
-mod doctor;
+pub(crate) mod doctor;
 mod market;
 mod repo;
 mod review;
@@ -572,7 +572,10 @@ pub async fn outdated_skills(project: &Path) -> Result<Vec<String>, String> {
                     .ok()
                     .flatten()
             });
-            if head.as_deref().is_some_and(|h| !h.eq_ignore_ascii_case(pinned)) {
+            if head
+                .as_deref()
+                .is_some_and(|h| !h.eq_ignore_ascii_case(pinned))
+            {
                 out.push(name.clone());
             }
         }

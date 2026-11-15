@@ -87,7 +87,7 @@ pub fn transcript_folder(cwd: &str) -> String {
 }
 
 /// Milliseconds since the epoch of an ISO-8601 timestamp (`Z` or `±hh:mm`).
-fn parse_ms(ts: &str) -> Option<i64> {
+pub(crate) fn parse_ms(ts: &str) -> Option<i64> {
     let b = ts.as_bytes();
     let num = |from: usize, len: usize| -> Option<i64> { ts.get(from..from + len)?.parse().ok() };
     if b.len() < 19 || b[4] != b'-' || b[7] != b'-' || !matches!(b[10], b'T' | b' ') {

@@ -1,13 +1,12 @@
-
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{
-    AnyElement, ClipboardItem, Context, CursorStyle, Entity, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, canvas, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    ParentElement, Render, StatefulInteractiveElement, Styled, Subscription, Task, Window, div,
-    point, prelude::*, px,
+    AnyElement, ClipboardItem, Context, CursorStyle, Entity, FocusHandle, Focusable,
+    InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    ParentElement, Render, StatefulInteractiveElement, Styled, Subscription, Task, Window, canvas,
+    div, point, prelude::*, px,
 };
 
 use crate::backend::completions::{self, Candidate, Index, Trigger};
@@ -676,7 +675,10 @@ impl Render for ChatView {
                 MouseButton::Left,
                 cx.listener(|this, ev: &MouseDownEvent, _, cx| {
                     this.pointer = ev.position;
-                    this.selection = this.blocks.hit(ev.position, Some(GRAB_SLOP)).map(|p| (p, p));
+                    this.selection = this
+                        .blocks
+                        .hit(ev.position, Some(GRAB_SLOP))
+                        .map(|p| (p, p));
                     this.dragging = this.selection.is_some();
                     cx.notify();
                 }),
@@ -863,7 +865,9 @@ impl Render for ChatView {
                             && !this.composer.read(cx).has_selection()
                             && let Some((a, b)) = this.selection.filter(|(a, b)| a != b)
                         {
-                            cx.write_to_clipboard(ClipboardItem::new_string(this.blocks.copy(a, b)));
+                            cx.write_to_clipboard(ClipboardItem::new_string(
+                                this.blocks.copy(a, b),
+                            ));
                             cx.stop_propagation();
                             return;
                         }

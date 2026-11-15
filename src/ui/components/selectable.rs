@@ -1,4 +1,3 @@
-
 use std::cell::{Cell, RefCell};
 use std::ops::Range;
 use std::rc::Rc;
@@ -48,8 +47,16 @@ impl Registry {
             if bounds.size.width <= px(0.0) || bounds.size.height <= px(0.0) {
                 continue;
             }
-            let dy = f32::from((bounds.top() - at.y).max(at.y - bounds.bottom()).max(px(0.0)));
-            let dx = f32::from((bounds.left() - at.x).max(at.x - bounds.right()).max(px(0.0)));
+            let dy = f32::from(
+                (bounds.top() - at.y)
+                    .max(at.y - bounds.bottom())
+                    .max(px(0.0)),
+            );
+            let dx = f32::from(
+                (bounds.left() - at.x)
+                    .max(at.x - bounds.right())
+                    .max(px(0.0)),
+            );
             if slop.is_some_and(|s| dx > s || dy > s) {
                 continue;
             }

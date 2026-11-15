@@ -315,12 +315,8 @@ impl SkillsStore {
     }
 
     /// First phase of a market install or update: busy while fetching, then the review dialog.
-    fn prepare<F, Fut>(
-        &mut self,
-        label: String,
-        cx: &mut Context<Self>,
-        call: F,
-    ) where
+    fn prepare<F, Fut>(&mut self, label: String, cx: &mut Context<Self>, call: F)
+    where
         F: FnOnce(PathBuf) -> Fut + Send + 'static,
         Fut: Future<Output = Result<Prepared, String>> + Send + 'static,
     {
