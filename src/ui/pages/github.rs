@@ -430,6 +430,7 @@ impl GithubPage {
                 this.busy = false;
                 match result {
                     Ok(()) => {
+                        toast::success(cx, t_args("github.done", &[("op", &label)]));
                         if reset {
                             this.clear_comment(cx);
                             this.close_create(cx);
