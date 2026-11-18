@@ -48,6 +48,7 @@ pub struct Prefs {
     pub self_build_enabled: bool,
     pub terminal_font_size: f32,
     pub sidebar_collapsed: bool,
+    pub hidden_sidebar_pages: Vec<String>,
     /// Id of the shell last opened as a project terminal.
     pub last_shell: String,
     /// Interface language. System follows the OS locale.
@@ -92,6 +93,7 @@ impl Default for Prefs {
             self_build_enabled: false,
             terminal_font_size: 13.0,
             sidebar_collapsed: false,
+            hidden_sidebar_pages: Vec::new(),
             last_shell: String::new(),
             language: LanguagePref::System,
             theme: ThemePref::System,

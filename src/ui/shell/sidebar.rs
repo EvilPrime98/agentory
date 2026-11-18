@@ -18,6 +18,7 @@ use crate::route::{Navigate, Route};
 use crate::runtime;
 use crate::state::Stores;
 use crate::state::sessions::{self, SessionKind, ShellDir};
+use crate::ui::components::checkbox::checkbox;
 use crate::ui::confirm::{self, ConfirmOptions};
 use crate::ui::icons::{Icon, icon};
 use crate::ui::theme;
@@ -121,6 +122,18 @@ impl Render for DragGhost {
     }
 }
 
+const PAGES_MENU_W: f32 = 200.0;
+
+const PAGES: [(&str, &str); 7] = [
+    ("skills", "sidebar.skills"),
+    ("docs", "sidebar.docs"),
+    ("git", "sidebar.git"),
+    ("github", "sidebar.github"),
+    ("history", "sidebar.history"),
+    ("workflows", "sidebar.workflows"),
+    ("graphify", "sidebar.graphify"),
+];
+
 pub struct Sidebar {
     stores: Stores,
     drop_hint: Option<(String, bool)>,
@@ -128,6 +141,7 @@ pub struct Sidebar {
     picker_open: bool,
     shell_menu: Option<ShellMenu>,
     shell_menu_closed_at: Option<Instant>,
+    pages_menu: bool,
     compact: bool,
     /// The current route: only the Sessions page highlights a session, only Skills its row.
     route: Route,
@@ -168,6 +182,7 @@ impl Sidebar {
         cx.observe(&stores.selfbuild, |_, _, cx| cx.notify())
             .detach();
         cx.observe(&stores.git, |_, _, cx| cx.notify()).detach();
+        cx.observe(&stores.prefs, |_, _, cx| cx.notify()).detach();
         Self::poll_git_count(&stores, cx);
         Self {
             stores,
@@ -176,6 +191,7 @@ impl Sidebar {
             picker_open: false,
             shell_menu: None,
             shell_menu_closed_at: None,
+            pages_menu: false,
             compact: false,
             route: Route::home(),
         }
@@ -260,6 +276,59 @@ impl Sidebar {
             self.shell_menu_closed_at = Some(Instant::now());
             cx.notify();
         }
+    }
+
+    fn toggle_pages_menu(&mut self, cx: &mut Context<Self>) {
+        self.pages_menu = !self.pages_menu;
+        cx.notify();
+    }
+
+    fn pages_popup(&self, hidden: &[String], cx: &mut Context<Self>) -> AnyElement {
+        let mut popup = div()
+            .id("pages-menu")
+            .occlude()
+            .absolute()
+            .top(px(38.0))
+            .left((theme::sidebar_width() - px(PAGES_MENU_W)) / 2.0)
+            .w(px(PAGES_MENU_W))
+            .p(px(8.0))
+            .flex()
+            .flex_col()
+            .gap(px(8.0))
+            .rounded(px(8.0))
+            .border_1()
+            .border_color(theme::border_subtle())
+            .bg(theme::bg_modal())
+            .text_color(theme::text())
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.pages_menu = false;
+                cx.notify();
+            }))
+            .child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(theme::text_muted())
+                    .child(t("sidebar.pages.title")),
+            );
+        for (id, label) in PAGES {
+            let prefs = self.stores.prefs.clone();
+            popup = popup.child(checkbox(
+                format!("page-toggle-{id}"),
+                t(label),
+                !hidden.iter().any(|h| h == id),
+                move |visible, _, cx| {
+                    prefs.update(cx, |p, cx| {
+                        p.update(cx, |p| {
+                            p.hidden_sidebar_pages.retain(|h| h != id);
+                            if !visible {
+                                p.hidden_sidebar_pages.push(id.to_string());
+                            }
+                        })
+                    })
+                },
+            ));
+        }
+        deferred(popup).with_priority(1).into_any_element()
     }
 
     /// Shells to open in the project folder, then the agent worktrees to open the default one in.
@@ -489,12 +558,17 @@ impl Sidebar {
             project.name.clone()
         };
         let compact = self.compact;
-        let full_page = !compact && !is_global;
-        let page_rows = match (compact, is_global) {
-            (true, _) => 0.0,
-            (false, true) => 1.0,
-            (false, false) => 7.0,
+        let hidden = self
+            .stores
+            .prefs
+            .read(cx)
+            .prefs
+            .hidden_sidebar_pages
+            .clone();
+        let shown = |id: &str| {
+            !compact && (!is_global || id == "skills") && !hidden.iter().any(|h| h == id)
         };
+        let page_rows = PAGES.iter().filter(|(id, _)| shown(id)).count() as f32;
 
         let full_h = ROW_H * page_rows
             + if sessions.is_empty() {
@@ -746,7 +820,7 @@ impl Sidebar {
             .flex()
             .flex_col()
             .flex_none()
-            .when(!compact, |s| {
+            .when(shown("skills"), |s| {
                 s.child(
                     div()
                         .id(gpui::SharedString::from(format!("skills-{}", project.id)))
@@ -774,7 +848,7 @@ impl Sidebar {
                         ),
                 )
             })
-            .when(full_page, |s| {
+            .when(shown("docs"), |s| {
                 s.child(
                     div()
                         .id(gpui::SharedString::from(format!("docs-{}", project.id)))
@@ -802,7 +876,7 @@ impl Sidebar {
                         ),
                 )
             })
-            .when(full_page, |s| {
+            .when(shown("git"), |s| {
                 s.child(
                     div()
                         .id(gpui::SharedString::from(format!("git-{}", project.id)))
@@ -842,7 +916,7 @@ impl Sidebar {
                         }),
                 )
             })
-            .when(full_page, |s| {
+            .when(shown("github"), |s| {
                 s.child(
                     div()
                         .id(gpui::SharedString::from(format!("github-{}", project.id)))
@@ -870,7 +944,7 @@ impl Sidebar {
                         ),
                 )
             })
-            .when(full_page, |s| {
+            .when(shown("history"), |s| {
                 s.child(
                     div()
                         .id(gpui::SharedString::from(format!("history-{}", project.id)))
@@ -898,7 +972,7 @@ impl Sidebar {
                         ),
                 )
             })
-            .when(full_page, |s| {
+            .when(shown("workflows"), |s| {
                 s.child(
                     div()
                         .id(gpui::SharedString::from(format!(
@@ -929,7 +1003,7 @@ impl Sidebar {
                         ),
                 )
             })
-            .when(full_page, |s| {
+            .when(shown("graphify"), |s| {
                 s.child(
                     div()
                         .id(gpui::SharedString::from(format!("graphify-{}", project.id)))
@@ -1278,6 +1352,16 @@ impl Render for Sidebar {
         let modify = self.modify_block(cx);
         let blocks: Vec<_> = projects.iter().map(|p| self.project_block(p, cx)).collect();
         let empty = projects.iter().all(Project::is_global);
+        let pages_popup = (self.pages_menu && !self.compact).then(|| {
+            let hidden = self
+                .stores
+                .prefs
+                .read(cx)
+                .prefs
+                .hidden_sidebar_pages
+                .clone();
+            self.pages_popup(&hidden, cx)
+        });
 
         div()
             .flex()
@@ -1292,6 +1376,7 @@ impl Render for Sidebar {
                 div()
                     .flex()
                     .flex_none()
+                    .relative()
                     .items_center()
                     .justify_between()
                     .h(px(40.0))
@@ -1308,6 +1393,26 @@ impl Render for Sidebar {
                             .flex()
                             .items_center()
                             .gap(px(2.0))
+                            .when(!self.compact, |s| {
+                                s.child(
+                                    div()
+                                        .id("pages-toggle")
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .size(px(26.0))
+                                        .rounded(px(6.0))
+                                        .cursor_pointer()
+                                        .when(self.pages_menu, |s| s.bg(theme::accent_soft()))
+                                        .hover(|s| s.bg(theme::hover()))
+                                        .on_click(
+                                            cx.listener(|this, _, _, cx| {
+                                                this.toggle_pages_menu(cx)
+                                            }),
+                                        )
+                                        .child(icon(Icon::Eye, px(16.0)).text_color(theme::text())),
+                                )
+                            })
                             .child(
                                 div()
                                     .id("compact-toggle")
@@ -1340,7 +1445,8 @@ impl Render for Sidebar {
                                         icon(Icon::FolderPlus, px(16.0)).text_color(theme::text()),
                                     ),
                             ),
-                    ),
+                    )
+                    .children(pages_popup),
             )
             .child(
                 div()

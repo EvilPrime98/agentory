@@ -29,7 +29,8 @@ one is waiting on you. Agentory puts them in one place and tells you.
   (ConPTY), rendered by a `vt100` terminal grid. Permission prompts, slash commands and everything
   else behave exactly as in your terminal.
 - **Project sidebar with live status.** Sessions are grouped under their project, and a status dot
-  shows whether each one is working, waiting for input, or done.
+  shows whether each one is working, waiting for input, or done. The eye button on a project header
+  hides the page rows (Skills, Docs, Git, ...) you don't use.
 - **Worktree isolation.** Start a session in a fresh `git worktree` on its own branch
   (`agentory/<id>`) so parallel agents never step on each other's files.
 - **Skills, managed per project.** A built-in skills page reads `spm.json` and `.claude/skills`,
