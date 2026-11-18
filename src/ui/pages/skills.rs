@@ -47,6 +47,7 @@ pub struct SkillsPage {
     installed_scroll: SmoothScroll,
     market_scroll: SmoothScroll,
     pool_scroll: SmoothScroll,
+    globals_scroll: SmoothScroll,
     _subs: Vec<Subscription>,
 }
 
@@ -56,6 +57,8 @@ const CARD_MIN_W: f32 = 340.0;
 const LIST_MAX_H: f32 = 560.0;
 
 const INSTALLED_MAX_H: f32 = 560.0;
+
+const GLOBALS_MAX_H: f32 = 420.0;
 
 fn field(input: &Entity<TextInput>) -> impl IntoElement {
     div()
@@ -291,6 +294,7 @@ impl SkillsPage {
             installed_scroll: SmoothScroll::new(),
             market_scroll: SmoothScroll::new(),
             pool_scroll: SmoothScroll::new(),
+            globals_scroll: SmoothScroll::new(),
             _subs: subs,
         }
     }
@@ -892,7 +896,7 @@ impl SkillsPage {
             .into_any_element()
     }
 
-    fn sources_tab(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    fn sources_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let skills = self.stores.skills.read(cx);
         let manifest = skills.snapshot.manifest.clone();
         let is_busy = skills.busy.is_some();
@@ -985,6 +989,16 @@ impl SkillsPage {
             })
             .collect();
 
+        let globals_list = self.globals_scroll.framed(
+            div()
+                .id("skills-globals")
+                .flex()
+                .flex_col()
+                .max_h(px(GLOBALS_MAX_H))
+                .children(global_rows),
+            window,
+        );
+
         div()
             .flex()
             .flex_col()
@@ -1022,10 +1036,10 @@ impl SkillsPage {
             })
             .when(show_globals, |s| {
                 s.child(group_heading(t("skills.group.globals"), global_count))
-                    .when(global_rows.is_empty(), |s| {
+                    .when(global_count == 0, |s| {
                         s.child(muted_note(t("skills.globals_empty").into()))
                     })
-                    .children(global_rows)
+                    .child(globals_list)
             })
             .into_any_element()
     }
@@ -1074,7 +1088,7 @@ impl Render for SkillsPage {
         let content = ready.then(|| match self.tab {
             SkillsTab::Installed => self.installed_tab(window, cx),
             SkillsTab::Discover => self.discover_tab(window, cx),
-            SkillsTab::Sources => self.sources_tab(cx),
+            SkillsTab::Sources => self.sources_tab(window, cx),
         });
 
         let modal = self.args_modal(cx);
