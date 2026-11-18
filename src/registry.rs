@@ -205,7 +205,12 @@ mod tests {
 
     #[test]
     fn app_state_fields_are_not_exposed() {
-        for hidden in ["selfBuildEnabled", "sidebarCollapsed", "lastShell"] {
+        for hidden in [
+            "selfBuildEnabled",
+            "sidebarCollapsed",
+            "hiddenSidebarPages",
+            "lastShell",
+        ] {
             assert!(SETTINGS.iter().all(|s| s.field != hidden));
         }
     }

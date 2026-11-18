@@ -467,5 +467,6 @@
   "graphify.update_failed": "graphify update falló: {error}",
   "graphify.full_build": "Construcción completa",
   "graphify.full_build_hint": "Abre una sesión nueva que ejecuta /graphify. Usa un LLM, así que consume API.",
-  "graphify.report": "Abrir GRAPH_REPORT.md"
+  "graphify.report": "Abrir GRAPH_REPORT.md",
+  "sidebar.pages.title": "Extras"
 }

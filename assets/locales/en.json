@@ -467,5 +467,6 @@
   "graphify.update_failed": "graphify update failed: {error}",
   "graphify.full_build": "Full build",
   "graphify.full_build_hint": "Opens a new session that runs /graphify. It uses an LLM, so it costs API usage.",
-  "graphify.report": "Open GRAPH_REPORT.md"
+  "graphify.report": "Open GRAPH_REPORT.md",
+  "sidebar.pages.title": "Extras"
 }
