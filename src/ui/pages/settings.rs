@@ -26,17 +26,25 @@ use crate::ui::theme::{self, ThemePref};
 enum SettingsTab {
     General,
     Sessions,
+    Projects,
     Terminal,
     Data,
 }
 
 impl SettingsTab {
-    const ALL: [Self; 4] = [Self::General, Self::Sessions, Self::Terminal, Self::Data];
+    const ALL: [Self; 5] = [
+        Self::General,
+        Self::Sessions,
+        Self::Projects,
+        Self::Terminal,
+        Self::Data,
+    ];
 
     fn label_key(self) -> &'static str {
         match self {
             Self::General => "settings.tab.general",
             Self::Sessions => "settings.tab.sessions",
+            Self::Projects => "settings.tab.projects",
             Self::Terminal => "settings.tab.terminal",
             Self::Data => "settings.tab.data",
         }
@@ -86,7 +94,13 @@ fn label_block(label: impl Into<SharedString>, hint: Option<SharedString>) -> gp
         .gap(px(2.0))
         .flex_1()
         .min_w_0()
-        .child(div().text_size(px(13.0)).child(label.into()))
+        .child(
+            div()
+                .text_size(px(13.0))
+                .overflow_hidden()
+                .text_ellipsis()
+                .child(label.into()),
+        )
         .when_some(hint, |d, hint| {
             d.child(
                 div()
@@ -283,7 +297,7 @@ impl SettingsPage {
         .into_any_element()
     }
 
-    fn sessions_tab(&self, prefs: &crate::state::prefs::Prefs, cx: &Context<Self>) -> AnyElement {
+    fn sessions_tab(&self, prefs: &crate::state::prefs::Prefs) -> AnyElement {
         let stores = self.stores.clone();
         let set = move |change: fn(&mut crate::state::prefs::Prefs, bool)| {
             let stores = stores.clone();
@@ -293,20 +307,10 @@ impl SettingsPage {
                     .update(cx, |p, cx| p.update(cx, |p| change(p, value)));
             }
         };
-        let git_projects: Vec<_> = self
-            .stores
-            .projects
-            .read(cx)
-            .items
-            .iter()
-            .filter(|p| p.is_git_repo())
-            .map(|p| (p.id.clone(), p.name.clone(), p.use_worktree))
-            .collect();
-        let projects_store = self.stores.projects.clone();
 
         let view_stores = self.stores.clone();
         let default_view = prefs.default_view;
-        let mut col = div().flex().flex_col().gap(px(16.0)).child(list(vec![
+        let col = div().flex().flex_col().gap(px(16.0)).child(list(vec![
             setting_row(
                 t("settings.sessions.view_title"),
                 Some(t("settings.sessions.view_hint").into()),
@@ -385,7 +389,39 @@ impl SettingsPage {
             .into_any_element(),
         ]));
 
-        if !git_projects.is_empty() {
+        col.into_any_element()
+    }
+
+    fn projects_tab(&self, cx: &Context<Self>) -> AnyElement {
+        let git_projects: Vec<_> = self
+            .stores
+            .projects
+            .read(cx)
+            .items
+            .iter()
+            .filter(|p| p.is_git_repo())
+            .map(|p| (p.id.clone(), p.name.clone(), p.use_worktree))
+            .collect();
+        let projects_store = self.stores.projects.clone();
+
+        let col = div()
+            .flex()
+            .flex_col()
+            .gap(px(16.0))
+            .child(group_title(t("settings.projects.title")))
+            .child(
+                div()
+                    .text_size(px(12.0))
+                    .text_color(theme::text_muted())
+                    .child(t("settings.projects.hint")),
+            );
+        let body = if git_projects.is_empty() {
+            div()
+                .text_size(px(13.0))
+                .text_color(theme::text_muted())
+                .child(t("settings.projects.empty"))
+                .into_any_element()
+        } else {
             let project_rows = git_projects
                 .into_iter()
                 .map(|(id, name, choice)| {
@@ -420,17 +456,9 @@ impl SettingsPage {
                     )
                 })
                 .collect();
-            col = col
-                .child(group_title(t("settings.projects.title")))
-                .child(
-                    div()
-                        .text_size(px(12.0))
-                        .text_color(theme::text_muted())
-                        .child(t("settings.projects.hint")),
-                )
-                .child(list(project_rows));
-        }
-        col.into_any_element()
+            list(project_rows).into_any_element()
+        };
+        col.child(body).into_any_element()
     }
 
     fn terminal_tab(&self, font: f32) -> AnyElement {
@@ -552,7 +580,8 @@ impl Render for SettingsPage {
 
         let content = match tab {
             SettingsTab::General => self.general_tab(&prefs),
-            SettingsTab::Sessions => self.sessions_tab(&prefs, cx),
+            SettingsTab::Sessions => self.sessions_tab(&prefs),
+            SettingsTab::Projects => self.projects_tab(cx),
             SettingsTab::Terminal => self.terminal_tab(prefs.terminal_font_size),
             SettingsTab::Data => self.data_tab(cx),
         };
