@@ -252,6 +252,7 @@ impl TextArea {
             return;
         }
         self.delete_selection();
+        self.anchor = None;
         self.invalidate();
         let (line, col) = self.caret;
         let at = self.byte_index(line, col);
@@ -421,6 +422,9 @@ impl TextArea {
         let command = (ks.modifiers.control && !altgr) || ks.modifiers.platform;
         let alt = ks.modifiers.alt && !altgr;
         let shift = ks.modifiers.shift;
+        if self.selection().is_none() {
+            self.anchor = None;
+        }
         let (line, col) = self.caret;
         let mut vertical = false;
         let before = self.snapshot();

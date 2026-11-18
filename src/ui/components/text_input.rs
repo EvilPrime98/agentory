@@ -159,6 +159,7 @@ impl TextInput {
             return;
         }
         self.delete_selection();
+        self.anchor = None;
         let at = self.byte_index(self.caret);
         self.value.insert_str(at, &clean);
         self.caret += clean.chars().count();
@@ -223,6 +224,9 @@ impl TextInput {
     fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let ks = &event.keystroke;
         self.last_activity = Instant::now();
+        if self.selection().is_none() {
+            self.anchor = None;
+        }
         let len = self.len();
         let altgr = super::is_altgr(ks);
         let command = (ks.modifiers.control && !altgr) || ks.modifiers.platform;
