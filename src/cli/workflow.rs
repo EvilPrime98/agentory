@@ -39,7 +39,7 @@ fn take_values(args: &mut Vec<&str>, flag: &str) -> Res<Vec<String>> {
     Ok(out)
 }
 
-fn take_value(args: &mut Vec<&str>, flag: &str) -> Res<Option<String>> {
+pub(super) fn take_value(args: &mut Vec<&str>, flag: &str) -> Res<Option<String>> {
     Ok(take_values(args, flag)?.pop())
 }
 
@@ -64,7 +64,7 @@ fn position(raw: &str, len: usize) -> Res<usize> {
     }
 }
 
-fn project(explicit: Option<&str>) -> Res<PathBuf> {
+pub(super) fn project(explicit: Option<&str>) -> Res<PathBuf> {
     if let Some(p) = explicit {
         let path = PathBuf::from(p);
         return if path.is_dir() {

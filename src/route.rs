@@ -18,6 +18,7 @@ pub enum Route {
     SkillEditor(String, String),
     DocPreview(String, String),
     Workflows(String),
+    Graphify(String),
     /// Review and apply the change of the Modify session with this id.
     Review(String),
 }
@@ -40,6 +41,7 @@ impl Route {
             Self::SkillEditor(..) => "skill_editor.title",
             Self::DocPreview(..) => "doc_preview.title",
             Self::Workflows(_) => "workflows.title",
+            Self::Graphify(_) => "graphify.title",
             Self::Review(_) => "review.title",
         })
     }

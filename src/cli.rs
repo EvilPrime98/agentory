@@ -8,9 +8,10 @@ use crate::state::prefs::{self, Map};
 const EXIT_FAILURE: i32 = 1;
 const EXIT_USAGE: i32 = 2;
 
+mod graphify;
 mod workflow;
 
-pub const AGENT_PROMPT: &str = "The Agentory app settings can be read and changed with the agentory settings CLI: agentory settings list, get KEY, set KEY VALUE, reset KEY. Run agentory settings --help for the keys and allowed values. Changes apply live in the running app. Project workflows (multi-step prompt pipelines) are managed with the agentory workflow CLI from inside the project: agentory workflow list, show ID, create NAME --prompt TEXT, apply ID|- --file PATH (or JSON on stdin), step add|set|rm|move, rename ID NAME, delete ID. Run agentory workflow --help for details. The running app reloads workflow changes automatically.";
+pub const AGENT_PROMPT: &str = "The Agentory app settings can be read and changed with the agentory settings CLI: agentory settings list, get KEY, set KEY VALUE, reset KEY. Run agentory settings --help for the keys and allowed values. Changes apply live in the running app. Project workflows (multi-step prompt pipelines) are managed with the agentory workflow CLI from inside the project: agentory workflow list, show ID, create NAME --prompt TEXT, apply ID|- --file PATH (or JSON on stdin), step add|set|rm|move, rename ID NAME, delete ID. Run agentory workflow --help for details. The running app reloads workflow changes automatically. The project knowledge graph is managed with agentory graphify status and agentory graphify update (run agentory graphify --help for details).";
 
 pub fn shim_dir() -> Option<std::path::PathBuf> {
     let exe = std::env::current_exe().ok()?;
@@ -36,7 +37,7 @@ pub fn shim_dir() -> Option<std::path::PathBuf> {
 
 pub fn run(args: &[String]) -> Option<i32> {
     let area = args.first().map(String::as_str)?;
-    if !matches!(area, "settings" | "workflow") {
+    if !matches!(area, "settings" | "workflow" | "graphify") {
         return None;
     }
     attach_console();
@@ -47,18 +48,18 @@ pub fn run(args: &[String]) -> Option<i32> {
     if help || rest.is_empty() {
         println!(
             "{}",
-            if area == "workflow" {
-                workflow::help_text()
-            } else {
-                help_text()
+            match area {
+                "workflow" => workflow::help_text(),
+                "graphify" => graphify::help_text(),
+                _ => help_text(),
             }
         );
         return Some(if help { 0 } else { EXIT_USAGE });
     }
-    let result = if area == "workflow" {
-        workflow::dispatch(&mut rest, json)
-    } else {
-        dispatch(&rest, json)
+    let result = match area {
+        "workflow" => workflow::dispatch(&mut rest, json),
+        "graphify" => graphify::dispatch(&mut rest, json),
+        _ => dispatch(&rest, json),
     };
     Some(match result {
         Ok(out) => {

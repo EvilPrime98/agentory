@@ -2,6 +2,7 @@ pub mod doc_preview;
 pub mod docs;
 pub mod git;
 pub mod github;
+pub mod graphify;
 pub mod review;
 pub mod selfbuild_section;
 pub mod session_history;
