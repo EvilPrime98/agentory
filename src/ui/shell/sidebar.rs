@@ -479,6 +479,8 @@ impl Sidebar {
         let history_id = project.id.clone();
         let workflows_active = self.route == Route::Workflows(project.id.clone());
         let workflows_id = project.id.clone();
+        let graphify_active = self.route == Route::Graphify(project.id.clone());
+        let graphify_id = project.id.clone();
 
         let is_global = project.is_global();
         let display_name = if is_global {
@@ -491,7 +493,7 @@ impl Sidebar {
         let page_rows = match (compact, is_global) {
             (true, _) => 0.0,
             (false, true) => 1.0,
-            (false, false) => 6.0,
+            (false, false) => 7.0,
         };
 
         let full_h = ROW_H * page_rows
@@ -924,6 +926,34 @@ impl Sidebar {
                                 .text_size(px(12.5))
                                 .text_color(theme::text())
                                 .child(t("sidebar.workflows")),
+                        ),
+                )
+            })
+            .when(full_page, |s| {
+                s.child(
+                    div()
+                        .id(gpui::SharedString::from(format!("graphify-{}", project.id)))
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .h(px(ROW_H))
+                        .ml(px(26.0))
+                        .px(px(6.0))
+                        .rounded(px(6.0))
+                        .cursor_pointer()
+                        .when(graphify_active, |s| s.bg(theme::accent_soft()))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.stores
+                                .projects
+                                .update(cx, |p, cx| p.select(&graphify_id, cx));
+                            cx.emit(Navigate(Route::Graphify(graphify_id.clone())));
+                        }))
+                        .child(icon(Icon::Globe, px(13.0)).text_color(theme::text_muted()))
+                        .child(
+                            div()
+                                .text_size(px(12.5))
+                                .text_color(theme::text())
+                                .child(t("sidebar.graphify")),
                         ),
                 )
             })

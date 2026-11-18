@@ -135,3 +135,23 @@ agentory workflow list --project ~/code/my-app
 # Delete without a prompt
 agentory workflow delete bug-triage --yes
 ```
+
+## `agentory graphify`
+
+Show and refresh a project's [graphify](https://github.com/safishamsi/graphify) knowledge graph. The project is the current directory (or the nearest parent with a `.agentory` folder); `--project PATH` overrides. It shells out to `graphify` on `PATH`.
+
+| Command | Does |
+| --- | --- |
+| `agentory graphify status` | Installed version, graph present, node count, last built (unix seconds), stale |
+| `agentory graphify update` | Runs `graphify update .` (AST only, no API cost) |
+
+A full build uses an LLM, so it is started from the Graphify page in the app (or with `/graphify` in a session), not from the CLI.
+
+`status` JSON: `{"installed": bool, "version": str|null, "graph": bool, "nodes": int|null, "built_at": int|null, "stale": bool, "report": path|null}`.
+
+If `graphify` is missing, `status` reports `installed: false` and `update` fails with error code `not_installed` (exit 2).
+
+```sh
+agentory graphify status
+agentory graphify update --project ~/code/my-app
+```
