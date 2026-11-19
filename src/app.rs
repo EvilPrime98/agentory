@@ -15,6 +15,7 @@ use crate::route::{GoBack, History, Navigate, Route, window_title};
 use crate::runtime;
 use crate::state::{Stores, sessions};
 use crate::ui::app_loader::app_loader;
+use crate::ui::command_editor::{self, CommandEditor};
 use crate::ui::confirm::{self, ConfirmHost, ConfirmOptions};
 use crate::ui::pages::doc_preview::DocPreviewPage;
 use crate::ui::pages::docs::DocsPage;
@@ -156,6 +157,7 @@ pub struct AppRoot {
     usage_pill: Entity<UsagePill>,
     toasts: Entity<ToastHost>,
     confirm: Entity<ConfirmHost>,
+    command_editor: Entity<CommandEditor>,
     page: Page,
     _page_subs: Vec<Subscription>,
     _subs: Vec<Subscription>,
@@ -180,6 +182,7 @@ impl AppRoot {
         let stores = Stores::new(cx);
         let toasts = toast::init(cx);
         let confirm = confirm::init(cx);
+        let command_editor = command_editor::init(cx);
         cx.set_global(stores.clone());
 
         let sidebar = cx.new(|cx| Sidebar::new(stores.clone(), cx));
@@ -239,6 +242,7 @@ impl AppRoot {
             usage_pill,
             toasts,
             confirm,
+            command_editor,
             page: Page::Sessions(cx.new(|cx| SessionsPage::new(cx.global::<Stores>().clone(), cx))),
             _page_subs: Vec::new(),
             _subs: subs,
@@ -712,6 +716,7 @@ impl Render for AppRoot {
                     .child(content),
             )
             .child(self.toasts.clone())
+            .child(self.command_editor.clone())
             .child(self.confirm.clone())
             .when(self.loading, |s| {
                 s.child(app_loader(t("app.checking_tools")))

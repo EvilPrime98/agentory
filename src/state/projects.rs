@@ -1,10 +1,12 @@
 //! The project list shown in the sidebar, persisted in `<config dir>/Agentory/projects.json`.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use gpui::Context;
 
-use crate::model::{GLOBAL_ID, Project};
+use crate::backend::scripts::{self, DetectedCommand};
+use crate::model::{CustomCommand, GLOBAL_ID, Project, new_id};
 
 #[derive(Default)]
 pub struct ProjectsStore {
@@ -12,6 +14,7 @@ pub struct ProjectsStore {
     pub selected: Option<String>,
     /// Bumped on every change so observers can memoize.
     pub revision: u64,
+    pub detected: HashMap<String, Vec<DetectedCommand>>,
 }
 
 fn path() -> Option<PathBuf> {
@@ -32,11 +35,25 @@ impl ProjectsStore {
         let selected = rest.first().unwrap_or(&global).id.clone();
         let mut items = vec![global];
         items.extend(rest);
-        Self {
+        let mut store = Self {
             selected: Some(selected),
             items,
             revision: 0,
+            detected: HashMap::new(),
+        };
+        let ids: Vec<String> = store.items.iter().map(|p| p.id.clone()).collect();
+        for id in ids {
+            store.detect(&id);
         }
+        store
+    }
+
+    fn detect(&mut self, id: &str) {
+        let Some(project) = self.get(id).filter(|p| !p.is_global()) else {
+            return;
+        };
+        let found = scripts::detect(&project.path);
+        self.detected.insert(id.to_string(), found);
     }
 
     fn save(&self) {
@@ -76,6 +93,7 @@ impl ProjectsStore {
                 let project = Project::from_path(path);
                 let id = project.id.clone();
                 self.items.push(project);
+                self.detect(&id);
                 self.save();
                 id
             }
@@ -91,6 +109,7 @@ impl ProjectsStore {
             return;
         }
         self.items.retain(|p| p.id != id);
+        self.detected.remove(id);
         if self.selected.as_deref() == Some(id) {
             self.selected = self.items.first().map(|p| p.id.clone());
         }
@@ -156,9 +175,52 @@ impl ProjectsStore {
         }
     }
 
+    pub fn set_default_shell(&mut self, id: &str, shell: Option<String>, cx: &mut Context<Self>) {
+        let Some(project) = self.items.iter_mut().find(|p| p.id == id) else {
+            return;
+        };
+        if project.default_shell == shell {
+            return;
+        }
+        project.default_shell = shell;
+        self.save();
+        self.revision += 1;
+        cx.notify();
+    }
+
+    pub fn save_command(&mut self, id: &str, mut command: CustomCommand, cx: &mut Context<Self>) {
+        let Some(project) = self.items.iter_mut().find(|p| p.id == id) else {
+            return;
+        };
+        match project.commands.iter_mut().find(|c| c.id == command.id) {
+            Some(existing) => *existing = command,
+            None => {
+                command.id = new_id("c");
+                project.commands.push(command);
+            }
+        }
+        self.save();
+        self.revision += 1;
+        cx.notify();
+    }
+
+    pub fn delete_command(&mut self, id: &str, command_id: &str, cx: &mut Context<Self>) {
+        let Some(project) = self.items.iter_mut().find(|p| p.id == id) else {
+            return;
+        };
+        let before = project.commands.len();
+        project.commands.retain(|c| c.id != command_id);
+        if project.commands.len() != before {
+            self.save();
+            self.revision += 1;
+            cx.notify();
+        }
+    }
+
     pub fn select(&mut self, id: &str, cx: &mut Context<Self>) {
         if self.selected.as_deref() != Some(id) && self.get(id).is_some() {
             self.selected = Some(id.to_string());
+            self.detect(id);
             self.revision += 1;
             cx.notify();
         }

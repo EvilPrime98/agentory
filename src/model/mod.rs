@@ -19,6 +19,20 @@ pub struct Project {
     pub use_worktree: Option<bool>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub skill_args: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_shell: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commands: Vec<CustomCommand>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomCommand {
+    pub id: String,
+    pub name: String,
+    pub command: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shell: Option<String>,
 }
 
 impl Project {
@@ -33,6 +47,8 @@ impl Project {
             path,
             use_worktree: None,
             skill_args: BTreeMap::new(),
+            default_shell: None,
+            commands: Vec::new(),
         }
     }
 
@@ -43,6 +59,8 @@ impl Project {
             path: dirs::home_dir().unwrap_or_default(),
             use_worktree: None,
             skill_args: BTreeMap::new(),
+            default_shell: None,
+            commands: Vec::new(),
         }
     }
 
