@@ -34,7 +34,8 @@ fn button(
         .hover(move |s| s.bg(hover_bg).text_color(theme::text()))
         .child(icon(glyph, px(16.0)).text_color(theme::text_muted()));
     #[cfg(not(target_os = "windows"))]
-    let el = el.on_click(move |_, window, cx| on_click(window, cx));
+    let el =
+        gpui::StatefulInteractiveElement::on_click(el, move |_, window, cx| on_click(window, cx));
     el
 }
 
