@@ -471,5 +471,18 @@
   "graphify.full_build": "Construcción completa",
   "graphify.full_build_hint": "Abre una sesión nueva que ejecuta /graphify. Usa un LLM, así que consume API.",
   "graphify.report": "Abrir GRAPH_REPORT.md",
+  "sidebar.commands_extra": "Comandos",
+  "sidebar.commands": "COMANDOS",
+  "commands.add": "Añadir comando",
+  "commands.edit": "Editar comando",
+  "commands.name": "Nombre",
+  "commands.name_placeholder": "Servidor de desarrollo",
+  "commands.command": "Comando",
+  "commands.placeholder_powershell": "$env:PORT = 3000; npm run dev",
+  "commands.placeholder_cmd": "set PORT=3000 && npm run dev",
+  "commands.placeholder_posix": "PORT=3000 npm run dev",
+  "commands.shell": "Shell",
+  "commands.shell_default": "Por defecto",
+  "commands.shell_row": "Shell: {shell}",
   "sidebar.pages.title": "Extras"
 }

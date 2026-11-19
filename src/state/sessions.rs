@@ -735,6 +735,34 @@ pub fn begin_shell(project_id: &str, shell: Option<&str>, dir: ShellDir, cx: &mu
     }
 }
 
+pub fn begin_command(project_id: &str, command: &str, shell: Option<&str>, cx: &mut App) {
+    let stores = cx.global::<Stores>().clone();
+    let Some(project) = stores.projects.read(cx).get(project_id).cloned() else {
+        return;
+    };
+    let prefs = stores.prefs.read(cx).prefs.clone();
+    let wanted = shell
+        .or(project.default_shell.as_deref())
+        .unwrap_or(&prefs.last_shell);
+    let shells = shells::detect();
+    let Some(shell) = shells::pick(&shells, wanted) else {
+        toast::error(cx, t("sessions.no_shell"));
+        return;
+    };
+    let cwd = project.path.clone();
+    let result = stores.sessions.update(cx, |s, cx| {
+        s.start_shell(&project, shell, cwd, prefs.terminal_font_size, cx)?;
+        if let Some(id) = s.active.clone() {
+            s.submit(&id, command, cx);
+        }
+        Ok::<(), String>(())
+    });
+    if let Err(e) = result {
+        tracing::error!("could not run a command: {e}");
+        toast::error(cx, e);
+    }
+}
+
 /// Close a session from the UI. A terminal whose shell is running a command asks first.
 pub fn request_close(id: &str, cx: &mut App) {
     let stores = cx.global::<Stores>().clone();
@@ -767,6 +795,8 @@ fn self_project(clone_dir: PathBuf) -> Project {
         path: clone_dir,
         use_worktree: Some(true),
         skill_args: Default::default(),
+        default_shell: None,
+        commands: Vec::new(),
     }
 }
 

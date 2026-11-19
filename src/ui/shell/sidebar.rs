@@ -1,6 +1,6 @@
 //! Sidebar: projects with their sessions nested underneath, each with a status dot.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -18,6 +18,7 @@ use crate::route::{Navigate, Route};
 use crate::runtime;
 use crate::state::Stores;
 use crate::state::sessions::{self, SessionKind, ShellDir};
+use crate::ui::command_editor;
 use crate::ui::components::checkbox::checkbox;
 use crate::ui::confirm::{self, ConfirmOptions};
 use crate::ui::icons::{Icon, icon};
@@ -124,7 +125,7 @@ impl Render for DragGhost {
 
 const PAGES_MENU_W: f32 = 200.0;
 
-const PAGES: [(&str, &str); 7] = [
+const PAGES: [(&str, &str); 8] = [
     ("skills", "sidebar.skills"),
     ("docs", "sidebar.docs"),
     ("git", "sidebar.git"),
@@ -132,6 +133,7 @@ const PAGES: [(&str, &str); 7] = [
     ("history", "sidebar.history"),
     ("workflows", "sidebar.workflows"),
     ("graphify", "sidebar.graphify"),
+    ("commands", "sidebar.commands_extra"),
 ];
 
 pub struct Sidebar {
@@ -140,6 +142,7 @@ pub struct Sidebar {
     folds: HashMap<String, Fold>,
     picker_open: bool,
     shell_menu: Option<ShellMenu>,
+    commands_open: HashSet<String>,
     shell_menu_closed_at: Option<Instant>,
     pages_menu: bool,
     compact: bool,
@@ -190,6 +193,7 @@ impl Sidebar {
             folds: HashMap::new(),
             picker_open: false,
             shell_menu: None,
+            commands_open: HashSet::new(),
             shell_menu_closed_at: None,
             pages_menu: false,
             compact: false,
@@ -500,6 +504,181 @@ impl Sidebar {
         });
     }
 
+    fn commands_section(&self, project: &Project, cx: &mut Context<Self>) -> (AnyElement, f32) {
+        let pid = project.id.clone();
+        let open = self.commands_open.contains(&pid);
+        let detected = self
+            .stores
+            .projects
+            .read(cx)
+            .detected
+            .get(&pid)
+            .cloned()
+            .unwrap_or_default();
+        let custom = project.commands.clone();
+        let shell_label = project
+            .default_shell
+            .as_deref()
+            .and_then(shells::label)
+            .map_or_else(|| t("commands.shell_default").to_string(), str::to_string);
+        let height = ROW_H
+            + if open {
+                ROW_H * (1 + detected.len() + custom.len()) as f32
+            } else {
+                0.0
+            };
+
+        let row = |id: String| {
+            div()
+                .id(gpui::SharedString::from(id))
+                .flex()
+                .items_center()
+                .gap(px(8.0))
+                .h(px(ROW_H))
+                .ml(px(38.0))
+                .px(px(6.0))
+                .rounded(px(6.0))
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::hover()))
+        };
+        let tool = |id: String, glyph: Icon| {
+            div()
+                .id(gpui::SharedString::from(id))
+                .flex_none()
+                .size(px(20.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(4.0))
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::hover()))
+                .child(icon(glyph, px(12.0)).text_color(theme::text_muted()))
+        };
+        let label = |text: String| {
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_size(px(12.5))
+                .text_color(theme::text())
+                .child(text)
+        };
+
+        let toggle_id = pid.clone();
+        let add_id = pid.clone();
+        let chevron = icon(Icon::ChevronRight, px(11.0)).text_color(theme::text_muted());
+        let chevron = if open {
+            chevron
+                .with_transformation(Transformation::rotate(radians(std::f32::consts::FRAC_PI_2)))
+        } else {
+            chevron.with_transformation(Transformation::rotate(radians(0.0)))
+        };
+        let header = div()
+            .flex()
+            .items_center()
+            .h(px(ROW_H))
+            .ml(px(26.0))
+            .px(px(6.0))
+            .child(
+                div()
+                    .id(gpui::SharedString::from(format!("commands-toggle-{pid}")))
+                    .flex()
+                    .flex_1()
+                    .items_center()
+                    .gap(px(6.0))
+                    .h_full()
+                    .cursor_pointer()
+                    .text_size(px(10.5))
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_color(theme::text_muted())
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if !this.commands_open.remove(&toggle_id) {
+                            this.commands_open.insert(toggle_id.clone());
+                        }
+                        cx.notify();
+                    }))
+                    .child(chevron)
+                    .child(t("sidebar.commands")),
+            )
+            .child(
+                tool(format!("commands-add-{pid}"), Icon::Plus).on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        this.commands_open.insert(add_id.clone());
+                        command_editor::open(&add_id, None, cx);
+                    },
+                )),
+            );
+
+        let mut body = div().flex().flex_col();
+        if open {
+            let shell_pid = pid.clone();
+            body = body.child(
+                row(format!("commands-shell-{pid}"))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let shells = shells::detect();
+                        let current = this
+                            .stores
+                            .projects
+                            .read(cx)
+                            .get(&shell_pid)
+                            .and_then(|p| p.default_shell.clone());
+                        let next =
+                            shells::next(&shells, current.as_deref()).map(|s| s.id.to_string());
+                        this.stores
+                            .projects
+                            .update(cx, |p, cx| p.set_default_shell(&shell_pid, next, cx));
+                    }))
+                    .child(icon(Icon::Terminal, px(13.0)).text_color(theme::text_muted()))
+                    .child(label(
+                        t_args("commands.shell_row", &[("shell", &shell_label)]).to_string(),
+                    )),
+            );
+            for (ix, d) in detected.into_iter().enumerate() {
+                let (run_pid, line) = (pid.clone(), d.command);
+                body = body.child(
+                    row(format!("command-detected-{pid}-{ix}"))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.show_project(&run_pid, cx);
+                            sessions::begin_command(&run_pid, &line, None, cx);
+                        }))
+                        .child(icon(Icon::Play, px(12.0)).text_color(theme::text_muted()))
+                        .child(label(d.label)),
+                );
+            }
+            for c in custom {
+                let (run_pid, edit_pid, del_pid) = (pid.clone(), pid.clone(), pid.clone());
+                let (line, shell) = (c.command.clone(), c.shell.clone());
+                let (del_id, cid) = (c.id.clone(), c.id.clone());
+                let edited = c.clone();
+                body = body.child(
+                    row(format!("command-custom-{pid}-{cid}"))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.show_project(&run_pid, cx);
+                            sessions::begin_command(&run_pid, &line, shell.as_deref(), cx);
+                        }))
+                        .child(icon(Icon::Play, px(12.0)).text_color(theme::accent()))
+                        .child(label(c.name))
+                        .child(tool(format!("command-edit-{cid}"), Icon::Pencil).on_click(
+                            cx.listener(move |_, _, _, cx| {
+                                cx.stop_propagation();
+                                command_editor::open(&edit_pid, Some(&edited), cx);
+                            }),
+                        ))
+                        .child(tool(format!("command-delete-{cid}"), Icon::Trash).on_click(
+                            cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.stores
+                                    .projects
+                                    .update(cx, |p, cx| p.delete_command(&del_pid, &del_id, cx));
+                            }),
+                        )),
+                );
+            }
+        }
+        let section = div().flex().flex_col().child(header).child(body);
+        (section.into_any_element(), height)
+    }
+
     fn project_block(&self, project: &Project, cx: &mut Context<Self>) -> gpui::AnyElement {
         let projects = self.stores.projects.read(cx);
         let selected = projects.selected.as_deref() == Some(project.id.as_str());
@@ -568,9 +747,15 @@ impl Sidebar {
         let shown = |id: &str| {
             !compact && (!is_global || id == "skills") && !hidden.iter().any(|h| h == id)
         };
-        let page_rows = PAGES.iter().filter(|(id, _)| shown(id)).count() as f32;
+        let page_rows = PAGES
+            .iter()
+            .filter(|(id, _)| *id != "commands" && shown(id))
+            .count() as f32;
+        let commands = shown("commands").then(|| self.commands_section(project, cx));
+        let commands_h = commands.as_ref().map_or(0.0, |(_, h)| *h);
 
         let full_h = ROW_H * page_rows
+            + commands_h
             + if sessions.is_empty() {
                 0.0
             } else {
@@ -1031,6 +1216,7 @@ impl Sidebar {
                         ),
                 )
             })
+            .children(commands.map(|(el, _)| el))
             .when(!compact && !sessions.is_empty(), |s| {
                 s.child(section_header(t("sidebar.agents")))
             })

@@ -49,6 +49,25 @@ pub fn detect() -> Vec<Shell> {
     found
 }
 
+pub fn label(id: &str) -> Option<&'static str> {
+    Some(match id {
+        "pwsh" => "PowerShell",
+        "powershell" => "Windows PowerShell",
+        "cmd" => "Command Prompt",
+        "git-bash" => "Git Bash",
+        "wsl" => "WSL",
+        "shell" => "Shell",
+        _ => return None,
+    })
+}
+
+pub fn next<'a>(shells: &'a [Shell], current: Option<&str>) -> Option<&'a Shell> {
+    let at = current.and_then(|c| shells.iter().position(|s| s.id == c));
+    shells
+        .get(at.map_or(0, |i| i + 1))
+        .or_else(|| shells.first())
+}
+
 /// Git for Windows' own `bash.exe`. `bash` on PATH is often the WSL launcher, so it is not used.
 fn git_bash() -> Option<PathBuf> {
     [
@@ -97,6 +116,15 @@ mod tests {
     fn remembered_shell_wins_when_installed() {
         let shells = [shell("pwsh"), shell("cmd")];
         assert_eq!(pick(&shells, "cmd").unwrap().id, "cmd");
+    }
+
+    #[test]
+    fn next_cycles_through_the_shells() {
+        let shells = [shell("pwsh"), shell("cmd")];
+        assert_eq!(next(&shells, None).unwrap().id, "pwsh");
+        assert_eq!(next(&shells, Some("pwsh")).unwrap().id, "cmd");
+        assert_eq!(next(&shells, Some("cmd")).unwrap().id, "pwsh");
+        assert!(next(&[], None).is_none());
     }
 
     #[test]
