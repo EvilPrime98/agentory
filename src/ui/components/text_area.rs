@@ -1,7 +1,6 @@
 //! Multiline text editor, the counterpart of `TextInput` for whole files. Typing and newlines,
 //! caret and selection (mouse click/drag and shift+arrows), up/down/home/end, copy/cut/paste,
 //! vertical scroll, Tab inserts spaces, undo/redo (consecutive typing is one step).
-//! Lines soft-wrap at the editor width, hard-breaking at the column (not at word boundaries).
 //! Known gaps: no IME composition, caret is
 //! char-based (not grapheme-based), and mouse placement assumes the monospace app font.
 
@@ -51,9 +50,33 @@ pub struct TextArea {
     scroll: ScrollHandle,
     /// Window position of the text origin and the glyph advance, written by `render`.
     metrics: Rc<Cell<Metrics>>,
-    /// Cached first visual row of each line (plus a total at the end) for the given `cols`.
-    layout: RefCell<Option<(usize, Rc<Vec<usize>>)>>,
+    layout: RefCell<Option<(usize, Rc<Layout>)>>,
     submit_on_enter: bool,
+}
+
+struct Layout {
+    starts: Vec<usize>,
+    breaks: Vec<Vec<usize>>,
+}
+
+fn wrap(text: &str, cols: usize) -> Vec<usize> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = vec![0];
+    let mut s = 0;
+    while chars.len() - s > cols {
+        let end = s + cols;
+        let cut = if chars[end] == ' ' {
+            end
+        } else {
+            chars[s..end]
+                .iter()
+                .rposition(|&c| c == ' ')
+                .map_or(end, |j| s + j + 1)
+        };
+        out.push(cut);
+        s = cut;
+    }
+    out
 }
 
 #[derive(Clone)]
@@ -311,35 +334,42 @@ impl TextArea {
         *self.layout.borrow_mut() = None;
     }
 
-    /// First visual row of every line, plus the total row count as the last entry.
-    fn starts(&self) -> Rc<Vec<usize>> {
+    fn starts(&self) -> Rc<Layout> {
         let cols = self.cols();
         if let Some((c, v)) = &*self.layout.borrow()
             && *c == cols
         {
             return v.clone();
         }
-        let mut v = Vec::with_capacity(self.lines.len() + 1);
+        let mut starts = Vec::with_capacity(self.lines.len() + 1);
+        let mut breaks = Vec::with_capacity(self.lines.len());
         let mut acc = 0;
         for l in &self.lines {
-            v.push(acc);
-            acc += l.chars().count() / cols + 1;
+            starts.push(acc);
+            let b = wrap(l, cols);
+            acc += b.len();
+            breaks.push(b);
         }
-        v.push(acc);
-        let v = Rc::new(v);
+        starts.push(acc);
+        let v = Rc::new(Layout { starts, breaks });
         *self.layout.borrow_mut() = Some((cols, v.clone()));
         v
     }
 
-    /// Visual rows a line takes; a caret at the very end of a full row sits on one more row.
-    fn rows_of(&self, line: usize) -> usize {
-        let s = self.starts();
-        s[line + 1] - s[line]
+    fn row_in_line(breaks: &[usize], col: usize) -> usize {
+        breaks.partition_point(|&b| b <= col) - 1
     }
 
     /// Visual row index of a position, counted from the top of the text.
     fn row_index(&self, (line, col): (usize, usize)) -> usize {
-        self.starts()[line] + col / self.cols()
+        let l = self.starts();
+        l.starts[line] + Self::row_in_line(&l.breaks[line], col)
+    }
+
+    fn visual_col(&self, (line, col): (usize, usize)) -> usize {
+        let l = self.starts();
+        let b = &l.breaks[line];
+        col - b[Self::row_in_line(b, col)]
     }
 
     /// Line holding visual row `row` (must be below the total).
@@ -349,21 +379,20 @@ impl TextArea {
 
     /// Position at visual row `row` and column offset `x` within it (both clamped).
     fn pos_at_row(&self, row: usize, x: usize) -> (usize, usize) {
-        let cols = self.cols();
-        let starts = self.starts();
-        if row >= *starts.last().unwrap_or(&0) {
+        let l = self.starts();
+        if row >= *l.starts.last().unwrap_or(&0) {
             let last = self.lines.len() - 1;
             return (last, self.line_len(last));
         }
-        let line = Self::line_of_row(&starts, row);
-        let left = row - starts[line];
-        (
-            line,
-            (left * cols)
-                .saturating_add(x)
-                .min(self.line_len(line))
-                .min((left * cols).saturating_add(cols - 1).max(left * cols)),
-        )
+        let line = Self::line_of_row(&l.starts, row);
+        let b = &l.breaks[line];
+        let k = row - l.starts[line];
+        let start = b[k];
+        let max = match b.get(k + 1) {
+            Some(&next) => next - 1,
+            None => self.line_len(line),
+        };
+        (line, start.saturating_add(x).min(max))
     }
 
     /// Keep the caret row inside the viewport.
@@ -425,7 +454,7 @@ impl TextArea {
         if self.selection().is_none() {
             self.anchor = None;
         }
-        let (line, col) = self.caret;
+        let line = self.caret.0;
         let mut vertical = false;
         let before = self.snapshot();
         let typed = !command && !alt && ks.key_char.is_some() && ks.key != "enter";
@@ -484,8 +513,8 @@ impl TextArea {
             },
             "up" | "down" => {
                 vertical = true;
-                let cols = self.cols();
-                let goal = *self.goal_col.get_or_insert(col % cols);
+                let vcol = self.visual_col(self.caret);
+                let goal = *self.goal_col.get_or_insert(vcol);
                 let row = self.row_index(self.caret);
                 let end = (self.lines.len() - 1, self.line_len(self.lines.len() - 1));
                 let last_row = self.row_index(end);
@@ -574,10 +603,11 @@ impl TextArea {
     fn render_row(&self, i: usize, k: usize, focused: bool, char_w: f32) -> gpui::Div {
         let text = &self.lines[i];
         let len = self.line_len(i);
-        let cols = self.cols();
-        let start = k.saturating_mul(cols).min(len);
-        let end = start.saturating_add(cols).min(len);
-        let last = k + 1 == self.rows_of(i);
+        let layout = self.starts();
+        let b = &layout.breaks[i];
+        let start = b[k];
+        let end = b.get(k + 1).copied().unwrap_or(len);
+        let last = k + 1 == b.len();
         let (sel_from, sel_to) = match self.selection() {
             Some((from, to)) if from.0 <= i && i <= to.0 => (
                 if from.0 == i { from.1 } else { 0 },
@@ -587,8 +617,8 @@ impl TextArea {
             _ => (0, 0),
         };
         let has_sel = sel_to > sel_from;
-        let caret_col = (self.caret.0 == i && focused && self.caret.1 / cols == k)
-            .then(|| self.caret.1 - k * cols);
+        let caret_col = (self.caret.0 == i && focused && Self::row_in_line(b, self.caret.1) == k)
+            .then(|| self.caret.1 - start);
 
         // Split at the selection edges and style each piece.
         let mut cuts = vec![start, end];
@@ -693,7 +723,7 @@ impl Render for TextArea {
 
         // Only the rows in (or near) the viewport are built; spacers keep the scroll extent.
         let starts = self.starts();
-        let total = *starts.last().unwrap_or(&0);
+        let total = *starts.starts.last().unwrap_or(&0);
         let top = (-f32::from(self.scroll.offset().y) - PAD).max(0.0);
         let view_h = f32::from(bounds.size.height);
         let visible = if view_h > 0.0 {
@@ -707,8 +737,8 @@ impl Render for TextArea {
         let end = (first + visible + 2 * OVERSCAN).min(total);
         let rows: Vec<_> = (first..end)
             .map(|r| {
-                let i = Self::line_of_row(&starts, r);
-                self.render_row(i, r - starts[i], focused, char_w)
+                let i = Self::line_of_row(&starts.starts, r);
+                self.render_row(i, r - starts.starts[i], focused, char_w)
             })
             .collect();
         let above = div().flex_none().h(px(first as f32 * LINE_HEIGHT));
@@ -756,5 +786,32 @@ mod tests {
     fn splits_crlf() {
         assert_eq!(split_lines("a\r\nb\rc"), vec!["a", "b", "c"]);
         assert_eq!(split_lines(""), vec![""]);
+    }
+
+    #[test]
+    fn wraps_short_and_exact_rows() {
+        assert_eq!(wrap("", 5), vec![0]);
+        assert_eq!(wrap("abc", 5), vec![0]);
+        assert_eq!(wrap("abcde", 5), vec![0]);
+    }
+
+    #[test]
+    fn wraps_at_words_with_hanging_space() {
+        assert_eq!(wrap("aaa bbb ccc", 5), vec![0, 4, 8]);
+        assert_eq!(wrap("aaaaa bbb", 5), vec![0, 5]);
+    }
+
+    #[test]
+    fn splits_overlong_words() {
+        assert_eq!(wrap("abcdefghij", 4), vec![0, 4, 8]);
+        assert_eq!(wrap("ab cdefghij", 4), vec![0, 3, 7]);
+    }
+
+    #[test]
+    fn caret_at_break_belongs_to_next_row() {
+        let b = wrap("aaa bbb ccc", 5);
+        assert_eq!(TextArea::row_in_line(&b, 3), 0);
+        assert_eq!(TextArea::row_in_line(&b, 4), 1);
+        assert_eq!(TextArea::row_in_line(&b, 11), 2);
     }
 }
