@@ -145,6 +145,7 @@ pub struct Sidebar {
     commands_open: HashSet<String>,
     shell_menu_closed_at: Option<Instant>,
     pages_menu: bool,
+    pages_menu_closed_at: Option<Instant>,
     compact: bool,
     /// The current route: only the Sessions page highlights a session, only Skills its row.
     route: Route,
@@ -196,6 +197,7 @@ impl Sidebar {
             commands_open: HashSet::new(),
             shell_menu_closed_at: None,
             pages_menu: false,
+            pages_menu_closed_at: None,
             compact: false,
             route: Route::home(),
         }
@@ -282,9 +284,25 @@ impl Sidebar {
         }
     }
 
+    fn close_pages_menu(&mut self, cx: &mut Context<Self>) {
+        if self.pages_menu {
+            self.pages_menu = false;
+            self.pages_menu_closed_at = Some(Instant::now());
+            cx.notify();
+        }
+    }
+
     fn toggle_pages_menu(&mut self, cx: &mut Context<Self>) {
-        self.pages_menu = !self.pages_menu;
-        cx.notify();
+        if self.pages_menu {
+            return self.close_pages_menu(cx);
+        }
+        if self
+            .pages_menu_closed_at
+            .is_none_or(|t| t.elapsed().as_millis() > REOPEN_GUARD_MS)
+        {
+            self.pages_menu = true;
+            cx.notify();
+        }
     }
 
     fn pages_popup(&self, hidden: &[String], cx: &mut Context<Self>) -> AnyElement {
@@ -304,10 +322,7 @@ impl Sidebar {
             .border_color(theme::border_subtle())
             .bg(theme::bg_modal())
             .text_color(theme::text())
-            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
-                this.pages_menu = false;
-                cx.notify();
-            }))
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| this.close_pages_menu(cx)))
             .child(
                 div()
                     .text_size(px(11.0))
