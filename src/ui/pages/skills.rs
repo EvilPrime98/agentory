@@ -40,6 +40,7 @@ pub struct SkillsPage {
     repo_input: Entity<TextInput>,
     init_repo_input: Entity<TextInput>,
     search_input: Entity<TextInput>,
+    installed_filter_input: Entity<TextInput>,
     install_global: bool,
     confirm_remove: Option<String>,
     editing_args: Option<(String, String)>,
@@ -254,6 +255,8 @@ impl SkillsPage {
         let repo_input = cx.new(|cx| TextInput::new("owner/repo", cx));
         let init_repo_input = cx.new(|cx| TextInput::new(t("skills.init_placeholder"), cx));
         let search_input = cx.new(|cx| TextInput::new(t("skills.search_placeholder"), cx));
+        let installed_filter_input =
+            cx.new(|cx| TextInput::new(t("skills.installed_filter_placeholder"), cx));
         let args_input = cx.new(|cx| TextInput::new("", cx));
         let subs = vec![
             cx.subscribe(&args_input, |this, _, ev: &TextInputEvent, cx| {
@@ -267,6 +270,11 @@ impl SkillsPage {
                 TextInputEvent::Changed => cx.notify(),
                 TextInputEvent::Submit => this.submit_search(cx),
                 _ => {}
+            }),
+            cx.subscribe(&installed_filter_input, |_, _, ev: &TextInputEvent, cx| {
+                if matches!(ev, TextInputEvent::Changed) {
+                    cx.notify();
+                }
             }),
             cx.subscribe(&init_repo_input, |this, _, ev: &TextInputEvent, cx| {
                 if matches!(ev, TextInputEvent::Submit) {
@@ -287,6 +295,7 @@ impl SkillsPage {
             repo_input,
             init_repo_input,
             search_input,
+            installed_filter_input,
             install_global: false,
             confirm_remove: None,
             editing_args: None,
@@ -450,6 +459,21 @@ impl SkillsPage {
         let mut names = on_disk_set.clone();
         if let Some(m) = &manifest {
             names.extend(m.skills.keys().cloned());
+        }
+        let filter = self
+            .installed_filter_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_lowercase();
+        if !filter.is_empty() {
+            names.retain(|n| {
+                n.to_lowercase().contains(&filter)
+                    || manifest
+                        .as_ref()
+                        .and_then(|m| m.source_of(n))
+                        .is_some_and(|src| src.to_lowercase().contains(&filter))
+            });
         }
         let project_id = self.stores.projects.read(cx).selected.clone();
         let saved_args = self
@@ -679,8 +703,14 @@ impl SkillsPage {
                             )),
                     ),
             )
+            .child(field(&self.installed_filter_input))
             .when(count == 0, |s| {
-                s.child(muted_note(t("skills.none_installed").into()))
+                let key = if filter.is_empty() {
+                    "skills.none_installed"
+                } else {
+                    "skills.no_match"
+                };
+                s.child(muted_note(t(key).into()))
             })
             .child(
                 self.installed_scroll.framed(
@@ -1050,6 +1080,10 @@ impl Render for SkillsPage {
         for (input, key) in [
             (&self.init_repo_input, "skills.init_placeholder"),
             (&self.search_input, "skills.search_placeholder"),
+            (
+                &self.installed_filter_input,
+                "skills.installed_filter_placeholder",
+            ),
         ] {
             input.update(cx, |i, _| i.set_placeholder(t(key)));
         }

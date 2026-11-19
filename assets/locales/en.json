@@ -69,6 +69,7 @@
   "skills.target.project": "Project",
   "skills.target.global": "Global",
   "skills.search_placeholder": "search your repos and the marketplace",
+  "skills.installed_filter_placeholder": "filter installed skills",
   "skills.search_hint": "Filters your repos as you type. Press Enter to search the marketplace.",
   "skills.none_installed": "No skills installed yet. Add some from Discover.",
   "skills.no_project": "Select a project to manage its skills.",
