@@ -7,6 +7,7 @@ use gpui::Context;
 
 use crate::backend::scripts::{self, DetectedCommand};
 use crate::model::{CustomCommand, GLOBAL_ID, Project, new_id};
+use crate::state::prefs;
 
 #[derive(Default)]
 pub struct ProjectsStore {
@@ -15,37 +16,130 @@ pub struct ProjectsStore {
     /// Bumped on every change so observers can memoize.
     pub revision: u64,
     pub detected: HashMap<String, Vec<DetectedCommand>>,
+    watcher: Option<notify::RecommendedWatcher>,
 }
 
+const FILE_NAME: &str = "projects.json";
+
 fn path() -> Option<PathBuf> {
-    Some(dirs::config_dir()?.join("Agentory").join("projects.json"))
+    Some(prefs::config_dir()?.join(FILE_NAME))
+}
+
+pub fn read_saved() -> std::io::Result<Vec<Project>> {
+    let p = path().ok_or_else(|| std::io::Error::other("no config directory"))?;
+    match std::fs::read_to_string(&p) {
+        Ok(s) => serde_json::from_str(&s).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("{} is not valid: {e}", p.display()),
+            )
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(e),
+    }
+}
+
+pub fn write_saved(projects: &[&Project]) -> std::io::Result<()> {
+    let p = path().ok_or_else(|| std::io::Error::other("no config directory"))?;
+    if let Some(dir) = p.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let json = serde_json::to_string_pretty(projects).map_err(std::io::Error::other)?;
+    let tmp = p.with_extension(format!("json.tmp{}", std::process::id()));
+    std::fs::write(&tmp, json)?;
+    std::fs::rename(&tmp, &p).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })
+}
+
+fn assemble(saved: Vec<Project>) -> Vec<Project> {
+    let (globals, rest): (Vec<_>, Vec<_>) = saved.into_iter().partition(Project::is_global);
+    let mut global = Project::global();
+    if let Some(saved) = globals.into_iter().next() {
+        global.skill_args = saved.skill_args;
+    }
+    let mut items = vec![global];
+    items.extend(rest);
+    items
 }
 
 impl ProjectsStore {
     pub fn load() -> Self {
-        let saved: Vec<Project> = path()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
-        let (globals, rest): (Vec<_>, Vec<_>) = saved.into_iter().partition(Project::is_global);
-        let mut global = Project::global();
-        if let Some(saved) = globals.into_iter().next() {
-            global.skill_args = saved.skill_args;
-        }
-        let selected = rest.first().unwrap_or(&global).id.clone();
-        let mut items = vec![global];
-        items.extend(rest);
+        let items = assemble(read_saved().unwrap_or_default());
+        let selected = items.get(1).unwrap_or(&items[0]).id.clone();
         let mut store = Self {
             selected: Some(selected),
             items,
-            revision: 0,
-            detected: HashMap::new(),
+            ..Self::default()
         };
         let ids: Vec<String> = store.items.iter().map(|p| p.id.clone()).collect();
         for id in ids {
             store.detect(&id);
         }
         store
+    }
+
+    pub fn watch(&mut self, cx: &mut Context<Self>) {
+        use futures_util::StreamExt as _;
+        use notify::Watcher as _;
+
+        let Some(dir) = prefs::config_dir() else {
+            return;
+        };
+        if std::fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        let (tx, mut rx) = futures_channel::mpsc::unbounded::<()>();
+        let watcher = notify::recommended_watcher(move |ev: notify::Result<notify::Event>| {
+            if ev.is_ok() {
+                let _ = tx.unbounded_send(());
+            }
+        });
+        let mut watcher = match watcher {
+            Ok(w) => w,
+            Err(e) => return tracing::warn!("could not watch projects: {e}"),
+        };
+        if let Err(e) = watcher.watch(&dir, notify::RecursiveMode::NonRecursive) {
+            return tracing::warn!("could not watch {}: {e}", dir.display());
+        }
+        self.watcher = Some(watcher);
+        cx.spawn(async move |this, cx| {
+            while rx.next().await.is_some() {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(150))
+                    .await;
+                while rx.try_recv().is_ok() {}
+                if this.update(cx, |this, cx| this.reload(cx)).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn reload(&mut self, cx: &mut Context<Self>) {
+        let Ok(saved) = read_saved() else { return };
+        let items = assemble(saved);
+        if items == self.items {
+            return;
+        }
+        self.items = items;
+        let ids: Vec<String> = self.items.iter().map(|p| p.id.clone()).collect();
+        self.detected.retain(|id, _| ids.contains(id));
+        for id in &ids {
+            if !self.detected.contains_key(id) {
+                self.detect(id);
+            }
+        }
+        if self.selected_project().is_none() {
+            self.selected = self
+                .items
+                .get(1)
+                .or(self.items.first())
+                .map(|p| p.id.clone());
+        }
+        self.revision += 1;
+        cx.notify();
     }
 
     fn detect(&mut self, id: &str) {
@@ -57,19 +151,13 @@ impl ProjectsStore {
     }
 
     fn save(&self) {
-        let Some(p) = path() else { return };
-        if let Some(dir) = p.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
         let kept: Vec<&Project> = self
             .items
             .iter()
             .filter(|p| !p.is_global() || !p.skill_args.is_empty())
             .collect();
-        if let Ok(json) = serde_json::to_string_pretty(&kept) {
-            if let Err(e) = std::fs::write(&p, json) {
-                tracing::warn!("could not save projects to {}: {e}", p.display());
-            }
+        if let Err(e) = write_saved(&kept) {
+            tracing::warn!("could not save projects: {e}");
         }
     }
 
