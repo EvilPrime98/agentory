@@ -374,6 +374,13 @@ impl SkillsStore {
         });
     }
 
+    pub fn use_global(&mut self, name: String, cx: &mut Context<Self>) {
+        let label = t_args("skills.busy.use_global", &[("name", &name)]);
+        self.mutate(label, false, cx, move |dir| async move {
+            spm::use_global(&dir, &name).await
+        });
+    }
+
     pub fn update_all(&mut self, cx: &mut Context<Self>) {
         self.mutate(t("skills.busy.update"), false, cx, |dir| async move {
             spm::update(&dir).await

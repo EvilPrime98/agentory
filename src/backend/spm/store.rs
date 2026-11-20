@@ -2,7 +2,7 @@
 //! shared with the Node `spm` CLI.
 
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -480,11 +480,25 @@ pub struct GlobalSkill {
     pub enabled: bool,
 }
 
-pub fn list_globals(settings_file: &Path, global_dir: &Path, local_dir: &Path) -> Vec<GlobalSkill> {
-    let mut shadowed: Vec<String> = Vec::new();
+fn local_names(local_dir: &Path) -> Vec<String> {
+    let mut names = Vec::new();
     for folder in list_skills(local_dir) {
-        shadowed.extend(skill_names(local_dir, &folder));
+        names.extend(skill_names(local_dir, &folder));
     }
+    names
+}
+
+pub fn shadowed_globals(global_dir: &Path, local_dir: &Path) -> BTreeSet<String> {
+    let local = local_names(local_dir);
+    list_skills(global_dir)
+        .iter()
+        .flat_map(|folder| skill_names(global_dir, folder))
+        .filter(|n| local.contains(n))
+        .collect()
+}
+
+pub fn list_globals(settings_file: &Path, global_dir: &Path, local_dir: &Path) -> Vec<GlobalSkill> {
+    let shadowed = local_names(local_dir);
     let overrides = read_overrides(settings_file);
     let mut out: Vec<GlobalSkill> = Vec::new();
     for folder in list_skills(global_dir) {
@@ -591,5 +605,17 @@ mod tests {
         assert_eq!(list[0].name, "one");
         assert!(!list[0].enabled);
         assert_eq!(list[0].description, "about one");
+    }
+
+    #[test]
+    fn shadowed_globals_lists_names_in_both_folders() {
+        let d = tmp("shadowed");
+        let (g, l) = (d.join("g"), d.join("l"));
+        skill(&g, "one");
+        skill(&g, "two");
+        skill(&l, "two");
+        skill(&l, "three");
+        let s = shadowed_globals(&g, &l);
+        assert_eq!(s.into_iter().collect::<Vec<_>>(), vec!["two".to_string()]);
     }
 }
