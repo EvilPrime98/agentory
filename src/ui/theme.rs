@@ -236,6 +236,9 @@ pub fn bg_terminal() -> Rgba {
 pub fn bg_modal() -> Rgba {
     pick(rgb(0x1c1c1c), rgb(0xffffff))
 }
+pub fn bg_menu() -> Rgba {
+    pick(rgb(0x34343b), rgb(0xffffff))
+}
 /// Dim layer behind modals.
 pub fn scrim() -> Rgba {
     pick(rgba(0x0000008c), rgba(0x00000052))

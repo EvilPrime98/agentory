@@ -473,6 +473,98 @@ pub fn read_overrides(settings_file: &Path) -> BTreeMap<String, String> {
     }
 }
 
+const ISOLATION_TOOLS: [&str; 3] = ["Read", "Edit", "Write"];
+
+fn rule_path(path: &Path) -> String {
+    let p = path.to_string_lossy().replace('\\', "/");
+    let mut chars = p.chars();
+    match (chars.next(), chars.next()) {
+        (Some(d), Some(':')) if d.is_ascii_alphabetic() => {
+            format!("//{}{}", d.to_ascii_lowercase(), chars.as_str())
+        }
+        _ => format!("//{}", p.trim_start_matches('/')),
+    }
+}
+
+pub fn isolation_rules(project: &Path) -> (Vec<String>, Vec<String>) {
+    let outside_home = dirs::home_dir().is_some_and(|h| !project.starts_with(h));
+    let mut deny = Vec::new();
+    let mut allow = Vec::new();
+    for tool in ISOLATION_TOOLS {
+        deny.push(format!("{tool}(../**)"));
+        if outside_home {
+            deny.push(format!("{tool}(~/**)"));
+        }
+        allow.push(format!("{tool}({}/**)", rule_path(project)));
+    }
+    (deny, allow)
+}
+
+fn rule_list(permissions: &Map<String, Value>, key: &str) -> Vec<Value> {
+    match permissions.get(key) {
+        Some(Value::Array(a)) => a.clone(),
+        _ => Vec::new(),
+    }
+}
+
+pub fn apply_isolation(settings_file: &Path, project: &Path) -> Result<(), String> {
+    let mut settings = read_settings(settings_file)?;
+    let mut permissions = match settings.get("permissions") {
+        Some(Value::Object(o)) => o.clone(),
+        _ => Map::new(),
+    };
+    let (deny, allow) = isolation_rules(project);
+    for (key, rules) in [("deny", deny), ("allow", allow)] {
+        let mut list = rule_list(&permissions, key);
+        for r in rules {
+            if !list.iter().any(|v| v.as_str() == Some(&r)) {
+                list.push(Value::String(r));
+            }
+        }
+        permissions.insert(key.into(), Value::Array(list));
+    }
+    permissions.shift_remove("additionalDirectories");
+    settings.insert("permissions".into(), Value::Object(permissions));
+    write_json(settings_file, &Value::Object(settings))
+}
+
+pub fn remove_isolation(settings_file: &Path, project: &Path) -> Result<(), String> {
+    let Ok(Some(Value::Object(mut settings))) = read_json(settings_file) else {
+        return Ok(());
+    };
+    let Some(Value::Object(permissions)) = settings.get_mut("permissions") else {
+        return Ok(());
+    };
+    let (deny, allow) = isolation_rules(project);
+    for (key, rules) in [("deny", deny), ("allow", allow)] {
+        let mut list = rule_list(permissions, key);
+        list.retain(|v| !v.as_str().is_some_and(|s| rules.iter().any(|r| r == s)));
+        if list.is_empty() {
+            permissions.shift_remove(key);
+        } else {
+            permissions.insert(key.into(), Value::Array(list));
+        }
+    }
+    if permissions.is_empty() {
+        settings.shift_remove("permissions");
+    }
+    write_json(settings_file, &Value::Object(settings))
+}
+
+pub fn read_isolation(settings_file: &Path, project: &Path) -> bool {
+    let Ok(Some(Value::Object(s))) = read_json(settings_file) else {
+        return false;
+    };
+    let Some(Value::Object(permissions)) = s.get("permissions") else {
+        return false;
+    };
+    let list = rule_list(permissions, "deny");
+    isolation_rules(project)
+        .0
+        .iter()
+        .all(|r| list.iter().any(|v| v.as_str() == Some(r)))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GlobalSkill {
     pub name: String,
@@ -617,5 +709,35 @@ mod tests {
         skill(&l, "three");
         let s = shadowed_globals(&g, &l);
         assert_eq!(s.into_iter().collect::<Vec<_>>(), vec!["two".to_string()]);
+    }
+
+    #[test]
+    fn isolation_round_trip_keeps_user_rules() {
+        let d = tmp("iso");
+        let f = d.join("settings.json");
+        fs::write(
+            &f,
+            r#"{"model":"x","permissions":{"deny":["Bash(rm:*)"],"additionalDirectories":["/z"]}}"#,
+        )
+        .unwrap();
+        let project = d.join("proj");
+        assert!(!read_isolation(&f, &project));
+        apply_isolation(&f, &project).unwrap();
+        apply_isolation(&f, &project).unwrap();
+        assert!(read_isolation(&f, &project));
+        let v: Value = serde_json::from_str(&fs::read_to_string(&f).unwrap()).unwrap();
+        assert!(v["permissions"].get("additionalDirectories").is_none());
+        assert_eq!(v["model"], "x");
+        remove_isolation(&f, &project).unwrap();
+        assert!(!read_isolation(&f, &project));
+        let v: Value = serde_json::from_str(&fs::read_to_string(&f).unwrap()).unwrap();
+        assert_eq!(v["permissions"]["deny"], serde_json::json!(["Bash(rm:*)"]));
+        assert!(v["permissions"].get("allow").is_none());
+    }
+
+    #[test]
+    fn rule_path_forms() {
+        assert_eq!(rule_path(Path::new("C:\\Users\\a")), "//c/Users/a");
+        assert_eq!(rule_path(Path::new("/home/a")), "//home/a");
     }
 }

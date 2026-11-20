@@ -14,7 +14,7 @@ pub(crate) mod doctor;
 mod market;
 mod repo;
 mod review;
-mod store;
+pub mod store;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
