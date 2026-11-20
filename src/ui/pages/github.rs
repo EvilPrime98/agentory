@@ -518,7 +518,7 @@ impl GithubPage {
     fn ask_close(&mut self, number: u64, cx: &mut Context<Self>) {
         let is_pr = self.tab == Tab::Prs;
         let options = ConfirmOptions::new(
-            t("github.close.title"),
+            t_args("github.close.title", &[("n", &number.to_string())]),
             t_args("github.close.body", &[("n", &number.to_string())]),
         )
         .labels(t("github.close"), t("common.cancel"));
