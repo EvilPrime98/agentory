@@ -5,6 +5,8 @@ Agentory ships a small command-line interface on the same binary as the desktop 
 ```
 agentory settings <command>
 agentory workflow <command>
+agentory graphify <command>
+agentory commands <command>
 ```
 
 Any other invocation of `agentory` launches the desktop app.
@@ -154,4 +156,29 @@ If `graphify` is missing, `status` reports `installed: false` and `update` fails
 ```sh
 agentory graphify status
 agentory graphify update --project ~/code/my-app
+```
+
+## `agentory commands`
+
+Manage a project's custom commands and default shell (the commands section of the sidebar). The project is the registered project containing the current directory; `--project PATH` overrides. The CLI never registers projects: add them in the app. Running a command stays in the app.
+
+| Command | Does |
+| --- | --- |
+| `agentory commands list` | Custom commands, then detected ones (package.json, Cargo.toml, pyproject, Makefile, ...) |
+| `agentory commands add NAME --command CMD [--shell S]` | Add a custom command; the id is derived from the name and made unique |
+| `agentory commands set ID [--name N] [--command CMD] [--shell S] [--clear-shell]` | Edit a custom command |
+| `agentory commands rm ID [--yes]` | Remove a custom command (`--yes` required on a terminal) |
+| `agentory commands shell [NAME\|--clear]` | Read, set or clear the project's default shell |
+
+Shell values are the ids available on this machine: `pwsh`, `powershell`, `cmd`, `git-bash`, `wsl` on Windows, `shell` elsewhere. Others fail with error code `invalid` and the allowed list.
+
+`list` JSON: an array of `{"id", "name", "command", "shell", "source"}` where `source` is `custom` or `detected`. Detected commands have `id: null` and are read-only.
+
+Errors (all exit `2`): `not_registered` (directory is not inside a registered project), `not_found` (no custom command with that id), `read_only` (the id given is a detected command), `invalid`, `usage`, `confirm_required`.
+
+```sh
+agentory commands add "Dev server" --command "npm run dev" --shell pwsh
+agentory commands set dev-server --clear-shell
+agentory commands shell git-bash
+agentory commands rm dev-server --yes
 ```

@@ -72,7 +72,11 @@ impl Stores {
             prefs,
             selfbuild,
             review: cx.new(|_| review::ReviewStore::default()),
-            projects: cx.new(|_| projects::ProjectsStore::load()),
+            projects: cx.new(|cx| {
+                let mut store = projects::ProjectsStore::load();
+                store.watch(cx);
+                store
+            }),
             sessions,
             skills: cx.new(|_| skills::SkillsStore::default()),
             usage,
