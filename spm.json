@@ -2,21 +2,6 @@
   "repos": [
     "https://github.com/EvilPrime98/mySkills"
   ],
-  "skills": {
-    "ecc-council": {
-      "repo": "https://github.com/affaan-m/ECC/tree/main/pi/core/skills/ecc-council",
-      "ref": "d2ef2680594f9a17526a6e1a2e18b3d242c5d17b",
-      "market": "skillsmp"
-    },
-    "git-commit-doctor": "https://github.com/EvilPrime98/mySkills",
-    "gpui-desktop": "https://github.com/EvilPrime98/mySkills",
-    "less-is-more": "https://github.com/EvilPrime98/mySkills",
-    "new-skill-doctor": "https://github.com/EvilPrime98/mySkills",
-    "pr-doctor": "https://github.com/EvilPrime98/mySkills",
-    "readme-creator-doctor": "https://github.com/EvilPrime98/mySkills",
-    "reenforcement": "https://github.com/EvilPrime98/mySkills",
-    "repo-professionalizer": "https://github.com/EvilPrime98/mySkills",
-    "silencer": "https://github.com/EvilPrime98/mySkills"
-  },
+  "skills": {},
   "isolate": false
 }
