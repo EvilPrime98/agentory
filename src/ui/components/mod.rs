@@ -1,5 +1,6 @@
 pub mod button;
 pub mod checkbox;
+pub mod context_menu;
 pub mod dropdown;
 pub mod markdown;
 pub mod preview;

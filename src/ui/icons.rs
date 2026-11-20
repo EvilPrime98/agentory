@@ -38,6 +38,8 @@ icons! {
     Github => "github",
     Globe => "globe",
     Heart => "heart",
+    Lock => "lock",
+    LockOpen => "lock-open",
     History => "history",
     Minus => "minus",
     Pencil => "pencil",

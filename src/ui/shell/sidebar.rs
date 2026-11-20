@@ -1,7 +1,7 @@
 //! Sidebar: projects with their sessions nested underneath, each with a status dot.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use gpui::{
@@ -11,6 +11,7 @@ use gpui::{
 };
 
 use crate::backend::git;
+use crate::backend::spm::store;
 use crate::i18n::{t, t_args, t_n};
 use crate::model::{Project, SessionStatus};
 use crate::platform::shells::{self, Shell};
@@ -20,6 +21,7 @@ use crate::state::Stores;
 use crate::state::sessions::{self, SessionKind, ShellDir};
 use crate::ui::command_editor;
 use crate::ui::components::checkbox::checkbox;
+use crate::ui::components::context_menu::{MenuItem, context_menu};
 use crate::ui::confirm::{self, ConfirmOptions};
 use crate::ui::icons::{Icon, icon};
 use crate::ui::theme;
@@ -167,6 +169,9 @@ pub struct Sidebar {
     folds: HashMap<String, Fold>,
     picker_open: bool,
     shell_menu: Option<ShellMenu>,
+    project_menu: Option<ProjectMenu>,
+    isolated: std::cell::RefCell<HashMap<String, bool>>,
+    menu_focus: gpui::FocusHandle,
     commands_folds: HashMap<String, Fold>,
     shell_menu_closed_at: Option<Instant>,
     pages_menu: bool,
@@ -174,6 +179,16 @@ pub struct Sidebar {
     compact: bool,
     /// The current route: only the Sessions page highlights a session, only Skills its row.
     route: Route,
+}
+
+struct ProjectMenu {
+    project_id: String,
+    position: gpui::Point<gpui::Pixels>,
+    isolated: bool,
+}
+
+fn settings_file(project: &Path) -> PathBuf {
+    project.join(".claude").join("settings.json")
 }
 
 /// The open "new terminal" menu of one project.
@@ -219,6 +234,9 @@ impl Sidebar {
             folds: HashMap::new(),
             picker_open: false,
             shell_menu: None,
+            project_menu: None,
+            isolated: Default::default(),
+            menu_focus: cx.focus_handle(),
             commands_folds: HashMap::new(),
             shell_menu_closed_at: None,
             pages_menu: false,
@@ -315,6 +333,98 @@ impl Sidebar {
             .projects
             .update(cx, |p, cx| p.select(project_id, cx));
         cx.emit(Navigate(Route::Sessions));
+    }
+
+    fn open_project_menu(
+        &mut self,
+        project: &Project,
+        position: gpui::Point<gpui::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let isolated = self.is_isolated(project);
+        self.project_menu = Some(ProjectMenu {
+            project_id: project.id.clone(),
+            position,
+            isolated,
+        });
+        window.focus(&self.menu_focus, cx);
+        cx.notify();
+    }
+
+    fn is_isolated(&self, project: &Project) -> bool {
+        *self
+            .isolated
+            .borrow_mut()
+            .entry(project.id.clone())
+            .or_insert_with(|| {
+                store::read_isolation(&settings_file(&project.path), &project.path)
+            })
+    }
+
+    fn close_project_menu(&mut self, cx: &mut Context<Self>) {
+        if self.project_menu.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    fn toggle_isolate(&mut self, project_id: &str, cx: &mut Context<Self>) {
+        let Some(path) = self
+            .stores
+            .projects
+            .read(cx)
+            .get(project_id)
+            .map(|p| p.path.clone())
+        else {
+            return;
+        };
+        let file = settings_file(&path);
+        let on = !store::read_isolation(&file, &path);
+        let result = if on {
+            store::apply_isolation(&file, &path)
+        } else {
+            store::remove_isolation(&file, &path)
+        };
+        match result {
+            Ok(()) => {
+                self.isolated.borrow_mut().insert(project_id.to_string(), on);
+                cx.notify();
+            }
+            Err(e) => eprintln!("isolate: {e}"),
+        }
+    }
+
+    fn project_menu_popup(&self, menu: &ProjectMenu, cx: &mut Context<Self>) -> AnyElement {
+        let id = menu.project_id.clone();
+        let title: gpui::SharedString = self
+            .stores
+            .projects
+            .read(cx)
+            .get(&id)
+            .map(|p| p.name.clone())
+            .unwrap_or_default()
+            .into();
+        let this = cx.entity();
+        let close = this.clone();
+        context_menu(
+            menu.position,
+            title,
+            &self.menu_focus,
+            vec![MenuItem {
+                id: "project-menu-isolate".into(),
+                icon: if menu.isolated { Icon::LockOpen } else { Icon::Lock },
+                label: t(if menu.isolated {
+                    "sidebar.unisolate"
+                } else {
+                    "sidebar.isolate"
+                })
+                .into(),
+                on_click: std::rc::Rc::new(move |_, cx| {
+                    this.update(cx, |this, cx| this.toggle_isolate(&id, cx));
+                }),
+            }],
+            move |_, cx| close.update(cx, |this, cx| this.close_project_menu(cx)),
+        )
     }
 
     fn close_shell_menu(&mut self, cx: &mut Context<Self>) {
@@ -840,6 +950,10 @@ impl Sidebar {
             .filter(|(t, _)| *t == project.id)
             .map(|(_, after)| *after);
 
+        let context_open = self
+            .project_menu
+            .as_ref()
+            .is_some_and(|m| m.project_id == project.id);
         let header = div()
             .id(gpui::SharedString::from(format!("header-{}", project.id)))
             .relative()
@@ -848,7 +962,22 @@ impl Sidebar {
             .h(px(32.0))
             .px(px(6.0))
             .rounded(px(6.0))
-            .when(selected, |s| s.bg(theme::hover()))
+            .when(selected || context_open, |s| s.bg(theme::hover()))
+            .when(!is_global, |s| {
+                let menu_project = project.clone();
+                s.on_mouse_down(
+                    gpui::MouseButton::Right,
+                    cx.listener(move |this, e: &gpui::MouseDownEvent, window, cx| {
+                        this.open_project_menu(&menu_project, e.position, window, cx);
+                    }),
+                )
+            })
+            .when_some(
+                self.project_menu
+                    .as_ref()
+                    .filter(|m| m.project_id == project.id),
+                |s, m| s.child(self.project_menu_popup(m, cx)),
+            )
             .on_drag(
                 DraggedProject {
                     id: drag_id,
@@ -913,6 +1042,13 @@ impl Sidebar {
                     }))
                     .child(chevron),
             )
+            .when(!is_global && self.is_isolated(project), |s| {
+                s.child(
+                    icon(Icon::Lock, px(12.0))
+                        .mr(px(4.0))
+                        .text_color(theme::text_muted()),
+                )
+            })
             .child(
                 div()
                     .id(gpui::SharedString::from(format!(
