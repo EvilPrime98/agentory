@@ -24,6 +24,18 @@ enum SkillsTab {
     Installed,
     Discover,
     Sources,
+    New,
+}
+
+const NAME_MAX_LEN: usize = 64;
+
+fn valid_skill_name(name: &str) -> bool {
+    name.len() <= NAME_MAX_LEN
+        && !name.starts_with('-')
+        && !name.ends_with('-')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -41,6 +53,9 @@ pub struct SkillsPage {
     init_repo_input: Entity<TextInput>,
     search_input: Entity<TextInput>,
     installed_filter_input: Entity<TextInput>,
+    new_name_input: Entity<TextInput>,
+    new_desc_input: Entity<TextInput>,
+    new_error: Option<String>,
     install_global: bool,
     confirm_remove: Option<String>,
     editing_args: Option<(String, String)>,
@@ -258,7 +273,19 @@ impl SkillsPage {
         let installed_filter_input =
             cx.new(|cx| TextInput::new(t("skills.installed_filter_placeholder"), cx));
         let args_input = cx.new(|cx| TextInput::new("", cx));
+        let new_name_input = cx.new(|cx| TextInput::new(t("skills.new.name_placeholder"), cx));
+        let new_desc_input = cx.new(|cx| TextInput::new(t("skills.new.desc_placeholder"), cx));
         let subs = vec![
+            cx.subscribe(&new_name_input, |this, _, ev: &TextInputEvent, cx| {
+                if matches!(ev, TextInputEvent::Submit) {
+                    this.submit_new(cx);
+                }
+            }),
+            cx.subscribe(&new_desc_input, |this, _, ev: &TextInputEvent, cx| {
+                if matches!(ev, TextInputEvent::Submit) {
+                    this.submit_new(cx);
+                }
+            }),
             cx.subscribe(&args_input, |this, _, ev: &TextInputEvent, cx| {
                 if matches!(ev, TextInputEvent::Submit) {
                     this.save_args(cx);
@@ -296,6 +323,9 @@ impl SkillsPage {
             init_repo_input,
             search_input,
             installed_filter_input,
+            new_name_input,
+            new_desc_input,
+            new_error: None,
             install_global: false,
             confirm_remove: None,
             editing_args: None,
@@ -428,6 +458,77 @@ impl SkillsPage {
         }
         self.repo_input.update(cx, |i, cx| i.set_value("", cx));
         self.stores.skills.update(cx, |s, cx| s.add_repo(repo, cx));
+    }
+
+    fn submit_new(&mut self, cx: &mut Context<Self>) {
+        let name = self.new_name_input.read(cx).value().trim().to_string();
+        let desc = self.new_desc_input.read(cx).value().trim().to_string();
+        let project = self.stores.skills.read(cx).project.clone();
+        let project_id = self.stores.projects.read(cx).selected.clone();
+        let (Some(project), Some(project_id)) = (project, project_id) else {
+            return;
+        };
+        let error = if name.is_empty() {
+            Some(t("skills.new.err_empty"))
+        } else if !valid_skill_name(&name) {
+            Some(t("skills.new.err_invalid"))
+        } else if desc.is_empty() {
+            Some(t("skills.new.err_desc"))
+        } else {
+            None
+        };
+        if let Some(e) = error {
+            self.new_error = Some(e.to_string());
+            cx.notify();
+            return;
+        }
+        let dir = project.join(".claude").join("skills").join(&name);
+        if dir.exists() {
+            self.new_error = Some(t("skills.new.err_exists").to_string());
+            cx.notify();
+            return;
+        }
+        let quoted = serde_json::to_string(&desc).unwrap_or_else(|_| format!("\"{desc}\""));
+        let body = format!("---\nname: {name}\ndescription: {quoted}\n---\n\n# {name}\n");
+        let written =
+            std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(dir.join("SKILL.md"), body));
+        if let Err(e) = written {
+            self.new_error =
+                Some(t_args("skills.new.err_write", &[("error", &e.to_string())]).to_string());
+            cx.notify();
+            return;
+        }
+        self.new_error = None;
+        self.new_name_input.update(cx, |i, cx| i.set_value("", cx));
+        self.new_desc_input.update(cx, |i, cx| i.set_value("", cx));
+        self.stores.skills.update(cx, |s, cx| s.refresh(cx));
+        cx.emit(Navigate(Route::SkillEditor(project_id, name)));
+    }
+
+    fn new_tab(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let error = self.new_error.clone();
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.0))
+            .max_w(px(520.0))
+            .child(group_heading(t("skills.new.title"), 0).into_any_element())
+            .child(div().flex().child(field(&self.new_name_input)))
+            .child(div().flex().child(field(&self.new_desc_input)))
+            .when_some(error, |s, e| {
+                s.child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(theme::warning())
+                        .child(e),
+                )
+            })
+            .child(div().flex().child(small_button(
+                "create-skill",
+                t("skills.new.create"),
+                cx.listener(|this, _, _, cx| this.submit_new(cx)),
+            )))
+            .into_any_element()
     }
 
     fn tab_button(
@@ -1087,6 +1188,12 @@ impl Render for SkillsPage {
         ] {
             input.update(cx, |i, _| i.set_placeholder(t(key)));
         }
+        for (input, key) in [
+            (&self.new_name_input, "skills.new.name_placeholder"),
+            (&self.new_desc_input, "skills.new.desc_placeholder"),
+        ] {
+            input.update(cx, |i, _| i.set_placeholder(t(key)));
+        }
         let skills = self.stores.skills.read(cx);
         let has_project = skills.project.is_some();
         let busy = skills.busy.clone();
@@ -1118,11 +1225,13 @@ impl Render for SkillsPage {
                     SkillsTab::Sources,
                     cx,
                 ))
+                .child(self.tab_button("tab-new", t("skills.tab.new"), SkillsTab::New, cx))
         });
         let content = ready.then(|| match self.tab {
             SkillsTab::Installed => self.installed_tab(window, cx),
             SkillsTab::Discover => self.discover_tab(window, cx),
             SkillsTab::Sources => self.sources_tab(window, cx),
+            SkillsTab::New => self.new_tab(cx),
         });
 
         let modal = self.args_modal(cx);
