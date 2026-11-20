@@ -1,6 +1,6 @@
 //! Sidebar: projects with their sessions nested underneath, each with a status dot.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -93,6 +93,26 @@ impl Fold {
     }
 }
 
+fn fold_chevron(size: f32, key: String, fold: Option<Fold>) -> AnyElement {
+    let chevron = move |progress: f32| {
+        icon(Icon::ChevronRight, px(size))
+            .text_color(theme::text_muted())
+            .with_transformation(Transformation::rotate(radians(
+                progress * std::f32::consts::FRAC_PI_2,
+            )))
+    };
+    match fold.filter(|f| f.running()) {
+        Some(f) => chevron(f.from)
+            .with_animation(
+                (gpui::SharedString::from(key), f.id),
+                Animation::new(f.duration).with_easing(ease_out_cubic),
+                move |_, t| chevron(f.from + (f.to - f.from) * t),
+            )
+            .into_any_element(),
+        None => chevron(if fold.is_some_and(|f| f.open()) { 1.0 } else { 0.0 }).into_any_element(),
+    }
+}
+
 struct DraggedProject {
     id: String,
     name: String,
@@ -142,7 +162,7 @@ pub struct Sidebar {
     folds: HashMap<String, Fold>,
     picker_open: bool,
     shell_menu: Option<ShellMenu>,
-    commands_open: HashSet<String>,
+    commands_folds: HashMap<String, Fold>,
     shell_menu_closed_at: Option<Instant>,
     pages_menu: bool,
     pages_menu_closed_at: Option<Instant>,
@@ -194,7 +214,7 @@ impl Sidebar {
             folds: HashMap::new(),
             picker_open: false,
             shell_menu: None,
-            commands_open: HashSet::new(),
+            commands_folds: HashMap::new(),
             shell_menu_closed_at: None,
             pages_menu: false,
             pages_menu_closed_at: None,
@@ -243,7 +263,22 @@ impl Sidebar {
     fn toggle_fold(&mut self, project_id: &str, cx: &mut Context<Self>) {
         let fold = Fold::toggle(self.folds.get(project_id).copied());
         self.folds.insert(project_id.to_string(), fold);
-        // Re-render once it is over so a folded list is unmounted.
+        Self::rerender_after(fold, cx);
+    }
+
+    fn toggle_commands(&mut self, project_id: &str, cx: &mut Context<Self>) {
+        let fold = Fold::toggle(self.commands_folds.get(project_id).copied());
+        self.commands_folds.insert(project_id.to_string(), fold);
+        Self::rerender_after(fold, cx);
+    }
+
+    fn commands_open(&self, project_id: &str) -> bool {
+        self.commands_folds
+            .get(project_id)
+            .is_some_and(|f| f.open())
+    }
+
+    fn rerender_after(fold: Fold, cx: &mut Context<Self>) {
         let wait = fold.duration + Duration::from_millis(16);
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(wait).await;
@@ -521,7 +556,9 @@ impl Sidebar {
 
     fn commands_section(&self, project: &Project, cx: &mut Context<Self>) -> (AnyElement, f32) {
         let pid = project.id.clone();
-        let open = self.commands_open.contains(&pid);
+        let fold = self.commands_folds.get(&pid).copied();
+        let animating = fold.filter(|f| f.running());
+        let show_body = animating.is_some() || fold.is_some_and(|f| f.open());
         let detected = self
             .stores
             .projects
@@ -536,12 +573,8 @@ impl Sidebar {
             .as_deref()
             .and_then(shells::label)
             .map_or_else(|| t("commands.shell_default").to_string(), str::to_string);
-        let height = ROW_H
-            + if open {
-                ROW_H * (1 + detected.len() + custom.len()) as f32
-            } else {
-                0.0
-            };
+        let body_h = ROW_H * (1 + detected.len() + custom.len()) as f32;
+        let height = ROW_H + if show_body { body_h } else { 0.0 };
 
         let row = |id: String| {
             div()
@@ -581,13 +614,7 @@ impl Sidebar {
 
         let toggle_id = pid.clone();
         let add_id = pid.clone();
-        let chevron = icon(Icon::ChevronRight, px(11.0)).text_color(theme::text_muted());
-        let chevron = if open {
-            chevron
-                .with_transformation(Transformation::rotate(radians(std::f32::consts::FRAC_PI_2)))
-        } else {
-            chevron.with_transformation(Transformation::rotate(radians(0.0)))
-        };
+        let chevron = fold_chevron(11.0, format!("commands-chevron-{pid}"), fold);
         let header = div()
             .flex()
             .items_center()
@@ -607,10 +634,7 @@ impl Sidebar {
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .text_color(theme::text_muted())
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        if !this.commands_open.remove(&toggle_id) {
-                            this.commands_open.insert(toggle_id.clone());
-                        }
-                        cx.notify();
+                        this.toggle_commands(&toggle_id, cx);
                     }))
                     .child(chevron)
                     .child(t("sidebar.commands")),
@@ -618,14 +642,16 @@ impl Sidebar {
             .child(
                 tool(format!("commands-add-{pid}"), Icon::Plus).on_click(cx.listener(
                     move |this, _, _, cx| {
-                        this.commands_open.insert(add_id.clone());
+                        if !this.commands_open(&add_id) {
+                            this.toggle_commands(&add_id, cx);
+                        }
                         command_editor::open(&add_id, None, cx);
                     },
                 )),
             );
 
         let mut body = div().flex().flex_col();
-        if open {
+        if show_body {
             let shell_pid = pid.clone();
             body = body.child(
                 row(format!("commands-shell-{pid}"))
@@ -690,6 +716,21 @@ impl Sidebar {
                 );
             }
         }
+        let body = match animating {
+            Some(f) => div()
+                .overflow_hidden()
+                .child(body)
+                .with_animation(
+                    (
+                        gpui::SharedString::from(format!("commands-fold-{pid}")),
+                        f.id,
+                    ),
+                    Animation::new(f.duration).with_easing(ease_out_cubic),
+                    move |el, t| el.h(px(body_h * (f.from + (f.to - f.from) * t))),
+                )
+                .into_any_element(),
+            None => body.into_any_element(),
+        };
         let section = div().flex().flex_col().child(header).child(body);
         (section.into_any_element(), height)
     }
@@ -781,32 +822,8 @@ impl Sidebar {
             } else {
                 SECTION_HEADER_H + ROW_H * terminals.len() as f32
             };
-        let chevron = |progress: f32| {
-            icon(Icon::ChevronRight, px(14.0))
-                .text_color(theme::text_muted())
-                .with_transformation(Transformation::rotate(radians(
-                    progress * std::f32::consts::FRAC_PI_2,
-                )))
-        };
         let animating = fold.filter(|f| f.running());
-        let chevron = match animating {
-            Some(f) => chevron(f.from)
-                .with_animation(
-                    (
-                        gpui::SharedString::from(format!("fold-chevron-{}", project.id)),
-                        f.id,
-                    ),
-                    Animation::new(f.duration).with_easing(ease_out_cubic),
-                    move |_, t| chevron(f.from + (f.to - f.from) * t),
-                )
-                .into_any_element(),
-            None => chevron(if fold.is_some_and(|f| f.open()) {
-                1.0
-            } else {
-                0.0
-            })
-            .into_any_element(),
-        };
+        let chevron = fold_chevron(14.0, format!("fold-chevron-{}", project.id), fold);
         let show_list = self.compact || animating.is_some() || fold.is_some_and(|f| f.open());
         let animating = animating.filter(|_| !self.compact);
 
