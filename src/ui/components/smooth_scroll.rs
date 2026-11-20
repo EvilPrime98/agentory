@@ -66,6 +66,26 @@ impl SmoothScroll {
             })
     }
 
+    pub fn pinned<E>(&self, el: E, window: &mut gpui::Window) -> gpui::Div
+    where
+        E: StatefulInteractiveElement + Styled + IntoElement,
+    {
+        div()
+            .relative()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .child(
+                self.attach(el, window)
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .bottom_0(),
+            )
+            .children(self.bar.bar())
+    }
+
     pub fn framed<E>(&self, el: E, window: &mut gpui::Window) -> gpui::Div
     where
         E: StatefulInteractiveElement + Styled + IntoElement,
