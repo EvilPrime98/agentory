@@ -42,6 +42,34 @@ fn project(name: &str) -> PathBuf {
     dir
 }
 
+fn agentory_ancestor(dir: &Path) -> Option<PathBuf> {
+    dir.ancestors()
+        .find(|a| a.join(".agentory").is_dir())
+        .map(Path::to_path_buf)
+}
+
+fn bare_dir() -> PathBuf {
+    let name = format!("agentory-wf-bare-{}", std::process::id());
+    let temp = std::env::temp_dir();
+    let mut candidates = vec![temp.clone(), PathBuf::from(env!("CARGO_TARGET_TMPDIR"))];
+    if let Some(root) = temp.ancestors().last() {
+        candidates.push(root.to_path_buf());
+    }
+    let mut blockers = Vec::new();
+    for base in candidates {
+        match agentory_ancestor(&base) {
+            Some(found) => blockers.push(found),
+            None => {
+                let dir = base.join(&name);
+                if std::fs::create_dir_all(&dir).is_ok() {
+                    return dir;
+                }
+            }
+        }
+    }
+    panic!("no directory without a `.agentory` ancestor is available; found: {blockers:?}");
+}
+
 fn file(dir: &Path, id: &str) -> PathBuf {
     dir.join(".agentory")
         .join("workflows")
@@ -162,8 +190,7 @@ fn project_resolution() {
         1
     );
 
-    let bare = std::env::temp_dir().join(format!("agentory-wf-bare-{}", std::process::id()));
-    std::fs::create_dir_all(&bare).unwrap();
+    let bare = bare_dir();
     let dir_str = dir.to_str().unwrap();
     let out = run(&bare, &["list", "--project", dir_str], None);
     assert_eq!(json(&out).as_array().unwrap().len(), 1);
