@@ -109,7 +109,12 @@ fn fold_chevron(size: f32, key: String, fold: Option<Fold>) -> AnyElement {
                 move |_, t| chevron(f.from + (f.to - f.from) * t),
             )
             .into_any_element(),
-        None => chevron(if fold.is_some_and(|f| f.open()) { 1.0 } else { 0.0 }).into_any_element(),
+        None => chevron(if fold.is_some_and(|f| f.open()) {
+            1.0
+        } else {
+            0.0
+        })
+        .into_any_element(),
     }
 }
 
