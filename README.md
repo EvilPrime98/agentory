@@ -16,7 +16,7 @@ per-project skill management built in.
 ![Rust](https://img.shields.io/badge/built%20with-Rust%20%2B%20GPUI-orange)
 [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
-<img width="1445" height="946" alt="image" src="https://github.com/user-attachments/assets/c80f2968-6738-4874-9750-01b848f56bce" />
+<img width="1236" height="947" alt="image" src="https://github.com/user-attachments/assets/a058c5f6-7709-4375-8aea-4afd3cc5a173" />
 
 </div>
 
@@ -44,7 +44,7 @@ one is waiting on you. Agentory puts them in one place and tells you.
 - **Small and native.** One Rust binary built on [GPUI](https://github.com/zed-industries/zed), with
   no Electron and no web runtime.
 
-<img width="1440" height="943" alt="image" src="https://github.com/user-attachments/assets/c7ddc63d-0ee0-4695-920a-c8c652ad58ad" />
+<img width="1238" height="949" alt="image" src="https://github.com/user-attachments/assets/21667f3e-c90a-405d-ad88-c9195ab1cd1c" />
 
 ## Install
 
