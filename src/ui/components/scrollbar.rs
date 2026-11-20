@@ -42,12 +42,18 @@ impl Scrollbar {
     {
         div()
             .relative()
-            .flex()
-            .flex_col()
             .flex_1()
             .min_w_0()
             .min_h_0()
-            .child(scroll.track_scroll(&self.handle))
+            .child(
+                scroll
+                    .track_scroll(&self.handle)
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .bottom_0(),
+            )
             .children(self.bar())
     }
 
