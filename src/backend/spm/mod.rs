@@ -16,7 +16,7 @@ mod repo;
 mod review;
 mod store;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -36,6 +36,7 @@ pub struct Snapshot {
     /// Folder names under `.claude/skills`.
     pub installed: Vec<String>,
     pub globals: Vec<GlobalSkill>,
+    pub shadowed: BTreeSet<String>,
     pub hints: BTreeMap<String, String>,
 }
 
@@ -54,6 +55,7 @@ pub fn read_snapshot(project: &Path) -> Snapshot {
     installed.sort();
     let p = Paths::of(project);
     let globals = store::list_globals(&p.settings, &global_skills_dir(), &p.skills);
+    let shadowed = store::shadowed_globals(&global_skills_dir(), &p.skills);
     let hints = installed
         .iter()
         .filter_map(|name| {
@@ -66,6 +68,7 @@ pub fn read_snapshot(project: &Path) -> Snapshot {
         manifest,
         installed,
         globals,
+        shadowed,
         hints,
     }
 }
@@ -79,6 +82,16 @@ pub async fn set_global_enabled(
     blocking(move || {
         store::set_override(&Paths::of(&project).settings, &name, !enabled)?;
         Ok(name)
+    })
+    .await
+}
+
+pub async fn use_global(project: &Path, skill: &str) -> Result<String, String> {
+    let msg = uninstall(project, skill).await?;
+    let (project, skill) = (project.to_path_buf(), skill.to_string());
+    blocking(move || {
+        store::set_override(&Paths::of(&project).settings, &skill, false)?;
+        Ok(msg)
     })
     .await
 }

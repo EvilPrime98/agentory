@@ -586,6 +586,11 @@ impl SkillsPage {
             .unwrap_or_default();
         let hints = skills.snapshot.hints.clone();
         let confirming = self.confirm_remove.clone();
+        let shadowed = if self.on_global(cx) {
+            BTreeSet::new()
+        } else {
+            skills.snapshot.shadowed.clone()
+        };
 
         let rows: Vec<AnyElement> = names
             .into_iter()
@@ -673,50 +678,92 @@ impl SkillsPage {
                     })
                     .child(
                         div()
-                            .id(gpui::SharedString::from(format!("open-skill-{name}")))
                             .flex()
                             .flex_col()
                             .flex_1()
                             .min_w_0()
-                            .rounded(px(4.0))
-                            .when_some(route, |s, route| {
-                                s.cursor_pointer().hover(|s| s.bg(theme::hover())).on_click(
-                                    cx.listener(move |_, _, _, cx| {
-                                        cx.emit(Navigate(route.clone()));
-                                    }),
-                                )
-                            })
                             .child(
                                 div()
-                                    .truncate()
-                                    .text_size(px(13.0))
-                                    .text_color(if on_disk {
-                                        theme::text()
-                                    } else {
-                                        theme::warning()
+                                    .id(gpui::SharedString::from(format!("open-skill-{name}")))
+                                    .flex()
+                                    .flex_col()
+                                    .rounded(px(4.0))
+                                    .when_some(route, |s, route| {
+                                        s.cursor_pointer().hover(|s| s.bg(theme::hover())).on_click(
+                                            cx.listener(move |_, _, _, cx| {
+                                                cx.emit(Navigate(route.clone()));
+                                            }),
+                                        )
                                     })
-                                    .child(if on_disk {
-                                        name.clone()
-                                    } else {
-                                        t_args("skills.not_installed", &[("name", &name)])
+                                    .child(
+                                        div()
+                                            .truncate()
+                                            .text_size(px(13.0))
+                                            .text_color(if on_disk {
+                                                theme::text()
+                                            } else {
+                                                theme::warning()
+                                            })
+                                            .child(if on_disk {
+                                                name.clone()
+                                            } else {
+                                                t_args("skills.not_installed", &[("name", &name)])
+                                            }),
+                                    )
+                                    .when_some(source, |s, src| {
+                                        s.child(
+                                            div()
+                                                .truncate()
+                                                .text_size(px(11.0))
+                                                .text_color(theme::text_muted())
+                                                .child(src),
+                                        )
+                                    })
+                                    .when_some(args.clone(), |s, a| {
+                                        s.child(
+                                            div()
+                                                .truncate()
+                                                .text_size(px(11.0))
+                                                .text_color(theme::text_muted())
+                                                .child(t_args(
+                                                    "skills.args.label",
+                                                    &[("args", &a)],
+                                                )),
+                                        )
                                     }),
                             )
-                            .when_some(source, |s, src| {
+                            .when(on_disk && shadowed.contains(&name), |s| {
+                                let (rm_name, use_name) = (name.clone(), name.clone());
                                 s.child(
                                     div()
-                                        .truncate()
-                                        .text_size(px(11.0))
-                                        .text_color(theme::text_muted())
-                                        .child(src),
-                                )
-                            })
-                            .when_some(args.clone(), |s, a| {
-                                s.child(
-                                    div()
-                                        .truncate()
-                                        .text_size(px(11.0))
-                                        .text_color(theme::text_muted())
-                                        .child(t_args("skills.args.label", &[("args", &a)])),
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(6.0))
+                                        .child(
+                                            div()
+                                                .truncate()
+                                                .text_size(px(11.0))
+                                                .text_color(theme::text_muted())
+                                                .child(t("skills.also_global")),
+                                        )
+                                        .child(small_button(
+                                            gpui::SharedString::from(format!("shadow-rm-{name}")),
+                                            t("skills.remove_project_copy"),
+                                            cx.listener(move |this, _, _, cx| {
+                                                this.confirm_remove = Some(rm_name.clone());
+                                                cx.notify();
+                                            }),
+                                        ))
+                                        .child(small_button(
+                                            gpui::SharedString::from(format!("shadow-use-{name}")),
+                                            t("skills.use_global"),
+                                            cx.listener(move |this, _, _, cx| {
+                                                let n = use_name.clone();
+                                                this.stores
+                                                    .skills
+                                                    .update(cx, |s, cx| s.use_global(n, cx));
+                                            }),
+                                        )),
                                 )
                             }),
                     )
