@@ -127,9 +127,7 @@ impl ProjectsStore {
         let ids: Vec<String> = self.items.iter().map(|p| p.id.clone()).collect();
         self.detected.retain(|id, _| ids.contains(id));
         for id in &ids {
-            if !self.detected.contains_key(id) {
-                self.detect(id);
-            }
+            self.detect(id);
         }
         if self.selected_project().is_none() {
             self.selected = self
@@ -146,8 +144,36 @@ impl ProjectsStore {
         let Some(project) = self.get(id).filter(|p| !p.is_global()) else {
             return;
         };
-        let found = scripts::detect(&project.path);
+        let found = scripts::detect_visible(&project.path, &project.hidden_detected);
         self.detected.insert(id.to_string(), found);
+    }
+
+    pub fn hide_detected(&mut self, id: &str, label: &str, cx: &mut Context<Self>) {
+        let Some(project) = self.items.iter_mut().find(|p| p.id == id) else {
+            return;
+        };
+        if project.hidden_detected.iter().any(|l| l == label) {
+            return;
+        }
+        project.hidden_detected.push(label.to_string());
+        self.detect(id);
+        self.save();
+        self.revision += 1;
+        cx.notify();
+    }
+
+    pub fn restore_detected(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(project) = self.items.iter_mut().find(|p| p.id == id) else {
+            return;
+        };
+        if project.hidden_detected.is_empty() {
+            return;
+        }
+        project.hidden_detected.clear();
+        self.detect(id);
+        self.save();
+        self.revision += 1;
+        cx.notify();
     }
 
     fn save(&self) {

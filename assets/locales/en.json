@@ -504,5 +504,6 @@
   "commands.shell": "Shell",
   "commands.shell_default": "Default",
   "commands.shell_row": "Shell: {shell}",
+  "commands.restore_hidden": "Restore hidden ({count})",
   "sidebar.pages.title": "Extras"
 }

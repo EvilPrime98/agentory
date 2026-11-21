@@ -723,7 +723,9 @@ impl Sidebar {
             .as_deref()
             .and_then(shells::label)
             .map_or_else(|| t("commands.shell_default").to_string(), str::to_string);
-        let body_h = ROW_H * (1 + detected.len() + custom.len()) as f32;
+        let hidden = project.hidden_detected.len();
+        let rows = 1 + detected.len() + custom.len() + usize::from(hidden > 0);
+        let body_h = ROW_H * rows as f32;
         let height = ROW_H + if show_body { body_h } else { 0.0 };
 
         let row = |id: String| {
@@ -825,7 +827,8 @@ impl Sidebar {
                     )),
             );
             for (ix, d) in detected.into_iter().enumerate() {
-                let (run_pid, line) = (pid.clone(), d.command);
+                let (run_pid, del_pid, line) = (pid.clone(), pid.clone(), d.command);
+                let del_label = d.label.clone();
                 body = body.child(
                     row(format!("command-detected-{pid}-{ix}"))
                         .on_click(cx.listener(move |this, _, _, cx| {
@@ -833,7 +836,32 @@ impl Sidebar {
                             sessions::begin_command(&run_pid, &line, None, cx);
                         }))
                         .child(icon(Icon::Play, px(12.0)).text_color(theme::text_muted()))
-                        .child(label(d.label)),
+                        .child(label(d.label))
+                        .child(
+                            tool(format!("command-detected-delete-{pid}-{ix}"), Icon::Trash)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.stores.projects.update(cx, |p, cx| {
+                                        p.hide_detected(&del_pid, &del_label, cx)
+                                    });
+                                })),
+                        ),
+                );
+            }
+            if hidden > 0 {
+                let restore_pid = pid.clone();
+                body = body.child(
+                    row(format!("commands-restore-{pid}"))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.stores
+                                .projects
+                                .update(cx, |p, cx| p.restore_detected(&restore_pid, cx));
+                        }))
+                        .child(icon(Icon::Undo, px(12.0)).text_color(theme::text_muted()))
+                        .child(label(
+                            t_args("commands.restore_hidden", &[("count", &hidden.to_string())])
+                                .to_string(),
+                        )),
                 );
             }
             for c in custom {

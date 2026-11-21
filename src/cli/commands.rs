@@ -123,13 +123,14 @@ pub fn dispatch(args: &mut Vec<&str>, json: bool) -> Res<String> {
         "add" => add(&mut all, at, &mut rest, json),
         "set" => set(&mut all, at, &mut rest, json),
         "rm" => rm(&mut all, at, &mut rest, json),
+        "restore" => restore(&mut all, at, &rest, json),
         "shell" => shell(&mut all, at, &mut rest, json),
         other => Err(usage(&format!("unknown command `{other}`"))),
     }
 }
 
 fn list(project: &Project, json: bool) -> String {
-    let detected = scripts::detect(&project.path);
+    let detected = scripts::detect_visible(&project.path, &project.hidden_detected);
     if json {
         let mut items: Vec<Value> = project.commands.iter().map(custom_json).collect();
         items.extend(detected.iter().map(|d| {
@@ -248,21 +249,47 @@ fn rm(all: &mut [Project], at: usize, rest: &mut Vec<&str>, json: bool) -> Res<S
         return Err(usage("wrong number of arguments for `rm`"));
     };
     let project = &mut all[at];
-    let Some(slot) = project.commands.iter().position(|c| c.id == *id) else {
+    let slot = project.commands.iter().position(|c| c.id == *id);
+    let detected = slot.is_none()
+        && scripts::detect_visible(&project.path, &project.hidden_detected)
+            .iter()
+            .any(|d| d.label == *id);
+    if slot.is_none() && !detected {
         return Err(missing(project, id));
-    };
+    }
     if !yes && std::io::stdout().is_terminal() {
         return Err(err(
             "confirm_required",
             format!("refusing to remove `{id}` on a terminal without --yes"),
         ));
     }
-    project.commands.remove(slot);
+    match slot {
+        Some(slot) => {
+            project.commands.remove(slot);
+        }
+        None => project.hidden_detected.push((*id).to_string()),
+    }
     save(all)?;
     Ok(if json {
         pretty(&json!({ "id": id, "deleted": true }))
     } else {
         format!("removed {id}")
+    })
+}
+
+fn restore(all: &mut [Project], at: usize, rest: &[&str], json: bool) -> Res<String> {
+    if !rest.is_empty() {
+        return Err(usage("`restore` takes no arguments"));
+    }
+    let count = all[at].hidden_detected.len();
+    if count > 0 {
+        all[at].hidden_detected.clear();
+        save(all)?;
+    }
+    Ok(if json {
+        pretty(&json!({ "restored": count }))
+    } else {
+        format!("restored {count} detected command(s)")
     })
 }
 
@@ -294,10 +321,10 @@ fn missing(project: &Project, id: &str) -> SettingError {
     if scripts::detect(&project.path).iter().any(|d| d.label == id) {
         err(
             "read_only",
-            format!("`{id}` is a detected command and cannot be changed through the CLI"),
+            format!("`{id}` is a detected command; it can only be removed or restored, not edited"),
         )
     } else {
-        err("not_found", format!("no custom command with id `{id}`"))
+        err("not_found", format!("no command with id `{id}`"))
     }
 }
 
@@ -317,15 +344,16 @@ pub fn help_text() -> String {
      agentory commands list                           custom commands, then detected ones (read-only)\n  \
      agentory commands add NAME --command CMD [--shell S]\n  \
      agentory commands set ID [--name N] [--command CMD] [--shell S] [--clear-shell]\n  \
-     agentory commands rm ID [--yes]\n  \
+     agentory commands rm ID|LABEL [--yes]            a detected command is hidden, not deleted\n  \
+     agentory commands restore                        show every hidden detected command again\n  \
      agentory commands shell [NAME|--clear]           read, set or clear the default shell\n\n\
      FLAGS:\n  \
      --project PATH   project directory\n  \
      --json           JSON output (the default when stdout is not a terminal)\n  \
      --yes            confirm rm (required on a terminal, ignored otherwise)\n\n\
      Shell values are the ids available on this machine (pwsh, powershell, cmd, git-bash, wsl on \
-     Windows; shell elsewhere). Detected commands (package.json, Cargo.toml, ...) have no id and \
-     cannot be edited.\n\n\
+     Windows; shell elsewhere). Detected commands (package.json, Cargo.toml, ...) have no id: \
+     remove them by label (e.g. rm 'cargo build'); they cannot be edited.\n\n\
      Errors go to stderr with a non-zero exit code (1 file error, 2 bad usage or value, including \
      not_registered, not_found and read_only)."
         .to_string()

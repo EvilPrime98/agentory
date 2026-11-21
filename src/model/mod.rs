@@ -23,6 +23,8 @@ pub struct Project {
     pub default_shell: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub commands: Vec<CustomCommand>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hidden_detected: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -49,6 +51,7 @@ impl Project {
             skill_args: BTreeMap::new(),
             default_shell: None,
             commands: Vec::new(),
+            hidden_detected: Vec::new(),
         }
     }
 
@@ -61,6 +64,7 @@ impl Project {
             skill_args: BTreeMap::new(),
             default_shell: None,
             commands: Vec::new(),
+            hidden_detected: Vec::new(),
         }
     }
 

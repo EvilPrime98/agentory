@@ -797,6 +797,7 @@ fn self_project(clone_dir: PathBuf) -> Project {
         skill_args: Default::default(),
         default_shell: None,
         commands: Vec::new(),
+        hidden_detected: Vec::new(),
     }
 }
 
