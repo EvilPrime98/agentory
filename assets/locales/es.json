@@ -502,5 +502,6 @@
   "commands.shell": "Shell",
   "commands.shell_default": "Por defecto",
   "commands.shell_row": "Shell: {shell}",
+  "commands.restore_hidden": "Restaurar ocultos ({count})",
   "sidebar.pages.title": "Extras"
 }

@@ -13,6 +13,12 @@ fn cmd(label: impl Into<String>, command: impl Into<String>) -> DetectedCommand 
     }
 }
 
+pub fn detect_visible(root: &Path, hidden: &[String]) -> Vec<DetectedCommand> {
+    let mut found = detect(root);
+    found.retain(|d| !hidden.contains(&d.label));
+    found
+}
+
 pub fn detect(root: &Path) -> Vec<DetectedCommand> {
     let mut out = Vec::new();
     node(root, &mut out);
@@ -154,6 +160,18 @@ mod tests {
         let found = detect(&d).into_iter().map(|c| c.command).collect();
         let _ = std::fs::remove_dir_all(d);
         found
+    }
+
+    #[test]
+    fn hidden_labels_are_filtered_out() {
+        let d = dir(&[("Cargo.toml", "")]);
+        let hidden = vec!["cargo run".to_string(), "cargo gone".to_string()];
+        let labels: Vec<String> = detect_visible(&d, &hidden)
+            .into_iter()
+            .map(|c| c.label)
+            .collect();
+        let _ = std::fs::remove_dir_all(d);
+        assert_eq!(labels, ["cargo build", "cargo test"]);
     }
 
     #[test]

@@ -108,7 +108,7 @@ fn unregistered_directory_fails_with_not_registered() {
 }
 
 #[test]
-fn detected_commands_are_listed_and_read_only() {
+fn detected_commands_can_be_hidden_and_restored() {
     let env = setup("detected");
     std::fs::write(env.project.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
 
@@ -122,9 +122,28 @@ fn detected_commands_are_listed_and_read_only() {
             .any(|c| c["source"] == "detected" && c["id"].is_null() && c["name"] == "cargo build")
     );
 
-    let out = agentory(&env, &["rm", "cargo build"]);
+    let has_build = |items: &serde_json::Value| {
+        items
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["name"] == "cargo build")
+    };
+
+    let out = agentory(&env, &["set", "cargo build", "--name", "x"]);
     assert_eq!(out.status.code(), Some(2));
     assert_eq!(error(&out)["code"], "read_only");
+
+    let out = agentory(&env, &["rm", "cargo build"]);
+    assert!(out.status.success());
+    assert!(!has_build(&json_out(&agentory(&env, &["list"]))));
+
+    let out = agentory(&env, &["rm", "cargo build"]);
+    assert_eq!(error(&out)["code"], "read_only");
+
+    let out = agentory(&env, &["restore"]);
+    assert!(out.status.success());
+    assert!(has_build(&json_out(&agentory(&env, &["list"]))));
 
     let out = agentory(&env, &["set", "nope", "--name", "x"]);
     assert_eq!(error(&out)["code"], "not_found");
