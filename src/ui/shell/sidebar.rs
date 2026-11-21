@@ -412,6 +412,7 @@ impl Sidebar {
             &self.menu_focus,
             vec![MenuItem {
                 id: "project-menu-isolate".into(),
+                disabled: false,
                 icon: if menu.isolated {
                     Icon::LockOpen
                 } else {

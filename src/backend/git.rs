@@ -579,6 +579,24 @@ pub async fn discard(root: &Path, change: &Change) -> Result<(), String> {
     }
 }
 
+pub async fn ignore(root: &Path, rule: &str) -> Result<(), String> {
+    let file = root.join(".gitignore");
+    let mut text = match std::fs::read_to_string(&file) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e.to_string()),
+    };
+    if text.lines().any(|l| l == rule) {
+        return Ok(());
+    }
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(rule);
+    text.push('\n');
+    std::fs::write(&file, text).map_err(|e| e.to_string())
+}
+
 /// Throw away every unstaged change, untracked files included.
 pub async fn discard_everything(root: &Path) -> Result<(), String> {
     gitl(root, &["restore", "--", "."]).await?;
@@ -1144,6 +1162,26 @@ mod tests {
 
     fn cleanup(main: &Path) {
         let _ = fs::remove_dir_all(main.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn ignore_appends_once_and_fixes_newline() {
+        let dir = std::env::temp_dir().join(format!("agentory-ign-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        ignore(&dir, "/a.log").await.unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.join(".gitignore")).unwrap(),
+            "/a.log\n"
+        );
+        fs::write(dir.join(".gitignore"), "target").unwrap();
+        ignore(&dir, "*.log").await.unwrap();
+        ignore(&dir, "*.log").await.unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.join(".gitignore")).unwrap(),
+            "target\n*.log\n"
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

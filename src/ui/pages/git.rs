@@ -10,9 +10,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use gpui::{
-    AnyElement, Context, Entity, EventEmitter, InteractiveElement, IntoElement, ParentElement,
-    Point, Render, Rgba, ScrollHandle, SharedString, StatefulInteractiveElement, Styled,
-    Subscription, Window, div, prelude::*, px,
+    AnyElement, Context, Entity, EventEmitter, FocusHandle, InteractiveElement, IntoElement,
+    MouseButton, MouseDownEvent, ParentElement, Pixels, Point, Render, Rgba, ScrollHandle,
+    SharedString, StatefulInteractiveElement, Styled, Subscription, Window, div, prelude::*, px,
 };
 
 use super::skills::{icon_button, muted_note};
@@ -24,6 +24,7 @@ use crate::route::{GoBack, Navigate};
 use crate::runtime;
 use crate::state::Stores;
 use crate::ui::components::button::{ButtonVariant, button, small_button};
+use crate::ui::components::context_menu::{MenuItem, context_menu};
 use crate::ui::components::scrollbar::Scrollbar;
 use crate::ui::components::text_area::{TextArea, TextAreaEvent};
 use crate::ui::components::text_input::{TextInput, TextInputEvent};
@@ -83,7 +84,16 @@ struct Failure {
     output: String,
 }
 
+struct IgnoreMenu {
+    position: Point<Pixels>,
+    path: String,
+    group: Group,
+    enabled: bool,
+}
+
 pub struct GitPage {
+    ignore_menu: Option<IgnoreMenu>,
+    menu_focus: FocusHandle,
     changes_bar: Scrollbar,
     stores: Stores,
     project_id: String,
@@ -182,6 +192,8 @@ impl GitPage {
             }),
         ];
         let mut this = Self {
+            ignore_menu: None,
+            menu_focus: cx.focus_handle(),
             changes_bar: Scrollbar::new(),
             stores,
             project_id,
@@ -652,6 +664,67 @@ impl GitPage {
         self.op(t("git.unstage_all"), false, false, cx, |root| async move {
             git::unstage_everything(&root).await
         });
+    }
+
+    fn ignore(&mut self, rule: String, cx: &mut Context<Self>) {
+        self.op(t("git.ignore"), false, false, cx, move |root| async move {
+            git::ignore(&root, &rule).await
+        });
+    }
+
+    fn close_ignore_menu(&mut self, cx: &mut Context<Self>) {
+        if self.ignore_menu.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    fn ignore_menu_popup(&self, menu: &IgnoreMenu, cx: &mut Context<Self>) -> AnyElement {
+        let page = cx.entity();
+        let close = page.clone();
+        let name = menu
+            .path
+            .rsplit('/')
+            .next()
+            .unwrap_or(&menu.path)
+            .to_string();
+        let enabled = menu.enabled;
+        let mut items = Vec::new();
+        let exact = format!("/{}", menu.path);
+        let p = page.clone();
+        items.push(MenuItem {
+            id: "git-ignore-exact".into(),
+            icon: Icon::Eye,
+            disabled: !enabled,
+            label: t_args("git.ignore.file", &[("name", &name)]).into(),
+            on_click: std::rc::Rc::new(move |_, cx| {
+                let rule = exact.clone();
+                p.update(cx, |this, cx| this.ignore(rule, cx));
+            }),
+        });
+        let ext = name
+            .rsplit_once('.')
+            .map(|(_, e)| e)
+            .filter(|e| !e.is_empty() && name.len() > e.len() + 1);
+        if let Some(ext) = ext {
+            let rule = format!("*.{ext}");
+            items.push(MenuItem {
+                id: "git-ignore-ext".into(),
+                icon: Icon::Eye,
+                disabled: !enabled,
+                label: t_args("git.ignore.ext", &[("ext", ext)]).into(),
+                on_click: std::rc::Rc::new(move |_, cx| {
+                    let rule = rule.clone();
+                    page.update(cx, |this, cx| this.ignore(rule, cx));
+                }),
+            });
+        }
+        context_menu(
+            menu.position,
+            name.into(),
+            &self.menu_focus,
+            items,
+            move |_, cx| close.update(cx, |this, cx| this.close_ignore_menu(cx)),
+        )
     }
 
     fn ask_discard(&mut self, change: Change, cx: &mut Context<Self>) {
@@ -1362,7 +1435,11 @@ impl GitPage {
                 );
             }
         }
+        let untracked = change.kind == ChangeKind::Untracked && group == Group::Changes;
+        let menu_open = |m: &IgnoreMenu| m.path == change.path && m.group == group;
+        let menu_path = change.path.clone();
         div()
+            .id(id("wrap"))
             .flex()
             .items_center()
             .gap(px(4.0))
@@ -1370,6 +1447,27 @@ impl GitPage {
             .h(px(28.0))
             .rounded(px(4.0))
             .when(selected, |s| s.bg(theme::accent_soft()))
+            .when(
+                !selected && self.ignore_menu.as_ref().is_some_and(menu_open),
+                |s| s.bg(theme::hover()),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, e: &MouseDownEvent, window, cx| {
+                    this.ignore_menu = Some(IgnoreMenu {
+                        position: e.position,
+                        path: menu_path.clone(),
+                        group,
+                        enabled: untracked,
+                    });
+                    window.focus(&this.menu_focus, cx);
+                    cx.notify();
+                }),
+            )
+            .when_some(
+                self.ignore_menu.as_ref().filter(|m| menu_open(m)),
+                |s, m| s.child(self.ignore_menu_popup(m, cx)),
+            )
             .child(
                 div()
                     .id(id("row"))
