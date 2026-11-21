@@ -39,6 +39,9 @@ Source: "..\..\dist\Agentory\*"; DestDir: "{app}"; Flags: recursesubdirs createa
 ; `fallback` is the last resort and always follows the official release.
 Source: "..\..\dist\Agentory\agentory.exe"; DestDir: "{userappdata}\Agentory\bin"; DestName: "active.exe"; Flags: ignoreversion; Check: ShouldReplaceActive
 Source: "..\..\dist\Agentory\agentory.exe"; DestDir: "{userappdata}\Agentory\bin"; DestName: "fallback.exe"; Flags: ignoreversion
+; Voice dictation libraries must sit next to the exe that runs: without them Windows loads an older
+; onnxruntime.dll from System32 and the app crashes.
+Source: "..\..\dist\Agentory\*.dll"; DestDir: "{userappdata}\Agentory\bin"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\Agentory"; Filename: "{app}\agentory-helper.exe"; Parameters: "launch"; IconFilename: "{app}\agentory.exe"
