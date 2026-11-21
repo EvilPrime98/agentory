@@ -487,6 +487,7 @@
   "graphify.full_build": "Construcción completa",
   "graphify.full_build_hint": "Abre una sesión nueva que ejecuta /graphify. Usa un LLM, así que consume API.",
   "graphify.report": "Abrir GRAPH_REPORT.md",
+  "graphify.open_html_failed": "No se pudo abrir graph.html: {error}",
   "sidebar.commands_extra": "Comandos",
   "sidebar.commands": "COMANDOS",
   "commands.add": "Añadir comando",

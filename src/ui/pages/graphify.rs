@@ -110,6 +110,15 @@ impl GraphifyPage {
         cx.emit(Navigate(Route::DocPreview(self.project_id.clone(), rel)));
     }
 
+    fn open_graph_html(&self, path: &std::path::Path, cx: &mut Context<Self>) {
+        if let Err(e) = open::that(path) {
+            toast::error(
+                cx,
+                t_args("graphify.open_html_failed", &[("error", &e.to_string())]),
+            );
+        }
+    }
+
     fn status_card(&self, cx: &mut Context<Self>) -> AnyElement {
         let this = cx.entity();
         let refresh = icon_button("graphify-refresh", Icon::Refresh, move |_, _, cx| {
@@ -190,20 +199,24 @@ impl GraphifyPage {
                 .child(muted_note(t("graphify.full_build_hint").into()))
                 .into_any_element(),
         );
-        if s.report.is_some() {
-            body.push(
-                div()
-                    .flex()
-                    .flex_col()
-                    .items_start()
-                    .child(button(
-                        "graphify-report",
-                        t("graphify.report"),
-                        ButtonVariant::Secondary,
-                        cx.listener(|this, _, _, cx| this.open_report(cx)),
-                    ))
-                    .into_any_element(),
-            );
+        if s.report.is_some() || s.graph_html.is_some() {
+            let mut row = div().flex().items_center().gap(px(8.0));
+            if s.report.is_some() {
+                row = row.child(button(
+                    "graphify-report",
+                    t("graphify.report"),
+                    ButtonVariant::Secondary,
+                    cx.listener(|this, _, _, cx| this.open_report(cx)),
+                ));
+            }
+            if let Some(path) = s.graph_html.clone() {
+                row = row.child(icon_button(
+                    "graphify-open-html",
+                    Icon::Globe,
+                    cx.listener(move |this, _, _, cx| this.open_graph_html(&path, cx)),
+                ));
+            }
+            body.push(row.into_any_element());
         }
         Some(card("", None, None, body).into_any_element())
     }

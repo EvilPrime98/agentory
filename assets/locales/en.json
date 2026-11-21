@@ -487,6 +487,7 @@
   "graphify.full_build": "Full build",
   "graphify.full_build_hint": "Opens a new session that runs /graphify. It uses an LLM, so it costs API usage.",
   "graphify.report": "Open GRAPH_REPORT.md",
+  "graphify.open_html_failed": "Could not open graph.html: {error}",
   "sidebar.commands_extra": "Commands",
   "sidebar.commands": "COMMANDS",
   "commands.add": "Add command",

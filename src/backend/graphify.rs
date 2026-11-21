@@ -6,6 +6,7 @@ use serde::Serialize;
 
 const GRAPH: &str = "graphify-out/graph.json";
 const REPORT: &str = "graphify-out/GRAPH_REPORT.md";
+const HTML: &str = "graphify-out/graph.html";
 const SKIP_DIRS: [&str; 3] = ["node_modules", "target", "dist"];
 const MAX_SCANNED: usize = 20_000;
 
@@ -18,6 +19,7 @@ pub struct Status {
     pub built_at: Option<u64>,
     pub stale: bool,
     pub report: Option<PathBuf>,
+    pub graph_html: Option<PathBuf>,
 }
 
 fn command(args: &[&str], dir: &Path) -> Command {
@@ -95,6 +97,7 @@ pub fn status(dir: &Path) -> Status {
         .and_then(|m| m.modified())
         .ok();
     let report = dir.join(REPORT);
+    let html = dir.join(HTML);
     Status {
         installed: version.is_some(),
         version,
@@ -103,6 +106,7 @@ pub fn status(dir: &Path) -> Status {
         built_at: built.map(secs),
         stale: built.is_some_and(|b| changed_since(dir, b)),
         report: report.is_file().then_some(report),
+        graph_html: html.is_file().then_some(html),
     }
 }
 
@@ -139,6 +143,17 @@ mod tests {
         assert_eq!(node_count(&f), Some(2));
         std::fs::write(&f, "nope").unwrap();
         assert_eq!(node_count(&f), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn status_reports_graph_html_only_when_present() {
+        let dir = std::env::temp_dir().join(format!("agentory-gf-html-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("graphify-out")).unwrap();
+        assert_eq!(status(&dir).graph_html, None);
+        let html = dir.join(HTML);
+        std::fs::write(&html, "<html></html>").unwrap();
+        assert_eq!(status(&dir).graph_html, Some(html));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
