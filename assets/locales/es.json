@@ -537,5 +537,20 @@
   "speech.speaking": "Te escucho",
   "speech.sending": "Enviando…",
   "speech.transcribing": "Transcribiendo",
-  "speech.error": "Error de micro"
+  "speech.error": "Error de micro",
+  "sidebar.office": "Oficina",
+  "office.title": "Oficina de agentes",
+  "office.empty": "Nadie trabaja aquí. Inicia una sesión de agente y ocupará un escritorio.",
+  "office.prompt_placeholder": "Escribe al agente…",
+  "office.open_terminal": "Abrir terminal",
+  "office.interrupt": "Interrumpir",
+  "office.resume": "Reanudar",
+  "office.needs_input_hint": "Este agente te espera. Escribe tu respuesta abajo.",
+  "office.status.starting": "Iniciando",
+  "office.status.working": "Trabajando",
+  "office.status.needs_input": "Necesita respuesta",
+  "office.status.idle": "Libre",
+  "office.status.exited": "Terminado",
+  "office.line.you": "Tú",
+  "office.line.agent": "Agente"
 }

@@ -152,7 +152,7 @@ impl Render for DragGhost {
 
 const PAGES_MENU_W: f32 = 200.0;
 
-const PAGES: [(&str, &str); 8] = [
+const PAGES: [(&str, &str); 9] = [
     ("skills", "sidebar.skills"),
     ("docs", "sidebar.docs"),
     ("git", "sidebar.git"),
@@ -160,6 +160,7 @@ const PAGES: [(&str, &str); 8] = [
     ("history", "sidebar.history"),
     ("workflows", "sidebar.workflows"),
     ("graphify", "sidebar.graphify"),
+    ("office", "sidebar.office"),
     ("commands", "sidebar.commands_extra"),
 ];
 
@@ -963,6 +964,8 @@ impl Sidebar {
         let workflows_id = project.id.clone();
         let graphify_active = self.route == Route::Graphify(project.id.clone());
         let graphify_id = project.id.clone();
+        let office_active = self.route == Route::Office(project.id.clone());
+        let office_id = project.id.clone();
 
         let is_global = project.is_global();
         let display_name = if is_global {
@@ -1469,6 +1472,34 @@ impl Sidebar {
                                 .text_size(px(12.5))
                                 .text_color(theme::text())
                                 .child(t("sidebar.graphify")),
+                        ),
+                )
+            })
+            .when(shown("office"), |s| {
+                s.child(
+                    div()
+                        .id(gpui::SharedString::from(format!("office-{}", project.id)))
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .h(px(ROW_H))
+                        .ml(px(26.0))
+                        .px(px(6.0))
+                        .rounded(px(6.0))
+                        .cursor_pointer()
+                        .when(office_active, |s| s.bg(theme::accent_soft()))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.stores
+                                .projects
+                                .update(cx, |p, cx| p.select(&office_id, cx));
+                            cx.emit(Navigate(Route::Office(office_id.clone())));
+                        }))
+                        .child(icon(Icon::Rows, px(13.0)).text_color(theme::text_muted()))
+                        .child(
+                            div()
+                                .text_size(px(12.5))
+                                .text_color(theme::text())
+                                .child(t("sidebar.office")),
                         ),
                 )
             })
