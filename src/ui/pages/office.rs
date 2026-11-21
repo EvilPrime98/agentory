@@ -14,6 +14,7 @@ use gpui::{
 };
 
 use super::office_art::{self, Action, CELL_H, CELL_W, LABEL_Y, WorkerView};
+use crate::backend::spm::store::parse_skill;
 use crate::backend::transcripts::{ChatItem, Tail};
 use crate::i18n::t;
 use crate::model::SessionStatus;
@@ -34,6 +35,45 @@ const COLS: usize = 3;
 const RECENT_KEPT: usize = 40;
 const RECENT_SHOWN: usize = 14;
 const PANEL_W: f32 = 340.0;
+
+/// A skill chip being dragged from the tray onto a worker.
+#[derive(Clone)]
+struct DraggedSkill(String);
+
+struct SkillGhost(String);
+
+impl Render for SkillGhost {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        skill_chip(self.0.clone()).opacity(0.9)
+    }
+}
+
+fn skill_chip(name: String) -> gpui::Div {
+    div()
+        .px(px(10.0))
+        .h(px(26.0))
+        .flex()
+        .items_center()
+        .rounded(px(13.0))
+        .border_1()
+        .border_color(theme::border_strong())
+        .bg(theme::bg_modal())
+        .text_size(px(12.0))
+        .text_color(theme::text())
+        .child(name)
+}
+
+/// The prompt a worker receives when a skill is dropped on it. The judgment is the session's.
+fn skill_prompt(name: &str, description: &str, hint: &str) -> String {
+    let hint = if hint.is_empty() {
+        String::new()
+    } else {
+        format!(" Arguments: {hint}.")
+    };
+    format!(
+        "The user dropped the skill /{name} on you. Description: {description}.{hint}          Judge whether it fits what you are doing and this project. If it fits, run /{name}.          If it does not, say why and do not run it. If it fits but needs a flag or argument          you were not given (for example --apply), ask permission first."
+    )
+}
 
 enum Line {
     User(String),
@@ -295,6 +335,67 @@ impl OfficePage {
         cx.notify();
     }
 
+    fn drop_skill(&mut self, seat_id: &str, name: &str, cx: &mut Context<Self>) {
+        let skills = self.stores.skills.read(cx);
+        let mut dirs: Vec<PathBuf> = Vec::new();
+        if let Some(p) = &skills.project {
+            dirs.push(p.join(".claude").join("skills"));
+        }
+        if let Some(h) = dirs::home_dir() {
+            dirs.push(h.join(".claude").join("skills"));
+        }
+        let parsed = dirs
+            .iter()
+            .find_map(|d| std::fs::read_to_string(d.join(name).join("SKILL.md")).ok())
+            .map(|text| parse_skill(&text))
+            .unwrap_or_default();
+        let text = skill_prompt(name, &parsed.description, &parsed.argument_hint);
+        self.stores
+            .sessions
+            .update(cx, |s, cx| s.submit(seat_id, &text, cx));
+    }
+
+    fn skill_tray(&self, cx: &Context<Self>) -> gpui::AnyElement {
+        let names: Vec<String> = self
+            .stores
+            .skills
+            .read(cx)
+            .snapshot
+            .installed
+            .iter()
+            .cloned()
+            .collect();
+        div()
+            .flex_none()
+            .flex()
+            .flex_col()
+            .gap(px(6.0))
+            .px(px(24.0))
+            .py(px(10.0))
+            .border_t_1()
+            .border_color(theme::border_subtle())
+            .child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(theme::text_faint())
+                    .child(t("office.skills_hint")),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap(px(6.0))
+                    .children(names.into_iter().map(|name| {
+                        let drag = DraggedSkill(name.clone());
+                        skill_chip(name.clone())
+                            .id(gpui::SharedString::from(format!("skill-{name}")))
+                            .cursor_grab()
+                            .on_drag(drag, |d, _, _, cx| cx.new(|_| SkillGhost(d.0.clone())))
+                    })),
+            )
+            .into_any_element()
+    }
+
     fn open_terminal(&mut self, id: &str, cx: &mut Context<Self>) {
         self.stores.sessions.update(cx, |s, cx| s.select(id, cx));
         cx.emit(Navigate(Route::Sessions));
@@ -333,6 +434,7 @@ impl OfficePage {
         let mut cells = Vec::new();
         for (i, seat) in seats.iter().enumerate() {
             let id = seat.id.clone();
+            let drop_id = seat.id.clone();
             let selected = self.selected.as_deref() == Some(seat.id.as_str());
             let tool = self
                 .tool_of(seat)
@@ -353,6 +455,10 @@ impl OfficePage {
                         gpui::rgba(0x00000000)
                     })
                     .on_click(cx.listener(move |this, _, _, cx| this.select(&id, cx)))
+                    .drag_over::<DraggedSkill>(|s, _, _, _| s.border_color(theme::accent()))
+                    .on_drop(cx.listener(move |this, d: &DraggedSkill, _, cx| {
+                        this.drop_skill(&drop_id, &d.0, cx)
+                    }))
                     .child(
                         div()
                             .absolute()
@@ -605,7 +711,16 @@ impl Render for OfficePage {
             .flex_1()
             .min_w_0()
             .min_h_0()
-            .child(body)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w_0()
+                    .min_h_0()
+                    .child(body)
+                    .when(!seats.is_empty(), |d| d.child(self.skill_tray(cx))),
+            )
             .children(panel)
     }
 }
@@ -650,6 +765,13 @@ mod tests {
         f.apply(call("1", "Bash"));
         f.apply(ChatItem::User("again".into()));
         assert_eq!(f.current_tool(), None);
+    }
+
+    #[test]
+    fn skill_prompt_names_the_skill_and_asks_for_judgment() {
+        let p = skill_prompt("review", "Review a diff", "[--apply]");
+        assert!(p.contains("/review") && p.contains("Review a diff") && p.contains("[--apply]"));
+        assert!(!p.contains('\n'));
     }
 
     #[test]

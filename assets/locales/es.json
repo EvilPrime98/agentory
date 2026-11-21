@@ -552,5 +552,6 @@
   "office.status.idle": "Libre",
   "office.status.exited": "Terminado",
   "office.line.you": "Tú",
+  "office.skills_hint": "Arrastra una skill a un trabajador. El trabajador juzga si encaja antes de ejecutarla.",
   "office.line.agent": "Agente"
 }
