@@ -945,6 +945,7 @@ impl Sidebar {
         let animating = fold.filter(|f| f.running());
         let chevron = fold_chevron(14.0, format!("fold-chevron-{}", project.id), fold);
         let show_list = self.compact || animating.is_some() || fold.is_some_and(|f| f.open());
+        let agent_count = sessions.len();
         let animating = animating.filter(|_| !self.compact);
 
         let (drag_id, drag_name) = (project.id.clone(), display_name.clone());
@@ -1084,7 +1085,19 @@ impl Sidebar {
                             .text_size(px(13.0))
                             .text_color(theme::text())
                             .child(display_name),
-                    ),
+                    )
+                    .when(agent_count > 0 && !show_list, |s| {
+                        s.child(
+                            div()
+                                .flex_none()
+                                .px(px(6.0))
+                                .rounded(px(8.0))
+                                .bg(theme::accent_soft())
+                                .text_size(px(10.5))
+                                .text_color(theme::accent())
+                                .child(agent_count.to_string()),
+                        )
+                    }),
             )
             .child(
                 div()
