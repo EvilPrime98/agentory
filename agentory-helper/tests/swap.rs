@@ -4,11 +4,15 @@ use std::time::Duration;
 use std::{fs, process};
 
 fn fake_app() -> PathBuf {
-    let mut p = std::env::current_exe().unwrap();
-    p.pop(); // deps
-    p.pop();
-    p.join("examples")
-        .join(format!("fake_app{}", std::env::consts::EXE_SUFFIX))
+    // The test exe's depth under target/ differs between Cargo's old (`deps/`) and
+    // new (`build/<pkg>/<hash>/out/`) layouts, so search upward for the example.
+    let exe = format!("fake_app{}", std::env::consts::EXE_SUFFIX);
+    std::env::current_exe()
+        .unwrap()
+        .ancestors()
+        .map(|dir| dir.join("examples").join(&exe))
+        .find(|candidate| candidate.is_file())
+        .expect("fake_app example not found above the test exe")
 }
 
 fn setup(name: &str) -> (Layout, PathBuf) {
