@@ -29,13 +29,11 @@ pub fn preview_pane(
         .border_color(theme::border_subtle())
         .bg(theme::bg_app())
         .child(
-            scroll.attach(
+            scroll.pinned(
                 div()
                     .id(id)
                     .flex()
                     .flex_col()
-                    .flex_1()
-                    .min_h_0()
                     .p(px(16.0))
                     .child(body),
                 window,
