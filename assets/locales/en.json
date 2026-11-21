@@ -556,5 +556,7 @@
   "office.line.you": "You",
   "office.skills_hint": "Drag a skill onto a worker. The worker judges whether it fits before running it.",
   "office.line.agent": "Agent",
-  "office.board": "Board: {open} open of {total}"
+  "office.board": "Board: {open} open of {total}",
+  "office.done": "Done: {count} waiting for review",
+  "office.pr.failed": "Could not open a PR for a finished task. Its branch was kept. {error}"
 }

@@ -14,6 +14,7 @@ use gpui::{
 };
 
 use super::office_art::{self, Action, CELL_H, CELL_W, LABEL_Y, WorkerView};
+use crate::backend::gh;
 use crate::backend::spm::store::parse_skill;
 use crate::backend::tasks::{self, Task, TaskStatus};
 use crate::backend::transcripts::{ChatItem, Tail};
@@ -32,6 +33,7 @@ use crate::ui::theme;
 const FRAME: Duration = Duration::from_millis(125);
 /// Transcripts are tailed every this many frames.
 const POLL_EVERY: u64 = 4;
+const PR_POLL: Duration = Duration::from_secs(30);
 const COLS: usize = 3;
 const RECENT_KEPT: usize = 40;
 const RECENT_SHOWN: usize = 14;
@@ -161,6 +163,8 @@ pub struct OfficePage {
     input: Entity<TextInput>,
     polling: bool,
     tasks: Vec<Task>,
+    /// Open PRs opened by finished workers, waiting for the user's review.
+    prs: Vec<gh::PrSummary>,
     _subs: Vec<Subscription>,
 }
 
@@ -198,11 +202,98 @@ impl OfficePage {
             input,
             polling: false,
             tasks: Vec::new(),
+            prs: Vec::new(),
             _subs: subs,
         };
         this.poll(cx);
         this.load_tasks(cx);
+        this.load_prs(cx);
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(PR_POLL).await;
+                if this.update(cx, |this, cx| this.load_prs(cx)).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
         this
+    }
+
+    /// Lists the worker PRs still open, on the background runtime. `gh` is a network call, so
+    /// this runs far less often than the board read.
+    fn load_prs(&mut self, cx: &mut Context<Self>) {
+        let Some(root) = self.stores.projects.read(cx).path_of(&self.project_id) else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let loaded = runtime::run(async move {
+                if gh::setup(&root).await != gh::Setup::Ready {
+                    return Vec::new();
+                }
+                gh::pr_list(&root)
+                    .await
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|p| p.state == "OPEN" && p.head_ref_name.starts_with("agentory/w"))
+                    .collect::<Vec<_>>()
+            })
+            .await;
+            this.update(cx, |this, cx| {
+                if this.prs != loaded {
+                    this.prs = loaded;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn done_tray(&self) -> gpui::AnyElement {
+        let rows = self.prs.iter().map(|pr| {
+            let url = pr.url.clone();
+            div()
+                .id(gpui::SharedString::from(format!("pr-{}", pr.number)))
+                .flex()
+                .gap(px(8.0))
+                .text_size(px(12.0))
+                .text_color(theme::text())
+                .cursor_pointer()
+                .on_click(move |_, _, cx| cx.open_url(&url))
+                .child(
+                    div()
+                        .text_color(theme::text_faint())
+                        .child(format!("#{}", pr.number)),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .child(pr.title.clone()),
+                )
+        });
+        div()
+            .flex_none()
+            .flex()
+            .flex_col()
+            .gap(px(4.0))
+            .px(px(24.0))
+            .py(px(10.0))
+            .border_t_1()
+            .border_color(theme::border_subtle())
+            .child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(theme::text_faint())
+                    .child(crate::i18n::t_args(
+                        "office.done",
+                        &[("count", &self.prs.len().to_string())],
+                    )),
+            )
+            .children(rows)
+            .into_any_element()
     }
 
     fn seats(&self, cx: &Context<Self>) -> Vec<Seat> {
@@ -821,6 +912,7 @@ impl Render for OfficePage {
                     .min_h_0()
                     .child(body)
                     .when(!self.tasks.is_empty(), |d| d.child(self.board(&seats)))
+                    .when(!self.prs.is_empty(), |d| d.child(self.done_tray()))
                     .when(!seats.is_empty(), |d| d.child(self.skill_tray(cx))),
             )
             .children(panel)

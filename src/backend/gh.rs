@@ -56,6 +56,8 @@ pub struct PrSummary {
     pub is_draft: bool,
     #[serde(default)]
     pub updated_at: String,
+    #[serde(default)]
+    pub url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -192,7 +194,7 @@ pub async fn pr_list(dir: &Path) -> Result<Vec<PrSummary>, String> {
             "--limit",
             "50",
             "--json",
-            "number,title,state,author,headRefName,isDraft,updatedAt",
+            "number,title,state,author,headRefName,isDraft,updatedAt,url",
         ],
         dir,
     )
@@ -268,6 +270,23 @@ async fn run(dir: &Path, args: &[&str]) -> Result<(), String> {
 
 pub async fn pr_create(dir: &Path, title: &str, body: &str) -> Result<(), String> {
     run(dir, &["pr", "create", "--title", title, "--body", body]).await
+}
+
+/// Opens a PR for an already pushed `head` branch into `base`.
+pub async fn pr_create_from(
+    dir: &Path,
+    head: &str,
+    base: &str,
+    title: &str,
+    body: &str,
+) -> Result<(), String> {
+    run(
+        dir,
+        &[
+            "pr", "create", "--head", head, "--base", base, "--title", title, "--body", body,
+        ],
+    )
+    .await
 }
 
 pub async fn pr_merge(dir: &Path, number: u64) -> Result<(), String> {

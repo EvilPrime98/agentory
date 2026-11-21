@@ -556,5 +556,7 @@
   "office.line.you": "Tú",
   "office.skills_hint": "Arrastra una skill a un trabajador. El trabajador juzga si encaja antes de ejecutarla.",
   "office.line.agent": "Agente",
-  "office.board": "Tablero: {open} abiertas de {total}"
+  "office.board": "Tablero: {open} abiertas de {total}",
+  "office.done": "Hechas: {count} esperando revisión",
+  "office.pr.failed": "No se pudo abrir un PR de una tarea terminada. Se conservó su rama. {error}"
 }

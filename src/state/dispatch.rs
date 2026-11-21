@@ -5,12 +5,13 @@
 //! folder is removed (the branch stays, so the work is not lost).
 
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::time::Duration;
 
 use gpui::{App, AppContext as _, AsyncApp, Context};
 
 use crate::backend::git::{self, Worktree};
-use crate::backend::{spm, tasks};
+use crate::backend::{gh, spm, tasks};
 use crate::i18n::t_args;
 use crate::model::{Project, SessionStatus, new_id};
 use crate::runtime;
@@ -62,6 +63,25 @@ pub fn worker_prompt(task: &tasks::Task) -> String {
     )
 }
 
+/// Pushes the task's branch and opens a PR into `dev`. The local branch is deleted only once the
+/// PR exists; on any failure it stays, so the work is not lost.
+async fn publish_pr(repo: &Path, branch: &str, task: &tasks::Task) -> Result<(), String> {
+    if gh::setup(repo).await != gh::Setup::Ready {
+        return Err(format!("{}: GitHub is not set up", task.id));
+    }
+    if !git::remote_has_branch(repo, "dev").await {
+        return Err(format!("{}: the remote has no dev branch", task.id));
+    }
+    git::push_branch(repo, branch)
+        .await
+        .map_err(|e| format!("{}: {e}", task.id))?;
+    let body = format!("Task {}\n\n{}", task.id, task.summary);
+    gh::pr_create_from(repo, branch, "dev", &task.title, &body)
+        .await
+        .map_err(|e| format!("{}: {e}", task.id))?;
+    git::delete_local_branch(repo, branch).await
+}
+
 impl Dispatcher {
     fn tick(&mut self, stores: &Stores, cx: &mut Context<Self>) {
         let projects: Vec<Project> = stores
@@ -99,10 +119,10 @@ impl Dispatcher {
             if !w.started {
                 continue;
             }
-            let state = tasks::load(&w.project.path)
+            let task = tasks::load(&w.project.path)
                 .into_iter()
-                .find(|t| t.id == w.task)
-                .map(|t| t.status);
+                .find(|t| t.id == w.task);
+            let state = task.as_ref().map(|t| t.status);
             let alive = stores
                 .sessions
                 .read(cx)
@@ -121,13 +141,24 @@ impl Dispatcher {
             stores.sessions.update(cx, |s, cx| s.close(&sid, cx));
             if let Some(wt) = w.worktree {
                 let repo = w.project.path.clone();
-                cx.spawn(async move |_, _| {
-                    runtime::run(async move {
+                // Only finished work becomes a PR; a failed worker's branch is left as it is.
+                let publish = done.then_some(task).flatten();
+                cx.spawn(async move |_, cx: &mut AsyncApp| {
+                    let outcome = runtime::run(async move {
                         if let Err(e) = git::remove_worktree_keep_branch(&repo, &wt).await {
                             tracing::warn!("could not remove the worktree of a closed task: {e}");
                         }
+                        match publish {
+                            Some(task) => Some(publish_pr(&repo, &wt.branch, &task).await),
+                            None => None,
+                        }
                     })
                     .await;
+                    if let Some(Err(e)) = outcome {
+                        cx.update(|cx| {
+                            toast::error(cx, t_args("office.pr.failed", &[("error", &e)]))
+                        });
+                    }
                 })
                 .detach();
             }

@@ -226,6 +226,25 @@ pub async fn remove_worktree_keep_branch(repo: &Path, wt: &Worktree) -> Result<(
     Ok(())
 }
 
+/// Publishes a branch to `origin`.
+pub async fn push_branch(repo: &Path, branch: &str) -> Result<(), String> {
+    git(repo, &["push", "--set-upstream", "origin", branch])
+        .await
+        .map(|_| ())
+}
+
+/// Whether `origin` has a branch called `name`.
+pub async fn remote_has_branch(repo: &Path, name: &str) -> bool {
+    git(repo, &["ls-remote", "--exit-code", "--heads", "origin", name])
+        .await
+        .is_ok()
+}
+
+/// Deletes a local branch once its work lives somewhere else (a pushed PR).
+pub async fn delete_local_branch(repo: &Path, branch: &str) -> Result<(), String> {
+    git(repo, &["branch", "-D", branch]).await.map(|_| ())
+}
+
 /// Delete the worktree folder and its branch. Missing pieces are fine, so a half-removed
 /// worktree can be cleaned up again.
 pub async fn remove_worktree(repo: &Path, wt: &Worktree) -> Result<(), String> {
