@@ -1395,6 +1395,7 @@ impl Render for OfficePage {
         let body = if seats.is_empty() {
             div()
                 .flex_1()
+                .min_h_0()
                 .flex()
                 .items_center()
                 .justify_center()
@@ -1404,22 +1405,56 @@ impl Render for OfficePage {
                 .into_any_element()
         } else {
             let scene = self.scene(&seats, cx);
-            self.scrollbar
-                .overlay(
-                    div()
-                        .id("office-scroll")
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .min_w_0()
-                        .min_h_0()
-                        .overflow_y_scroll()
-                        .items_center()
-                        .p(px(24.0))
-                        .child(scene),
+            div()
+                .relative()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .child(
+                    self.scrollbar.overlay(
+                        div()
+                            .id("office-scroll")
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .right_0()
+                            .bottom_0()
+                            .overflow_y_scroll()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .items_center()
+                                    .p(px(24.0))
+                                    .child(scene),
+                            ),
+                    ),
                 )
                 .into_any_element()
         };
+
+        let show_board = self.tasks.iter().any(|t| t.status != TaskStatus::Draft);
+        let show_done = !self.prs.is_empty();
+        let ledger = (show_board || show_done).then(|| {
+            div()
+                .flex_none()
+                .flex()
+                .flex_wrap()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(320.0))
+                        .when(show_board, |d| d.child(self.board(&seats))),
+                )
+                .when(show_done, |d| {
+                    d.child(
+                        div()
+                            .flex_1()
+                            .min_w(px(320.0))
+                            .child(self.done_tray()),
+                    )
+                })
+        });
 
         div()
             .flex()
@@ -1435,11 +1470,7 @@ impl Render for OfficePage {
                     .min_h_0()
                     .child(desk)
                     .child(body)
-                    .when(
-                        self.tasks.iter().any(|t| t.status != TaskStatus::Draft),
-                        |d| d.child(self.board(&seats)),
-                    )
-                    .when(!self.prs.is_empty(), |d| d.child(self.done_tray()))
+                    .children(ledger)
                     .when(!seats.is_empty(), |d| d.child(self.skill_tray(cx))),
             )
             .children(panel)
