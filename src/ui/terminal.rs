@@ -132,6 +132,7 @@ pub struct Terminal {
     thumb: (f32, f32),
     track_h: f32,
     pub exited: bool,
+    pub key_input_count: u64,
     title: String,
     link: Option<LinkHit>,
     focus: FocusHandle,
@@ -382,6 +383,7 @@ impl Terminal {
             thumb: (0.0, 0.0),
             track_h: 0.0,
             exited: false,
+            key_input_count: 0,
             title: String::new(),
             link: None,
             focus: cx.focus_handle(),
@@ -572,6 +574,7 @@ impl Terminal {
         }
         let app_cursor = lock(&self.parser).screen().application_cursor();
         if let Some(bytes) = key_bytes(ks, app_cursor) {
+            self.key_input_count += 1;
             self.send(&bytes);
             cx.stop_propagation();
             cx.notify();

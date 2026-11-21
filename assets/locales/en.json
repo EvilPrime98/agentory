@@ -519,6 +519,9 @@
   "settings.speech.lang_auto": "Auto-detect",
   "settings.speech.mic": "Microphone",
   "settings.speech.mic_default": "System default",
+  "settings.speech.auto_enter": "Auto-enter after dictation",
+  "settings.speech.auto_enter_delay": "Extra silence before Enter",
+  "settings.speech.auto_enter_hint": "Presses Enter for you once you stay quiet this long after the last phrase.",
   "settings.speech.silence": "Pause that ends a phrase",
   "settings.speech.silence_hint": "How long you stay quiet before the phrase is transcribed.",
   "settings.speech.hotkey": "Ctrl+Alt+M turns the microphone on or off for the open session. Text is typed into the input box and never submitted.",
@@ -532,6 +535,7 @@
   "speech.loading": "Loading…",
   "speech.listening": "Listening",
   "speech.speaking": "Hearing you",
+  "speech.sending": "Sending…",
   "speech.transcribing": "Transcribing",
   "speech.error": "Mic error"
 }

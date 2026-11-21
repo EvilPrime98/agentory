@@ -249,6 +249,7 @@ fn mic_button(stores: &Stores, session_id: &str, cx: &Context<SessionsPage>) -> 
             Phase::Listening => (t("speech.listening"), theme::accent()),
             Phase::Speaking => (t("speech.speaking"), theme::accent()),
             Phase::Transcribing => (t("speech.transcribing"), theme::text_secondary()),
+            Phase::Sending => (t("speech.sending"), theme::accent()),
         }
     };
     let active = !matches!(phase, Phase::Idle);

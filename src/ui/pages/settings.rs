@@ -1,7 +1,7 @@
 //! Settings page.
 
 use gpui::{
-    AnyElement, Context, Entity, EventEmitter, InteractiveElement, IntoElement, ParentElement,
+    AnyElement, Div, Context, Entity, EventEmitter, InteractiveElement, IntoElement, ParentElement,
     Render, SharedString, StatefulInteractiveElement, Styled, Subscription, Window, div,
     prelude::*, px,
 };
@@ -10,10 +10,11 @@ use crate::i18n::{LanguagePref, t, t_args};
 use crate::platform::logging;
 use crate::route::{GoBack, Navigate};
 use crate::state::Stores;
-use crate::state::prefs::SessionView;
+use crate::state::prefs::{Prefs, SessionView};
 use crate::state::prefs::{
     DEFAULT_DOC_PROMPT, DEFAULT_ISSUE_PROMPT, DEFAULT_WORKFLOW_TOOLS, MAX_FONT, MAX_VAD_SILENCE_MS,
     MIN_FONT, MIN_VAD_SILENCE_MS, SpeechLanguage, VAD_SILENCE_STEP_MS,
+    AUTO_ENTER_STEP_MS, MAX_AUTO_ENTER_MS, MIN_AUTO_ENTER_MS,
 };
 use crate::ui::components::button::{ButtonVariant, button, small_button};
 use crate::ui::components::checkbox::checkbox;
@@ -125,6 +126,44 @@ fn label_block(label: impl Into<SharedString>, hint: Option<SharedString>) -> gp
                     .child(hint),
             )
         })
+}
+
+fn ms_stepper(
+    id: &'static str,
+    ms: u32,
+    (min, max, step): (u32, u32, u32),
+    stores: &Stores,
+    field: fn(&mut Prefs) -> &mut u32,
+) -> Div {
+    let (down, up) = (stores.clone(), stores.clone());
+    div()
+        .flex()
+        .items_center()
+        .gap(px(10.0))
+        .child(small_button(format!("{id}-down"), "−", move |_, _, cx| {
+            down.prefs.update(cx, |p, cx| {
+                p.update(cx, |p| {
+                    let v = field(p);
+                    *v = v.saturating_sub(step).max(min);
+                })
+            });
+        }))
+        .child(
+            div()
+                .w(px(64.0))
+                .flex()
+                .justify_center()
+                .text_size(px(13.0))
+                .child(format!("{ms} ms")),
+        )
+        .child(small_button(format!("{id}-up"), "+", move |_, _, cx| {
+            up.prefs.update(cx, |p, cx| {
+                p.update(cx, |p| {
+                    let v = field(p);
+                    *v = (*v + step).min(max);
+                })
+            });
+        }))
 }
 
 fn setting_row(
@@ -548,9 +587,10 @@ impl SettingsPage {
         let toggle_page = mic_page.clone();
         let lang_page = mic_page.clone();
         let toggle_lang_page = mic_page.clone();
-        let down = self.stores.clone();
-        let up = self.stores.clone();
         let silence = prefs.vad_silence_ms;
+        let auto_enter = prefs.speech_auto_enter;
+        let auto_enter_ms = prefs.speech_auto_enter_ms;
+        let auto_toggle = self.stores.clone();
         let language = prefs.speech_language;
 
         let status = match downloading {
@@ -693,38 +733,39 @@ impl SettingsPage {
             setting_row(
                 t("settings.speech.silence"),
                 Some(t("settings.speech.silence_hint").into()),
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(10.0))
-                    .child(small_button("silence-down", "−", move |_, _, cx| {
-                        down.prefs.update(cx, |p, cx| {
-                            p.update(cx, |p| {
-                                p.vad_silence_ms = p
-                                    .vad_silence_ms
-                                    .saturating_sub(VAD_SILENCE_STEP_MS)
-                                    .max(MIN_VAD_SILENCE_MS)
-                            })
-                        });
-                    }))
-                    .child(
-                        div()
-                            .w(px(64.0))
-                            .flex()
-                            .justify_center()
-                            .text_size(px(13.0))
-                            .child(format!("{silence} ms")),
-                    )
-                    .child(small_button("silence-up", "+", move |_, _, cx| {
-                        up.prefs.update(cx, |p, cx| {
-                            p.update(cx, |p| {
-                                p.vad_silence_ms =
-                                    (p.vad_silence_ms + VAD_SILENCE_STEP_MS).min(MAX_VAD_SILENCE_MS)
-                            })
-                        });
-                    })),
+                ms_stepper(
+                    "silence",
+                    silence,
+                    (MIN_VAD_SILENCE_MS, MAX_VAD_SILENCE_MS, VAD_SILENCE_STEP_MS),
+                    &self.stores,
+                    |p| &mut p.vad_silence_ms,
+                ),
             ),
+            checkbox(
+                "pref-speech-auto-enter",
+                t("settings.speech.auto_enter"),
+                auto_enter,
+                move |value, _, cx| {
+                    auto_toggle
+                        .prefs
+                        .update(cx, |p, cx| p.update(cx, |p| p.speech_auto_enter = value));
+                },
+            )
+            .into_any_element(),
         ]);
+        if auto_enter {
+            rows.push(setting_row(
+                t("settings.speech.auto_enter_delay"),
+                Some(t("settings.speech.auto_enter_hint").into()),
+                ms_stepper(
+                    "auto-enter",
+                    auto_enter_ms,
+                    (MIN_AUTO_ENTER_MS, MAX_AUTO_ENTER_MS, AUTO_ENTER_STEP_MS),
+                    &self.stores,
+                    |p| &mut p.speech_auto_enter_ms,
+                ),
+            ));
+        }
         let mut col = div().flex().flex_col().gap(px(12.0)).child(list(rows));
         if let Some(error) = error {
             col = col.child(

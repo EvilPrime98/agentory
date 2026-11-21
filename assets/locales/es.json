@@ -519,6 +519,9 @@
   "settings.speech.lang_auto": "Detectar",
   "settings.speech.mic": "Micrófono",
   "settings.speech.mic_default": "Predeterminado del sistema",
+  "settings.speech.auto_enter": "Enter automático tras dictar",
+  "settings.speech.auto_enter_delay": "Silencio extra antes de Enter",
+  "settings.speech.auto_enter_hint": "Pulsa Enter por ti cuando callas este tiempo tras la última frase.",
   "settings.speech.silence": "Pausa que termina una frase",
   "settings.speech.silence_hint": "Cuánto tiempo callas antes de transcribir la frase.",
   "settings.speech.hotkey": "Ctrl+Alt+M activa o desactiva el micrófono en la sesión abierta. El texto se escribe en el cuadro de entrada y nunca se envía.",
@@ -532,6 +535,7 @@
   "speech.loading": "Cargando…",
   "speech.listening": "Escuchando",
   "speech.speaking": "Te escucho",
+  "speech.sending": "Enviando…",
   "speech.transcribing": "Transcribiendo",
   "speech.error": "Error de micro"
 }
