@@ -171,6 +171,7 @@ pub struct Sidebar {
     shell_menu: Option<ShellMenu>,
     project_menu: Option<ProjectMenu>,
     isolated: std::cell::RefCell<HashMap<String, bool>>,
+    focused: Option<String>,
     menu_focus: gpui::FocusHandle,
     commands_folds: HashMap<String, Fold>,
     shell_menu_closed_at: Option<Instant>,
@@ -236,6 +237,7 @@ impl Sidebar {
             shell_menu: None,
             project_menu: None,
             isolated: Default::default(),
+            focused: None,
             menu_focus: cx.focus_handle(),
             commands_folds: HashMap::new(),
             shell_menu_closed_at: None,
@@ -360,6 +362,15 @@ impl Sidebar {
             .or_insert_with(|| store::read_isolation(&settings_file(&project.path), &project.path))
     }
 
+    fn toggle_focus(&mut self, project_id: &str, cx: &mut Context<Self>) {
+        self.focused = if self.focused.as_deref() == Some(project_id) {
+            None
+        } else {
+            Some(project_id.to_string())
+        };
+        cx.notify();
+    }
+
     fn close_project_menu(&mut self, cx: &mut Context<Self>) {
         if self.project_menu.take().is_some() {
             cx.notify();
@@ -406,28 +417,46 @@ impl Sidebar {
             .into();
         let this = cx.entity();
         let close = this.clone();
+        let focus_this = this.clone();
+        let focus_id = id.clone();
         context_menu(
             menu.position,
             title,
             &self.menu_focus,
-            vec![MenuItem {
-                id: "project-menu-isolate".into(),
-                disabled: false,
-                icon: if menu.isolated {
-                    Icon::LockOpen
-                } else {
-                    Icon::Lock
+            vec![
+                MenuItem {
+                    id: "project-menu-focus".into(),
+                    disabled: false,
+                    icon: Icon::Eye,
+                    label: t(if self.focused.as_deref() == Some(id.as_str()) {
+                        "sidebar.unfocus"
+                    } else {
+                        "sidebar.focus"
+                    })
+                    .into(),
+                    on_click: std::rc::Rc::new(move |_, cx| {
+                        focus_this.update(cx, |this, cx| this.toggle_focus(&focus_id, cx));
+                    }),
                 },
-                label: t(if menu.isolated {
-                    "sidebar.unisolate"
-                } else {
-                    "sidebar.isolate"
-                })
-                .into(),
-                on_click: std::rc::Rc::new(move |_, cx| {
-                    this.update(cx, |this, cx| this.toggle_isolate(&id, cx));
-                }),
-            }],
+                MenuItem {
+                    id: "project-menu-isolate".into(),
+                    disabled: false,
+                    icon: if menu.isolated {
+                        Icon::LockOpen
+                    } else {
+                        Icon::Lock
+                    },
+                    label: t(if menu.isolated {
+                        "sidebar.unisolate"
+                    } else {
+                        "sidebar.isolate"
+                    })
+                    .into(),
+                    on_click: std::rc::Rc::new(move |_, cx| {
+                        this.update(cx, |this, cx| this.toggle_isolate(&id, cx));
+                    }),
+                },
+            ],
             move |_, cx| close.update(cx, |this, cx| this.close_project_menu(cx)),
         )
     }
@@ -634,6 +663,7 @@ impl Sidebar {
             this.update(cx, |this, cx| {
                 this.picker_open = false;
                 if let Some(path) = picked {
+                    this.focused = None;
                     this.stores.projects.update(cx, |p, cx| {
                         p.add(path, cx);
                     });
@@ -1048,6 +1078,13 @@ impl Sidebar {
                     }))
                     .child(chevron),
             )
+            .when(self.focused.as_deref() == Some(project.id.as_str()), |s| {
+                s.child(
+                    icon(Icon::Eye, px(12.0))
+                        .mr(px(4.0))
+                        .text_color(theme::accent()),
+                )
+            })
             .when(!is_global && self.is_isolated(project), |s| {
                 s.child(
                     icon(Icon::Lock, px(12.0))
@@ -1727,7 +1764,18 @@ impl Render for Sidebar {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let projects: Vec<Project> = self.stores.projects.read(cx).items.clone();
         let modify = self.modify_block(cx);
-        let blocks: Vec<_> = projects.iter().map(|p| self.project_block(p, cx)).collect();
+        if self
+            .focused
+            .as_ref()
+            .is_some_and(|f| !projects.iter().any(|p| &p.id == f))
+        {
+            self.focused = None;
+        }
+        let blocks: Vec<_> = projects
+            .iter()
+            .filter(|p| p.is_global() || self.focused.as_deref().is_none_or(|f| f == p.id.as_str()))
+            .map(|p| self.project_block(p, cx))
+            .collect();
         let empty = projects.iter().all(Project::is_global);
         let pages_popup = (self.pages_menu && !self.compact).then(|| {
             let hidden = self

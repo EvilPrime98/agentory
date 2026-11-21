@@ -14,6 +14,8 @@
   "sidebar.no_shell": "No shell found",
   "sidebar.isolate": "Isolate",
   "sidebar.unisolate": "Remove isolation",
+  "sidebar.focus": "Focus",
+  "sidebar.unfocus": "Unfocus",
   "sidebar.default_shell": "default",
   "sidebar.open_in_worktree": "Open in worktree",
   "sidebar.add_project": "Add a project folder",

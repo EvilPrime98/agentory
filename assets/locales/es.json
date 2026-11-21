@@ -14,6 +14,8 @@
   "sidebar.no_shell": "No se encontró ninguna shell",
   "sidebar.isolate": "Aislar",
   "sidebar.unisolate": "Quitar aislamiento",
+  "sidebar.focus": "Enfocar",
+  "sidebar.unfocus": "Quitar enfoque",
   "sidebar.default_shell": "predeterminada",
   "sidebar.open_in_worktree": "Abrir en worktree",
   "sidebar.add_project": "Añade una carpeta de proyecto",
