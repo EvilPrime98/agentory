@@ -1139,7 +1139,8 @@ impl OfficePage {
                                     .child(
                                         div()
                                             .min_w_0()
-                                            .text_size(px(12.5))
+                                            .text_size(px(13.0))
+                                            .font_weight(gpui::FontWeight::SEMIBOLD)
                                             .text_color(theme::text())
                                             .truncate()
                                             .child(seat.name.clone()),
