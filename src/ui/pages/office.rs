@@ -220,8 +220,9 @@ impl OfficePage {
                 jobs.into_iter()
                     .filter_map(|(id, tail)| {
                         let mut tail = tail.lock().ok()?;
+                        let items = tail.poll();
                         let reset = tail.take_reset();
-                        Some((id, reset, tail.poll()))
+                        Some((id, reset, items))
                     })
                     .collect::<Vec<_>>()
             })
@@ -424,7 +425,7 @@ impl OfficePage {
             .gap(px(6.0))
             .p(px(10.0))
             .overflow_y_scroll()
-            .children(lines.into_iter().rev().map(|line| {
+            .children(lines.into_iter().map(|line| {
                 let (tag, text) = match line {
                     Line::User(s) => (t("office.line.you"), s.clone()),
                     Line::Assistant(s) => (t("office.line.agent"), s.clone()),
