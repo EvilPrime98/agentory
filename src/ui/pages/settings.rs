@@ -6,16 +6,18 @@ use gpui::{
     prelude::*, px,
 };
 
-use crate::i18n::{LanguagePref, t};
+use crate::i18n::{LanguagePref, t, t_args};
 use crate::platform::logging;
 use crate::route::{GoBack, Navigate};
 use crate::state::Stores;
 use crate::state::prefs::SessionView;
 use crate::state::prefs::{
-    DEFAULT_DOC_PROMPT, DEFAULT_ISSUE_PROMPT, DEFAULT_WORKFLOW_TOOLS, MAX_FONT, MIN_FONT,
+    DEFAULT_DOC_PROMPT, DEFAULT_ISSUE_PROMPT, DEFAULT_WORKFLOW_TOOLS, MAX_FONT, MAX_VAD_SILENCE_MS,
+    MIN_FONT, MIN_VAD_SILENCE_MS, SpeechLanguage, VAD_SILENCE_STEP_MS,
 };
 use crate::ui::components::button::{ButtonVariant, button, small_button};
 use crate::ui::components::checkbox::checkbox;
+use crate::ui::components::dropdown::dropdown;
 use crate::ui::components::scrollbar::Scrollbar;
 use crate::ui::components::segmented::segmented;
 use crate::ui::components::text_area::{TextArea, TextAreaEvent};
@@ -29,15 +31,17 @@ enum SettingsTab {
     Sessions,
     Projects,
     Terminal,
+    Speech,
     Data,
 }
 
 impl SettingsTab {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::General,
         Self::Sessions,
         Self::Projects,
         Self::Terminal,
+        Self::Speech,
         Self::Data,
     ];
 
@@ -47,6 +51,7 @@ impl SettingsTab {
             Self::Sessions => "settings.tab.sessions",
             Self::Projects => "settings.tab.projects",
             Self::Terminal => "settings.tab.terminal",
+            Self::Speech => "settings.tab.speech",
             Self::Data => "settings.tab.data",
         }
     }
@@ -60,6 +65,9 @@ pub struct SettingsPage {
     issue_prompt_input: Entity<TextArea>,
     tools_input: Entity<TextArea>,
     tab: SettingsTab,
+    mic_open: bool,
+    lang_open: bool,
+    mic_devices: Vec<String>,
     _subs: Vec<Subscription>,
 }
 
@@ -212,6 +220,7 @@ impl SettingsPage {
             cx.observe(&tools_input, |_, _, cx| cx.notify()),
             cx.observe(&stores.projects, |_, _, cx| cx.notify()),
             cx.observe(&stores.selfbuild, |_, _, cx| cx.notify()),
+            cx.observe(&stores.speech, |_, _, cx| cx.notify()),
             cx.subscribe(&claude_input, |this, input, ev: &TextInputEvent, cx| {
                 if matches!(ev, TextInputEvent::Changed) {
                     let value = input.read(cx).value().to_string();
@@ -257,6 +266,9 @@ impl SettingsPage {
             issue_prompt_input,
             tools_input,
             tab: SettingsTab::General,
+            mic_open: false,
+            lang_open: false,
+            mic_devices: Vec::new(),
             _subs: subs,
         }
     }
@@ -523,6 +535,214 @@ impl SettingsPage {
         .into_any_element()
     }
 
+    fn speech_tab(&self, prefs: &crate::state::prefs::Prefs, cx: &Context<Self>) -> AnyElement {
+        let speech = self.stores.speech.read(cx);
+        let installed = speech.installed;
+        let downloading = speech.download;
+        let error = speech.error.clone();
+
+        let enable_stores = self.stores.clone();
+        let lang_stores = self.stores.clone();
+        let mic_stores = self.stores.clone();
+        let mic_page = cx.entity();
+        let toggle_page = mic_page.clone();
+        let lang_page = mic_page.clone();
+        let toggle_lang_page = mic_page.clone();
+        let down = self.stores.clone();
+        let up = self.stores.clone();
+        let silence = prefs.vad_silence_ms;
+        let language = prefs.speech_language;
+
+        let status = match downloading {
+            Some(bytes) => {
+                let total = crate::speech::model::total_size().max(1);
+                t_args(
+                    "speech.downloading",
+                    &[("percent", &(bytes * 100 / total).to_string())],
+                )
+            }
+            None if installed => t("settings.speech.model_installed"),
+            None => t("settings.speech.model_missing"),
+        };
+        let model_stores = self.stores.clone();
+        let model_control = div()
+            .flex()
+            .items_center()
+            .gap(px(10.0))
+            .child(
+                div()
+                    .text_size(px(12.0))
+                    .text_color(theme::text_muted())
+                    .child(status),
+            )
+            .when(!installed && downloading.is_none(), |d| {
+                d.child(button(
+                    "speech-download",
+                    t("settings.speech.download"),
+                    ButtonVariant::Classic,
+                    move |_, _, cx| {
+                        model_stores.speech.update(cx, |s, cx| s.download_model(cx));
+                    },
+                ))
+            });
+
+        let mut devices: Vec<SharedString> = vec![t("settings.speech.mic_default").into()];
+        devices.extend(self.mic_devices.iter().cloned().map(SharedString::from));
+        let selected = self
+            .mic_devices
+            .iter()
+            .position(|d| *d == prefs.mic_device)
+            .map_or(0, |i| i + 1);
+        let device_names = self.mic_devices.clone();
+
+        let mut rows = vec![
+            checkbox(
+                "pref-speech",
+                t("settings.speech.enable"),
+                prefs.speech_enabled,
+                move |value, _, cx| {
+                    enable_stores
+                        .prefs
+                        .update(cx, |p, cx| p.update(cx, |p| p.speech_enabled = value));
+                },
+            )
+            .into_any_element(),
+        ];
+        if !crate::speech::AVAILABLE {
+            rows.push(
+                div()
+                    .text_size(px(12.0))
+                    .text_color(theme::warning())
+                    .child(t("speech.unavailable"))
+                    .into_any_element(),
+            );
+        }
+        rows.extend([
+            setting_row(
+                t("settings.speech.model"),
+                Some(t("settings.speech.model_hint").into()),
+                model_control,
+            ),
+            setting_row(
+                t("settings.speech.language"),
+                Some(t("settings.speech.language_hint").into()),
+                dropdown(
+                    "pref-speech-language",
+                    SpeechLanguage::ALL
+                        .iter()
+                        .map(|v| t(v.label_key()).into())
+                        .collect(),
+                    SpeechLanguage::ALL
+                        .iter()
+                        .position(|v| *v == language)
+                        .unwrap_or(0),
+                    self.lang_open,
+                    move |open, _, cx| {
+                        toggle_lang_page.update(cx, |page, cx| {
+                            page.lang_open = open;
+                            cx.notify();
+                        });
+                    },
+                    move |i, _, cx| {
+                        lang_stores.prefs.update(cx, |p, cx| {
+                            p.update(cx, |p| p.speech_language = SpeechLanguage::ALL[i])
+                        });
+                        lang_page.update(cx, |page, cx| {
+                            page.lang_open = false;
+                            cx.notify();
+                        });
+                    },
+                )
+                .relative()
+                .w_full(),
+            ),
+            setting_row(
+                t("settings.speech.mic"),
+                None,
+                dropdown(
+                    "pref-mic",
+                    devices,
+                    selected,
+                    self.mic_open,
+                    move |open, _, cx| {
+                        toggle_page.update(cx, |page, cx| {
+                            if open {
+                                page.mic_devices = crate::speech::input_devices();
+                            }
+                            page.mic_open = open;
+                            cx.notify();
+                        });
+                    },
+                    move |i, _, cx| {
+                        let name = i
+                            .checked_sub(1)
+                            .and_then(|i| device_names.get(i).cloned())
+                            .unwrap_or_default();
+                        mic_stores
+                            .prefs
+                            .update(cx, |p, cx| p.update(cx, |p| p.mic_device = name));
+                        mic_page.update(cx, |page, cx| {
+                            page.mic_open = false;
+                            cx.notify();
+                        });
+                    },
+                )
+                .relative()
+                .w_full(),
+            ),
+            setting_row(
+                t("settings.speech.silence"),
+                Some(t("settings.speech.silence_hint").into()),
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(10.0))
+                    .child(small_button("silence-down", "−", move |_, _, cx| {
+                        down.prefs.update(cx, |p, cx| {
+                            p.update(cx, |p| {
+                                p.vad_silence_ms = p
+                                    .vad_silence_ms
+                                    .saturating_sub(VAD_SILENCE_STEP_MS)
+                                    .max(MIN_VAD_SILENCE_MS)
+                            })
+                        });
+                    }))
+                    .child(
+                        div()
+                            .w(px(64.0))
+                            .flex()
+                            .justify_center()
+                            .text_size(px(13.0))
+                            .child(format!("{silence} ms")),
+                    )
+                    .child(small_button("silence-up", "+", move |_, _, cx| {
+                        up.prefs.update(cx, |p, cx| {
+                            p.update(cx, |p| {
+                                p.vad_silence_ms =
+                                    (p.vad_silence_ms + VAD_SILENCE_STEP_MS).min(MAX_VAD_SILENCE_MS)
+                            })
+                        });
+                    })),
+            ),
+        ]);
+        let mut col = div().flex().flex_col().gap(px(12.0)).child(list(rows));
+        if let Some(error) = error {
+            col = col.child(
+                div()
+                    .text_size(px(12.0))
+                    .text_color(theme::error())
+                    .child(error),
+            );
+        }
+        col.child(
+            div()
+                .text_size(px(12.0))
+                .text_color(theme::text_muted())
+                .child(t("settings.speech.hotkey")),
+        )
+        .into_any_element()
+    }
+
     fn data_tab(&self, cx: &Context<Self>) -> AnyElement {
         div()
             .flex()
@@ -609,6 +829,7 @@ impl Render for SettingsPage {
             SettingsTab::Sessions => self.sessions_tab(&prefs, cx),
             SettingsTab::Projects => self.projects_tab(cx),
             SettingsTab::Terminal => self.terminal_tab(prefs.terminal_font_size),
+            SettingsTab::Speech => self.speech_tab(&prefs, cx),
             SettingsTab::Data => self.data_tab(cx),
         };
 

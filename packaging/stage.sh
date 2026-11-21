@@ -20,14 +20,18 @@ case "$(uname -s)" in
   *) echo "unsupported platform $(uname -s)" >&2; exit 1 ;;
 esac
 
-echo "==> cargo build --release"
-(cd "$HERE" && cargo build --release --locked)
+FEATURES=
+[ -n "$EXE" ] && FEATURES="--features speech"
+
+echo "==> cargo build --release $FEATURES"
+(cd "$HERE" && cargo build --release --locked $FEATURES)
 [ -n "$EXE" ] && (cd "$HERE" && cargo build --release --locked -p agentory-helper)
 
 rm -rf "$OUT"
 mkdir -p "$OUT"
 cp "$HERE/target/release/agentory$EXE" "$OUT/"
 [ -n "$EXE" ] && cp "$HERE/target/release/agentory-helper$EXE" "$OUT/" || true
+[ -n "$EXE" ] && cp "$HERE"/target/release/*.dll "$OUT/" || true
 
 cp "$HERE/packaging/NOTICE.txt" "$OUT/NOTICE.txt"
 [ -f "$HERE/LICENSE" ] && cp "$HERE/LICENSE" "$OUT/LICENSE" || true

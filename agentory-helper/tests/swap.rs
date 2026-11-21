@@ -33,16 +33,20 @@ fn run(name: &str, mode: &str) -> (Layout, Outcome) {
 }
 
 fn cleanup(layout: &Layout) {
-    let name = format!("fake_app{}", std::env::consts::EXE_SUFFIX);
+    let root = layout.ready.parent().unwrap();
     let _ = if cfg!(windows) {
-        // The helper's relaunched copies are named active/known-good, so kill by that too.
-        process::Command::new("taskkill")
-            .args(["/F", "/FI", "IMAGENAME eq active.exe"])
+        let script = format!(
+            "Get-CimInstance Win32_Process | Where-Object {{ $_.ExecutablePath -like '{}\\*' }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}",
+            root.display()
+        );
+        process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", &script])
             .output()
     } else {
+        let name = format!("fake_app{}", std::env::consts::EXE_SUFFIX);
         process::Command::new("pkill").args(["-f", &name]).output()
     };
-    let _ = fs::remove_dir_all(layout.ready.parent().unwrap());
+    let _ = fs::remove_dir_all(root);
 }
 
 // The scenarios share FAKE_* env vars, so they run in one test.

@@ -12,6 +12,7 @@ mod registry;
 mod route;
 mod runtime;
 mod selfbuild;
+mod speech;
 mod state;
 mod ui;
 

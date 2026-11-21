@@ -44,7 +44,8 @@ actions!(
         RequestClose,
         OpenTerminal,
         NextSession,
-        PrevSession
+        PrevSession,
+        ToggleMicrophone
     ]
 );
 
@@ -55,6 +56,7 @@ pub fn bind_keys(cx: &mut App) {
         gpui::KeyBinding::new("ctrl-alt-b", ToggleSidebar, None),
         gpui::KeyBinding::new("ctrl-alt-s", OpenSkills, None),
         gpui::KeyBinding::new("ctrl-alt-t", OpenTerminal, None),
+        gpui::KeyBinding::new("ctrl-alt-m", ToggleMicrophone, None),
         gpui::KeyBinding::new("ctrl-tab", NextSession, None),
         gpui::KeyBinding::new("ctrl-shift-tab", PrevSession, None),
         #[cfg(target_os = "macos")]
@@ -678,6 +680,15 @@ impl Render for AppRoot {
                 if let Some(id) = selected {
                     this.navigate(Route::Sessions, window, cx);
                     sessions::begin_shell(&id, None, sessions::ShellDir::Project, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &ToggleMicrophone, _, cx| {
+                if !matches!(this.history.current(), Route::Sessions) {
+                    return;
+                }
+                let active = this.stores.sessions.read(cx).active.clone();
+                if let Some(id) = active {
+                    this.stores.speech.update(cx, |s, cx| s.toggle(&id, cx));
                 }
             }))
             .on_action(cx.listener(|this, _: &NextSession, _, cx| {
