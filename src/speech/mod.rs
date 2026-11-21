@@ -1,4 +1,3 @@
-
 #![cfg_attr(not(feature = "speech"), allow(dead_code))]
 
 pub mod config;

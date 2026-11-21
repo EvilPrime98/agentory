@@ -1,4 +1,3 @@
-
 pub const SAMPLE_RATE: u32 = 16_000;
 
 pub trait SpeechEngine: Send {
