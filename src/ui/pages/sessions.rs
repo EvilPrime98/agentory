@@ -3,10 +3,11 @@
 //! Sessions are switched from the sidebar (or Ctrl+Tab); split panes are not done.
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use gpui::{
-    Context, Entity, EventEmitter, IntoElement, ParentElement, Render, Styled, Window, div,
-    prelude::*, px,
+    Animation, AnimationExt as _, Context, Entity, EventEmitter, IntoElement, ParentElement,
+    Render, Styled, Window, div, prelude::*, px,
 };
 
 use crate::i18n::t;
@@ -72,6 +73,7 @@ impl Render for SessionsPage {
         });
         let mut body = None;
         let mut header = None;
+        let mut overlay = None;
         match current {
             Some((id, name, can_chat, terminal, chat_id)) => {
                 let view = if chat_id.is_some() {
@@ -110,6 +112,7 @@ impl Render for SessionsPage {
                     self.focused = Some((id.clone(), view));
                     window.focus(&focus, cx);
                 }
+                overlay = speech_overlay(&self.stores, &id, cx);
                 let mic = self
                     .stores
                     .prefs
@@ -186,11 +189,13 @@ impl Render for SessionsPage {
             .children(header)
             .child(match body {
                 Some(body) => div()
+                    .relative()
                     .flex()
                     .flex_col()
                     .flex_1()
                     .min_h_0()
                     .child(body)
+                    .children(overlay)
                     .into_any_element(),
                 None => div()
                     .flex()
@@ -227,6 +232,80 @@ impl Render for SessionsPage {
                     .into_any_element(),
             })
     }
+}
+
+fn speech_overlay(
+    stores: &Stores,
+    session_id: &str,
+    cx: &Context<SessionsPage>,
+) -> Option<gpui::AnyElement> {
+    let speech = stores.speech.read(cx);
+    if speech.session() != Some(session_id) {
+        return None;
+    }
+    let phase = speech.phase();
+    let (color, period, inward, size, alpha) = match phase {
+        Phase::Idle | Phase::Sending => return None,
+        Phase::Loading => (theme::text_secondary(), 1600, false, 90.0, 0.18),
+        Phase::Listening => (theme::accent(), 2600, false, 100.0, 0.18),
+        Phase::Speaking => (theme::accent(), 1100, false, 140.0, 0.35),
+        Phase::Transcribing => (theme::text_secondary(), 1300, true, 120.0, 0.3),
+    };
+    let core = size * 0.2;
+    let ripple = move |n: usize| {
+        div()
+            .absolute()
+            .rounded_full()
+            .border_2()
+            .border_color(color)
+            .with_animation(
+                ("speech-ripple", phase as usize * 4 + n),
+                Animation::new(Duration::from_millis(period)).repeat(),
+                move |el, t| {
+                    let t = (t + n as f32 * 0.5) % 1.0;
+                    let t = if inward { 1.0 - t } else { t };
+                    el.size(px(core + (size - core) * t))
+                        .opacity(alpha * (1.0 - t))
+                },
+            )
+    };
+    Some(
+        div()
+            .absolute()
+            .inset_0()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap(px(14.0))
+            .child(
+                div()
+                    .relative()
+                    .size(px(size))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(ripple(0))
+                    .child(ripple(1))
+                    .child(
+                        div()
+                            .size(px(core))
+                            .rounded_full()
+                            .bg(color)
+                            .with_animation(
+                                ("speech-core", phase as usize),
+                                Animation::new(Duration::from_millis(period)).repeat(),
+                                move |el, t| {
+                                    el.opacity(
+                                        alpha
+                                            * (0.6 + 0.4 * (t * std::f32::consts::TAU).sin().abs()),
+                                    )
+                                },
+                            ),
+                    ),
+            )
+            .into_any_element(),
+    )
 }
 
 fn mic_button(stores: &Stores, session_id: &str, cx: &Context<SessionsPage>) -> gpui::AnyElement {

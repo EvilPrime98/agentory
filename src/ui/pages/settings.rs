@@ -1,7 +1,7 @@
 //! Settings page.
 
 use gpui::{
-    AnyElement, Div, Context, Entity, EventEmitter, InteractiveElement, IntoElement, ParentElement,
+    AnyElement, Context, Div, Entity, EventEmitter, InteractiveElement, IntoElement, ParentElement,
     Render, SharedString, StatefulInteractiveElement, Styled, Subscription, Window, div,
     prelude::*, px,
 };
@@ -10,12 +10,12 @@ use crate::i18n::{LanguagePref, t, t_args};
 use crate::platform::logging;
 use crate::route::{GoBack, Navigate};
 use crate::state::Stores;
-use crate::state::prefs::{Prefs, SessionView};
 use crate::state::prefs::{
-    DEFAULT_DOC_PROMPT, DEFAULT_ISSUE_PROMPT, DEFAULT_WORKFLOW_TOOLS, MAX_FONT, MAX_VAD_SILENCE_MS,
-    MIN_FONT, MIN_VAD_SILENCE_MS, SpeechLanguage, VAD_SILENCE_STEP_MS,
-    AUTO_ENTER_STEP_MS, MAX_AUTO_ENTER_MS, MIN_AUTO_ENTER_MS,
+    AUTO_ENTER_STEP_MS, DEFAULT_DOC_PROMPT, DEFAULT_ISSUE_PROMPT, DEFAULT_WORKFLOW_TOOLS,
+    MAX_AUTO_ENTER_MS, MAX_FONT, MAX_VAD_SILENCE_MS, MIN_AUTO_ENTER_MS, MIN_FONT,
+    MIN_VAD_SILENCE_MS, SpeechLanguage, VAD_SILENCE_STEP_MS,
 };
+use crate::state::prefs::{Prefs, SessionView};
 use crate::ui::components::button::{ButtonVariant, button, small_button};
 use crate::ui::components::checkbox::checkbox;
 use crate::ui::components::dropdown::dropdown;
@@ -140,14 +140,18 @@ fn ms_stepper(
         .flex()
         .items_center()
         .gap(px(10.0))
-        .child(small_button(format!("{id}-down"), "−", move |_, _, cx| {
-            down.prefs.update(cx, |p, cx| {
-                p.update(cx, |p| {
-                    let v = field(p);
-                    *v = v.saturating_sub(step).max(min);
-                })
-            });
-        }))
+        .child(small_button(
+            format!("{id}-down"),
+            "−",
+            move |_, _, cx| {
+                down.prefs.update(cx, |p, cx| {
+                    p.update(cx, |p| {
+                        let v = field(p);
+                        *v = v.saturating_sub(step).max(min);
+                    })
+                });
+            },
+        ))
         .child(
             div()
                 .w(px(64.0))
