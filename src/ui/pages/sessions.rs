@@ -11,6 +11,7 @@ use gpui::{
 
 use crate::i18n::t;
 use crate::route::{GoBack, Navigate};
+use crate::speech::controller::Phase;
 use crate::state::Stores;
 use crate::state::prefs::SessionView;
 use crate::state::sessions;
@@ -35,6 +36,8 @@ impl SessionsPage {
             .detach();
         cx.observe(&stores.projects, |_, _, cx| cx.notify())
             .detach();
+        cx.observe(&stores.speech, |_, _, cx| cx.notify()).detach();
+        cx.observe(&stores.prefs, |_, _, cx| cx.notify()).detach();
         Self {
             stores,
             focused: None,
@@ -107,7 +110,14 @@ impl Render for SessionsPage {
                     self.focused = Some((id.clone(), view));
                     window.focus(&focus, cx);
                 }
-                if can_chat {
+                let mic = self
+                    .stores
+                    .prefs
+                    .read(cx)
+                    .prefs
+                    .speech_enabled
+                    .then(|| mic_button(&self.stores, &id, cx));
+                if can_chat || mic.is_some() {
                     let stores = self.stores.clone();
                     header = Some(
                         div()
@@ -130,25 +140,34 @@ impl Render for SessionsPage {
                                     .child(name),
                             )
                             .child(
-                                segmented(
-                                    "session-view",
-                                    SessionView::ALL
-                                        .iter()
-                                        .map(|v| t(v.label_key()).into())
-                                        .collect(),
-                                    SessionView::ALL
-                                        .iter()
-                                        .position(|v| *v == view)
-                                        .unwrap_or(0),
-                                    move |i, _, cx| {
-                                        let view = SessionView::ALL[i];
-                                        let id = id.clone();
-                                        stores
-                                            .sessions
-                                            .update(cx, |s, cx| s.set_view(&id, view, cx));
-                                    },
-                                )
-                                .w(px(200.0)),
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(10.0))
+                                    .children(mic)
+                                    .when(can_chat, |d| {
+                                        d.child(
+                                            segmented(
+                                                "session-view",
+                                                SessionView::ALL
+                                                    .iter()
+                                                    .map(|v| t(v.label_key()).into())
+                                                    .collect(),
+                                                SessionView::ALL
+                                                    .iter()
+                                                    .position(|v| *v == view)
+                                                    .unwrap_or(0),
+                                                move |i, _, cx| {
+                                                    let view = SessionView::ALL[i];
+                                                    let id = id.clone();
+                                                    stores.sessions.update(cx, |s, cx| {
+                                                        s.set_view(&id, view, cx)
+                                                    });
+                                                },
+                                            )
+                                            .w(px(200.0)),
+                                        )
+                                    }),
                             ),
                     );
                 }
@@ -208,4 +227,70 @@ impl Render for SessionsPage {
                     .into_any_element(),
             })
     }
+}
+
+fn mic_button(stores: &Stores, session_id: &str, cx: &Context<SessionsPage>) -> gpui::AnyElement {
+    let speech = stores.speech.read(cx);
+    let here = speech.session() == Some(session_id);
+    let phase = if here { speech.phase() } else { Phase::Idle };
+    let (label, color) = if let Some(bytes) = speech.download {
+        let total = crate::speech::model::total_size().max(1);
+        (
+            t_args_pct("speech.downloading", bytes * 100 / total),
+            theme::text_secondary(),
+        )
+    } else if !speech.installed {
+        (t("speech.install"), theme::text_secondary())
+    } else {
+        match phase {
+            Phase::Idle if speech.error.is_some() => (t("speech.error"), theme::error()),
+            Phase::Idle => (t("speech.idle"), theme::text_secondary()),
+            Phase::Loading => (t("speech.loading"), theme::text_secondary()),
+            Phase::Listening => (t("speech.listening"), theme::accent()),
+            Phase::Speaking => (t("speech.speaking"), theme::accent()),
+            Phase::Transcribing => (t("speech.transcribing"), theme::text_secondary()),
+        }
+    };
+    let active = !matches!(phase, Phase::Idle);
+    let installed = speech.installed;
+    let downloading = speech.download.is_some();
+    let stores = stores.clone();
+    let id = session_id.to_string();
+    div()
+        .id("session-mic")
+        .flex()
+        .items_center()
+        .gap(px(6.0))
+        .h(px(26.0))
+        .px(px(10.0))
+        .rounded(px(4.0))
+        .border_1()
+        .border_color(if active {
+            theme::accent()
+        } else {
+            theme::border_subtle()
+        })
+        .text_size(px(12.0))
+        .text_color(color)
+        .cursor_pointer()
+        .hover(|s| s.bg(theme::hover()))
+        .on_click(move |_, _, cx| {
+            if downloading {
+                return;
+            }
+            stores.speech.update(cx, |s, cx| {
+                if installed {
+                    s.toggle(&id, cx);
+                } else {
+                    s.download_model(cx);
+                }
+            });
+        })
+        .child(icon(Icon::Mic, px(14.0)).text_color(color))
+        .child(label)
+        .into_any_element()
+}
+
+fn t_args_pct(key: &str, pct: u64) -> String {
+    crate::i18n::t_args(key, &[("percent", &pct.to_string())])
 }

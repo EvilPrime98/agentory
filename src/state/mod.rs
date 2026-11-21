@@ -22,6 +22,7 @@ pub struct Stores {
     pub review: Entity<review::ReviewStore>,
     pub selfbuild: Entity<selfbuild::SelfBuildStore>,
     pub sessions: Entity<sessions::SessionsStore>,
+    pub speech: Entity<crate::speech::controller::SpeechController>,
     pub skills: Entity<skills::SkillsStore>,
     pub usage: Entity<usage::UsageStore>,
     pub workflows: Entity<workflows::WorkflowsStore>,
@@ -67,6 +68,9 @@ impl Stores {
         .detach();
         let usage = cx.new(|cx| usage::UsageStore::new(sessions.clone(), cx));
         let selfbuild = cx.new(|cx| selfbuild::SelfBuildStore::new(prefs.clone(), cx));
+        let speech = cx.new(|cx| {
+            crate::speech::controller::SpeechController::new(sessions.clone(), prefs.clone(), cx)
+        });
         Self {
             git: cx.new(|_| git::GitStore::default()),
             prefs,
@@ -78,6 +82,7 @@ impl Stores {
                 store
             }),
             sessions,
+            speech,
             skills: cx.new(|_| skills::SkillsStore::default()),
             usage,
             workflows: cx.new(|_| workflows::WorkflowsStore::default()),

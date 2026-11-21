@@ -26,6 +26,33 @@ impl SessionView {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SpeechLanguage {
+    #[default]
+    App,
+    Auto,
+    English,
+    Spanish,
+}
+
+impl SpeechLanguage {
+    pub const ALL: [Self; 4] = [Self::App, Self::Auto, Self::English, Self::Spanish];
+
+    pub fn label_key(self) -> &'static str {
+        match self {
+            Self::App => "settings.speech.lang_app",
+            Self::Auto => "settings.speech.lang_auto",
+            Self::English => "settings.language.english",
+            Self::Spanish => "settings.language.spanish",
+        }
+    }
+}
+
+pub const MIN_VAD_SILENCE_MS: u32 = 300;
+pub const MAX_VAD_SILENCE_MS: u32 = 3000;
+pub const VAD_SILENCE_STEP_MS: u32 = 100;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Prefs {
@@ -55,9 +82,25 @@ pub struct Prefs {
     pub language: LanguagePref,
     /// Light or dark palette. System follows the OS appearance.
     pub theme: ThemePref,
+    pub speech_enabled: bool,
+    pub speech_language: SpeechLanguage,
+    pub mic_device: String,
+    pub vad_silence_ms: u32,
 }
 
 impl Prefs {
+    pub fn speech_language_code(&self) -> Option<&'static str> {
+        match self.speech_language {
+            SpeechLanguage::Auto => None,
+            SpeechLanguage::English => Some("en"),
+            SpeechLanguage::Spanish => Some("es"),
+            SpeechLanguage::App => Some(match self.language.resolve() {
+                crate::i18n::Lang::Es => "es",
+                crate::i18n::Lang::En => "en",
+            }),
+        }
+    }
+
     pub fn doc_prompt_for(&self, rel: &str) -> String {
         let t = self.doc_prompt.trim();
         let t = if t.is_empty() { DEFAULT_DOC_PROMPT } else { t };
@@ -97,6 +140,10 @@ impl Default for Prefs {
             last_shell: String::new(),
             language: LanguagePref::System,
             theme: ThemePref::System,
+            speech_enabled: false,
+            speech_language: SpeechLanguage::App,
+            mic_device: String::new(),
+            vad_silence_ms: 800,
         }
     }
 }
@@ -274,6 +321,9 @@ impl PrefsStore {
 impl Prefs {
     fn font_clamp(&mut self) {
         self.terminal_font_size = self.terminal_font_size.clamp(MIN_FONT, MAX_FONT);
+        self.vad_silence_ms = self
+            .vad_silence_ms
+            .clamp(MIN_VAD_SILENCE_MS, MAX_VAD_SILENCE_MS);
     }
 }
 
@@ -326,6 +376,22 @@ mod tests {
         })
         .unwrap();
         assert!(json.contains(r#""theme":"dark""#));
+    }
+
+    #[test]
+    fn speech_prefs_default_and_language_code() {
+        let p = Prefs::default();
+        assert!(!p.speech_enabled);
+        assert_eq!(p.vad_silence_ms, 800);
+        let p: Prefs =
+            serde_json::from_str(r#"{"speechLanguage":"auto","vadSilenceMs":1200}"#).unwrap();
+        assert_eq!(p.speech_language_code(), None);
+        assert_eq!(p.vad_silence_ms, 1200);
+        let p = Prefs {
+            speech_language: SpeechLanguage::Spanish,
+            ..Default::default()
+        };
+        assert_eq!(p.speech_language_code(), Some("es"));
     }
 
     #[test]

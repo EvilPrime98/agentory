@@ -1,3 +1,5 @@
+#[cfg(feature = "speech")]
+pub mod audio;
 pub mod logging;
 pub mod notify;
 pub mod pty;

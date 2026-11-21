@@ -578,7 +578,7 @@ impl Terminal {
         }
     }
 
-    fn paste(&mut self, text: &str) {
+    pub fn paste(&mut self, text: &str) {
         let bracketed = lock(&self.parser).screen().bracketed_paste();
         let text = text.replace("\r\n", "\r").replace('\n', "\r");
         if bracketed {

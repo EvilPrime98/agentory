@@ -41,6 +41,7 @@ icons! {
     Lock => "lock",
     LockOpen => "lock-open",
     History => "history",
+    Mic => "mic",
     Minus => "minus",
     Pencil => "pencil",
     Play => "play",
