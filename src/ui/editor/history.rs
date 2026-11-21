@@ -1,4 +1,3 @@
-
 use std::time::{Duration, Instant};
 
 use super::buffer::{Buffer, Edit};

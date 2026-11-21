@@ -1,4 +1,3 @@
-
 use std::ops::Range;
 
 use super::buffer::{Bias, Buffer, Edit, display_column, map_offset, normalize_edits};
@@ -12,8 +11,14 @@ pub enum Target {
         anchor: usize,
         head: usize,
     },
-    Mapped { anchor: usize, head: usize },
-    Exact { anchor: usize, head: usize },
+    Mapped {
+        anchor: usize,
+        head: usize,
+    },
+    Exact {
+        anchor: usize,
+        head: usize,
+    },
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

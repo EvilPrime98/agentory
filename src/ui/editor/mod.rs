@@ -1,4 +1,3 @@
-
 pub mod buffer;
 pub mod document;
 pub mod history;

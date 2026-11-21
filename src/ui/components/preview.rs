@@ -28,15 +28,8 @@ pub fn preview_pane(
         .border_1()
         .border_color(theme::border_subtle())
         .bg(theme::bg_app())
-        .child(
-            scroll.pinned(
-                div()
-                    .id(id)
-                    .flex()
-                    .flex_col()
-                    .p(px(16.0))
-                    .child(body),
-                window,
-            ),
-        )
+        .child(scroll.pinned(
+            div().id(id).flex().flex_col().p(px(16.0)).child(body),
+            window,
+        ))
 }
