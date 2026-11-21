@@ -89,10 +89,10 @@ pub fn dispatch(args: &mut Vec<&str>, json: bool) -> Res<String> {
                 return Err(usage("`list` takes no arguments"));
             }
             if let Some(s) = &status {
-                if !["open", "claimed", "done"].contains(&s.as_str()) {
+                if !["open", "claimed", "done", "draft"].contains(&s.as_str()) {
                     return Err(err(
                         "invalid",
-                        format!("status must be open, claimed or done, got `{s}`"),
+                        format!("status must be open, claimed, done or draft, got `{s}`"),
                     ));
                 }
             }
@@ -127,6 +127,13 @@ pub fn dispatch(args: &mut Vec<&str>, json: bool) -> Res<String> {
                 }
                 None => false,
             };
+            let draft = match rest.iter().position(|a| *a == "--draft") {
+                Some(at) => {
+                    rest.remove(at);
+                    true
+                }
+                None => false,
+            };
             reject_flags("post", &rest)?;
             let [title] = rest.as_slice() else {
                 return Err(usage("wrong number of arguments for `post`"));
@@ -134,13 +141,27 @@ pub fn dispatch(args: &mut Vec<&str>, json: bool) -> Res<String> {
             if title.trim().is_empty() {
                 return Err(err("invalid", "the task title cannot be empty".into()));
             }
-            let task =
-                tasks::post(&root, title.trim(), body.trim(), write).map_err(|f| fail(f, ""))?;
+            let task = tasks::post(&root, title.trim(), body.trim(), write, draft)
+                .map_err(|f| fail(f, ""))?;
             Ok(if json {
                 pretty(&task_json(&task))
             } else {
                 format!("posted {}", task.id)
             })
+        }
+        "headcount" => {
+            reject_flags("headcount", &rest)?;
+            let [n] = rest.as_slice() else {
+                return Err(usage("wrong number of arguments for `headcount`"));
+            };
+            let n: u32 = n.parse().ok().filter(|n| *n >= 1).ok_or_else(|| {
+                err(
+                    "invalid",
+                    "the headcount must be a number of at least 1".into(),
+                )
+            })?;
+            tasks::propose_headcount(&root, n).map_err(|f| fail(f, ""))?;
+            Ok(format!("proposed {n} workers"))
         }
         "claim" => {
             reject_flags("claim", &rest)?;
@@ -193,9 +214,10 @@ pub fn help_text() -> String {
      pass --project <path> to override. Claiming and closing are done as $AGENTORY_SESSION. The \
      running app reloads changes.\n\n\
      USAGE:\n  \
-     agentory tasks list [--status open|claimed|done]\n  \
+     agentory tasks list [--status open|claimed|done|draft]\n  \
      agentory tasks show ID\n  \
-     agentory tasks post TITLE [--body TEXT]\n  \
+     agentory tasks post TITLE [--body TEXT] [--write] [--draft]\n  \
+     agentory tasks headcount N                       propose how many workers the plan needs\n  \
      agentory tasks claim [ID]                        the oldest open task when ID is omitted\n  \
      agentory tasks close ID [--summary TEXT]         only the task's assignee can close it\n  \
      agentory tasks release ID                        put a claimed task back on the board\n\n\

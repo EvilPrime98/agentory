@@ -558,5 +558,21 @@
   "office.line.agent": "Agente",
   "office.board": "Tablero: {open} abiertas de {total}",
   "office.done": "Hechas: {count} esperando revisión",
-  "office.pr.failed": "No se pudo abrir un PR de una tarea terminada. Se conservó su rama. {error}"
+  "office.pr.failed": "No se pudo abrir un PR de una tarea terminada. Se conservó su rama. {error}",
+  "office.foreman.title": "Capataz",
+  "office.foreman.idle": "Elige un issue o un archivo markdown y el capataz planifica el trabajo como tareas en borrador.",
+  "office.foreman.drafting": "Planificando…",
+  "office.foreman.review": "{count} tareas en borrador por revisar",
+  "office.foreman.pick_issue": "Issues de GitHub",
+  "office.foreman.pick_doc": "Archivos markdown",
+  "office.foreman.no_issues": "No hay issues abiertos.",
+  "office.foreman.no_docs": "No hay archivos markdown.",
+  "office.foreman.loading": "Cargando…",
+  "office.foreman.plan": "Plan propuesto",
+  "office.foreman.workers": "Trabajadores",
+  "office.foreman.approve": "Aprobar",
+  "office.foreman.reject": "Rechazar",
+  "office.foreman.write": "escritura",
+  "office.foreman.read": "solo lectura",
+  "office.foreman.failed": "No se pudo iniciar el capataz. {error}"
 }

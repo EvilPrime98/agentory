@@ -558,5 +558,21 @@
   "office.line.agent": "Agent",
   "office.board": "Board: {open} open of {total}",
   "office.done": "Done: {count} waiting for review",
-  "office.pr.failed": "Could not open a PR for a finished task. Its branch was kept. {error}"
+  "office.pr.failed": "Could not open a PR for a finished task. Its branch was kept. {error}",
+  "office.foreman.title": "Foreman",
+  "office.foreman.idle": "Pick an issue or a markdown file and the foreman plans the work as draft tasks.",
+  "office.foreman.drafting": "Planning…",
+  "office.foreman.review": "{count} draft tasks to review",
+  "office.foreman.pick_issue": "GitHub issues",
+  "office.foreman.pick_doc": "Markdown files",
+  "office.foreman.no_issues": "No open issues.",
+  "office.foreman.no_docs": "No markdown files.",
+  "office.foreman.loading": "Loading…",
+  "office.foreman.plan": "Proposed plan",
+  "office.foreman.workers": "Workers",
+  "office.foreman.approve": "Approve",
+  "office.foreman.reject": "Reject",
+  "office.foreman.write": "write",
+  "office.foreman.read": "read-only",
+  "office.foreman.failed": "Could not start the foreman. {error}"
 }
