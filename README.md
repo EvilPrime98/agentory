@@ -8,7 +8,7 @@
 
 A native Windows desktop app that runs the real [Claude Code](https://claude.com/claude-code) TUI in
 as many parallel sessions as you need, each optionally isolated in its own git worktree, with
-per-project skill management built in.
+per-project skill, docs, git and GitHub management built in.
 
 [![CI](https://github.com/EvilPrime98/agentory/actions/workflows/ci.yml/badge.svg)](https://github.com/EvilPrime98/agentory/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/EvilPrime98/agentory)](https://github.com/EvilPrime98/agentory/releases)
@@ -30,7 +30,7 @@ one is waiting on you. Agentory puts them in one place and tells you.
   else behave exactly as in your terminal.
 - **Project sidebar with live status.** Sessions are grouped under their project, and a status dot
   shows whether each one is working, waiting for input, or done. The eye button on a project header
-  hides the page rows (Skills, Docs, Git, ...) you don't use.
+  hides the page rows (Skills, Docs, Git, GitHub, Workflows, Graphify, Office, History) you don't use.
 - **Worktree isolation.** Start a session in a fresh `git worktree` on its own branch
   (`agentory/<id>`) so parallel agents never step on each other's files.
 - **Skills, managed per project.** A built-in skills page reads `spm.json` and `.claude/skills`,
@@ -39,6 +39,11 @@ one is waiting on you. Agentory puts them in one place and tells you.
   searches the SkillsMP market (set `SKILLSMP_API_KEY` for a higher quota), installs market skills pinned to
   the commit you reviewed, updates them to the latest commit after a new review, installs into the global
   skills folder, and shows each skill's context cost, usage and overlaps.
+- **Agent office.** A pixel-art office page shows each agent session as a worker whose pose follows its
+  status. Click a worker to steer it, drag a skill onto one, or use the shared task board: a foreman
+  drafts a task plan from a GitHub issue or markdown file for one-click approval, workers claim
+  tasks, and a finished write task opens a PR into `dev`.
+- **Voice dictation.** Optional, fully local (Whisper); toggle it with `Ctrl+Alt+M`.
 - **Touches nothing of yours.** Status comes from hooks injected with
   `claude --settings <generated file>`. Your project and global Claude settings are never edited, and
   sessions started outside Agentory are unaffected.
@@ -72,9 +77,13 @@ folder or in a new worktree.
 | --- | --- |
 | `Ctrl+Alt+B` | Toggle the sidebar |
 | `Ctrl+Alt+S` | Open the skills page |
+| `Ctrl+Alt+T` | Open a terminal in the selected project |
+| `Ctrl+Alt+M` | Toggle voice dictation in the active session |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous session |
 | `F11` | Fullscreen |
-| `Ctrl+Shift+V` | Paste |
-| `Ctrl+Shift+C` | Copy the visible screen |
+| `Ctrl+Shift+V` or `Shift+Insert` | Paste |
+| `Ctrl+Shift+C` | Copy the selection |
+| `Ctrl+C` | Copy while text is selected, otherwise interrupt |
 
 Everything else goes straight to the PTY.
 
@@ -86,8 +95,10 @@ status files, worktrees).
 
 ```
 AGENTORY_SHELL=1       # PowerShell instead of claude
-AGENTORY_OPEN=settings # open a page at startup
+AGENTORY_OPEN=settings # open a page at startup (settings or sessions)
 AGENTORY_AUTOSTART=1   # start a session in the selected project
+AGENTORY_CONFIG_DIR=<dir> # use another preferences/projects folder
+AGENTORY_GRAPHIFY=<exe>   # graphify binary to run instead of the one on PATH
 ```
 
 </details>
