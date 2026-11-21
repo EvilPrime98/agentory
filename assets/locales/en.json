@@ -537,5 +537,20 @@
   "speech.speaking": "Hearing you",
   "speech.sending": "Sending…",
   "speech.transcribing": "Transcribing",
-  "speech.error": "Mic error"
+  "speech.error": "Mic error",
+  "sidebar.office": "Office",
+  "office.title": "Agent office",
+  "office.empty": "Nobody is working here. Start an agent session and it will take a desk.",
+  "office.prompt_placeholder": "Message this agent…",
+  "office.open_terminal": "Open terminal",
+  "office.interrupt": "Interrupt",
+  "office.resume": "Resume",
+  "office.needs_input_hint": "This agent is waiting for you. Type your answer below.",
+  "office.status.starting": "Starting",
+  "office.status.working": "Working",
+  "office.status.needs_input": "Needs input",
+  "office.status.idle": "Idle",
+  "office.status.exited": "Exited",
+  "office.line.you": "You",
+  "office.line.agent": "Agent"
 }

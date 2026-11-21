@@ -19,6 +19,8 @@ pub enum Route {
     DocPreview(String, String),
     Workflows(String),
     Graphify(String),
+    /// The agent office of this project id.
+    Office(String),
     /// Review and apply the change of the Modify session with this id.
     Review(String),
 }
@@ -42,6 +44,7 @@ impl Route {
             Self::DocPreview(..) => "doc_preview.title",
             Self::Workflows(_) => "workflows.title",
             Self::Graphify(_) => "graphify.title",
+            Self::Office(_) => "office.title",
             Self::Review(_) => "review.title",
         })
     }

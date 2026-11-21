@@ -22,6 +22,7 @@ use crate::ui::pages::docs::DocsPage;
 use crate::ui::pages::git::GitPage;
 use crate::ui::pages::github::GithubPage;
 use crate::ui::pages::graphify::GraphifyPage;
+use crate::ui::pages::office::OfficePage;
 use crate::ui::pages::review::ReviewPage;
 use crate::ui::pages::session_history::SessionHistoryPage;
 use crate::ui::pages::sessions::SessionsPage;
@@ -78,6 +79,7 @@ enum Page {
     Review(Entity<ReviewPage>),
     Workflows(Entity<WorkflowsPage>),
     Graphify(Entity<GraphifyPage>),
+    Office(Entity<OfficePage>),
 }
 
 const PANEL_OPEN: Duration = Duration::from_millis(220);
@@ -216,6 +218,7 @@ impl AppRoot {
                 | Route::Github(id)
                 | Route::Workflows(id)
                 | Route::Graphify(id)
+                | Route::Office(id)
                 | Route::SessionHistory(id) = this.history.current()
                 {
                     if this.stores.projects.read(cx).get(id).is_none() {
@@ -561,6 +564,16 @@ impl AppRoot {
                 ));
                 Page::Graphify(page)
             }
+            Route::Office(id) => {
+                self.stores.projects.update(cx, |p, cx| p.select(&id, cx));
+                let page = cx.new(|cx| OfficePage::new(self.stores.clone(), id, cx));
+                self._page_subs.push(cx.subscribe_in(
+                    &page,
+                    window,
+                    |this, _, ev: &Navigate, window, cx| this.navigate(ev.0.clone(), window, cx),
+                ));
+                Page::Office(page)
+            }
             Route::Review(id) => {
                 let page = cx.new(|cx| ReviewPage::new(self.stores.clone(), id, cx));
                 self._page_subs.push(cx.subscribe_in(
@@ -660,6 +673,7 @@ impl Render for AppRoot {
             Page::Review(page) => AnyView::from(page.clone()).into_any_element(),
             Page::Workflows(page) => AnyView::from(page.clone()).into_any_element(),
             Page::Graphify(page) => AnyView::from(page.clone()).into_any_element(),
+            Page::Office(page) => AnyView::from(page.clone()).into_any_element(),
         };
 
         div()
