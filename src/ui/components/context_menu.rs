@@ -3,7 +3,7 @@ use std::rc::Rc;
 use gpui::{
     Anchor, AnyElement, App, ElementId, FocusHandle, InteractiveElement, IntoElement,
     ParentElement, Pixels, Point, SharedString, StatefulInteractiveElement, Styled, Window,
-    anchored, deferred, div, px,
+    anchored, deferred, div, prelude::FluentBuilder, px,
 };
 
 use crate::ui::icons::{Icon, icon};
@@ -13,6 +13,7 @@ pub struct MenuItem {
     pub id: ElementId,
     pub icon: Icon,
     pub label: SharedString,
+    pub disabled: bool,
     pub on_click: Rc<dyn Fn(&mut Window, &mut App)>,
 }
 
@@ -71,11 +72,14 @@ pub fn context_menu(
                 .px(px(8.0))
                 .rounded(px(6.0))
                 .text_size(px(13.0))
-                .cursor_pointer()
-                .hover(|s| s.bg(theme::accent_soft()))
-                .on_click(move |_, window, cx| {
-                    on_click(window, cx);
-                    close(window, cx);
+                .when(item.disabled, |s| s.opacity(0.4))
+                .when(!item.disabled, |s| {
+                    s.cursor_pointer()
+                        .hover(|s| s.bg(theme::accent_soft()))
+                        .on_click(move |_, window, cx| {
+                            on_click(window, cx);
+                            close(window, cx);
+                        })
                 })
                 .child(icon(item.icon, px(14.0)).text_color(theme::text_muted()))
                 .child(div().flex_1().child(item.label))
