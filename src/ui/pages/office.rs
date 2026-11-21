@@ -94,6 +94,7 @@ impl Feed {
 }
 
 struct Worker {
+    claude_id: String,
     tail: Arc<Mutex<Tail>>,
     feed: Feed,
 }
@@ -179,7 +180,15 @@ impl OfficePage {
         if self.frame % POLL_EVERY == 0 {
             self.poll(cx);
         }
-        cx.notify();
+        let animating = self
+            .stores
+            .sessions
+            .read(cx)
+            .agents(&self.project_id)
+            .any(|s| s.status != SessionStatus::Exited);
+        if animating {
+            cx.notify();
+        }
     }
 
     /// Tails the transcripts of the project's agents on the background runtime.
@@ -206,9 +215,17 @@ impl OfficePage {
                 .workers
                 .entry(seat.id.clone())
                 .or_insert_with(|| Worker {
+                    claude_id: claude_id.clone(),
                     tail: Arc::new(Mutex::new(Tail::new(claude_id.clone()))),
                     feed: Feed::default(),
                 });
+            if worker.claude_id != *claude_id {
+                *worker = Worker {
+                    claude_id: claude_id.clone(),
+                    tail: Arc::new(Mutex::new(Tail::new(claude_id.clone()))),
+                    feed: Feed::default(),
+                };
+            }
             jobs.push((seat.id.clone(), worker.tail.clone()));
         }
         if jobs.is_empty() {
@@ -286,7 +303,9 @@ impl OfficePage {
         let Some(claude_id) = &seat.claude_id else {
             return;
         };
-        sessions::resume(claude_id, seat.cwd.clone(), &self.project_id, cx);
+        if sessions::resume(claude_id, seat.cwd.clone(), &self.project_id, cx) {
+            cx.emit(Navigate(Route::Sessions));
+        }
     }
 
     fn close(&mut self, id: &str, cx: &mut Context<Self>) {
