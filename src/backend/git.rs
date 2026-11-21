@@ -214,6 +214,18 @@ pub async fn add_worktree_from(
     Ok(Worktree { path, branch })
 }
 
+/// Delete the worktree folder but keep its branch, so the work done in it survives.
+pub async fn remove_worktree_keep_branch(repo: &Path, wt: &Worktree) -> Result<(), String> {
+    let path = wt.path.to_string_lossy().into_owned();
+    let removed = git(repo, &["worktree", "remove", "--force", &path]).await;
+    if wt.path.exists() {
+        std::fs::remove_dir_all(&wt.path)
+            .map_err(|e| removed.err().unwrap_or_else(|| e.to_string()))?;
+    }
+    let _ = git(repo, &["worktree", "prune"]).await;
+    Ok(())
+}
+
 /// Delete the worktree folder and its branch. Missing pieces are fine, so a half-removed
 /// worktree can be cleaned up again.
 pub async fn remove_worktree(repo: &Path, wt: &Worktree) -> Result<(), String> {

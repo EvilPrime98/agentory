@@ -35,6 +35,9 @@ pub struct Task {
     pub assignee: Option<String>,
     #[serde(default)]
     pub summary: String,
+    /// The task changes files, so its worker gets a worktree. Read-only tasks run in the project.
+    #[serde(default)]
+    pub write: bool,
     #[serde(default)]
     pub created_ms: u64,
 }
@@ -138,7 +141,7 @@ fn now_ms() -> u64 {
         .map_or(0, |d| d.as_millis() as u64)
 }
 
-pub fn post(project: &Path, title: &str, body: &str) -> Result<Task, Failure> {
+pub fn post(project: &Path, title: &str, body: &str, write: bool) -> Result<Task, Failure> {
     edit(project, |tasks| {
         let mut n = tasks.len() + 1;
         while tasks.iter().any(|t| t.id == format!("t{n}")) {
@@ -148,6 +151,7 @@ pub fn post(project: &Path, title: &str, body: &str) -> Result<Task, Failure> {
             id: format!("t{n}"),
             title: title.to_string(),
             body: body.to_string(),
+            write,
             created_ms: now_ms(),
             ..Task::default()
         };
@@ -234,8 +238,8 @@ mod tests {
     #[test]
     fn claim_takes_the_oldest_open_task_once() {
         let d = dir("claim");
-        post(&d, "a", "").unwrap();
-        post(&d, "b", "").unwrap();
+        post(&d, "a", "", false).unwrap();
+        post(&d, "b", "", false).unwrap();
         let first = claim(&d, None, "s1").unwrap().unwrap();
         assert_eq!(first.title, "a");
         let second = claim(&d, None, "s2").unwrap().unwrap();
@@ -250,7 +254,7 @@ mod tests {
     #[test]
     fn only_the_assignee_closes_a_task() {
         let d = dir("close");
-        post(&d, "a", "").unwrap();
+        post(&d, "a", "", false).unwrap();
         claim(&d, Some("t1"), "s1").unwrap();
         assert_eq!(close(&d, "t1", "s2", "x"), Err(Failure::NotOwner));
         let done = close(&d, "t1", "s1", "shipped").unwrap();
@@ -261,7 +265,7 @@ mod tests {
     #[test]
     fn release_reopens_a_claimed_task() {
         let d = dir("release");
-        post(&d, "a", "").unwrap();
+        post(&d, "a", "", false).unwrap();
         claim(&d, None, "s1").unwrap();
         release(&d, "t1", "s1").unwrap();
         assert_eq!(load(&d)[0].status, TaskStatus::Open);

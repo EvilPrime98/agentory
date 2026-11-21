@@ -1,5 +1,6 @@
 //! App state: one entity per data domain, reachable everywhere through the [`Stores`] global.
 
+pub mod dispatch;
 pub mod git;
 pub mod prefs;
 pub mod projects;

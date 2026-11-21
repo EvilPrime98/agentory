@@ -192,7 +192,7 @@ The shared task board of a project, stored in `.agentory/tasks.json` and shown i
 | --- | --- |
 | `agentory tasks list [--status open\|claimed\|done]` | List tasks. |
 | `agentory tasks show ID` | Print one task with its body and result. |
-| `agentory tasks post TITLE [--body TEXT]` | Add an open task. |
+| `agentory tasks post TITLE [--body TEXT] [--write]` | Add an open task. `--write` marks a task that changes files: the app gives its worker a worktree. |
 | `agentory tasks claim [ID]` | Claim a task, or the oldest open one when `ID` is omitted. Prints `no open tasks` (`null` in JSON) when none is left. |
 | `agentory tasks close ID [--summary TEXT]` | Mark a task done. Only its assignee can. |
 | `agentory tasks release ID` | Put a claimed task back on the board. Only its assignee can. |

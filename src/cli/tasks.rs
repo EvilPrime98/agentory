@@ -48,7 +48,7 @@ fn reject_flags(cmd: &str, args: &[&str]) -> Res<()> {
 fn task_json(t: &Task) -> Value {
     json!({
         "id": t.id, "title": t.title, "body": t.body, "status": t.status.name(),
-        "assignee": t.assignee, "summary": t.summary,
+        "assignee": t.assignee, "summary": t.summary, "write": t.write,
     })
 }
 
@@ -120,6 +120,13 @@ pub fn dispatch(args: &mut Vec<&str>, json: bool) -> Res<String> {
         }
         "post" => {
             let body = take_value(&mut rest, "--body")?.unwrap_or_default();
+            let write = match rest.iter().position(|a| *a == "--write") {
+                Some(at) => {
+                    rest.remove(at);
+                    true
+                }
+                None => false,
+            };
             reject_flags("post", &rest)?;
             let [title] = rest.as_slice() else {
                 return Err(usage("wrong number of arguments for `post`"));
@@ -127,7 +134,8 @@ pub fn dispatch(args: &mut Vec<&str>, json: bool) -> Res<String> {
             if title.trim().is_empty() {
                 return Err(err("invalid", "the task title cannot be empty".into()));
             }
-            let task = tasks::post(&root, title.trim(), body.trim()).map_err(|f| fail(f, ""))?;
+            let task =
+                tasks::post(&root, title.trim(), body.trim(), write).map_err(|f| fail(f, ""))?;
             Ok(if json {
                 pretty(&task_json(&task))
             } else {
