@@ -7,6 +7,7 @@ agentory settings <command>
 agentory workflow <command>
 agentory graphify <command>
 agentory commands <command>
+agentory tasks <command>
 ```
 
 Any other invocation of `agentory` launches the desktop app.
@@ -182,3 +183,18 @@ agentory commands set dev-server --clear-shell
 agentory commands shell git-bash
 agentory commands rm dev-server --yes
 ```
+
+## `agentory tasks`
+
+The shared task board of a project, stored in `.agentory/tasks.json` and shown in the agent office. Agents use it like an issue tracker: claim a task, do the work, close it. The project is `$AGENTORY_PROJECT` (set in Agentory sessions), else the nearest directory with `.agentory`; `--project PATH` overrides. Claiming and closing are done as `$AGENTORY_SESSION` (as `user` outside a session).
+
+| Command | Description |
+| --- | --- |
+| `agentory tasks list [--status open\|claimed\|done]` | List tasks. |
+| `agentory tasks show ID` | Print one task with its body and result. |
+| `agentory tasks post TITLE [--body TEXT]` | Add an open task. |
+| `agentory tasks claim [ID]` | Claim a task, or the oldest open one when `ID` is omitted. Prints `no open tasks` (`null` in JSON) when none is left. |
+| `agentory tasks close ID [--summary TEXT]` | Mark a task done. Only its assignee can. |
+| `agentory tasks release ID` | Put a claimed task back on the board. Only its assignee can. |
+
+Error codes: `not_found`, `taken`, `not_owner`, `closed`, `invalid`, `usage`, `io`. The board file is locked while it is rewritten, so concurrent claims never give one task to two agents.

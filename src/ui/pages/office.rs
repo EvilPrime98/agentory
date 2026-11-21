@@ -15,6 +15,7 @@ use gpui::{
 
 use super::office_art::{self, Action, CELL_H, CELL_W, LABEL_Y, WorkerView};
 use crate::backend::spm::store::parse_skill;
+use crate::backend::tasks::{self, Task, TaskStatus};
 use crate::backend::transcripts::{ChatItem, Tail};
 use crate::i18n::t;
 use crate::model::SessionStatus;
@@ -35,6 +36,7 @@ const COLS: usize = 3;
 const RECENT_KEPT: usize = 40;
 const RECENT_SHOWN: usize = 14;
 const PANEL_W: f32 = 340.0;
+const BOARD_SHOWN: usize = 6;
 
 /// A skill chip being dragged from the tray onto a worker.
 #[derive(Clone)]
@@ -158,6 +160,7 @@ pub struct OfficePage {
     selected: Option<String>,
     input: Entity<TextInput>,
     polling: bool,
+    tasks: Vec<Task>,
     _subs: Vec<Subscription>,
 }
 
@@ -194,9 +197,11 @@ impl OfficePage {
             selected: None,
             input,
             polling: false,
+            tasks: Vec::new(),
             _subs: subs,
         };
         this.poll(cx);
+        this.load_tasks(cx);
         this
     }
 
@@ -219,6 +224,7 @@ impl OfficePage {
         self.frame += 1;
         if self.frame % POLL_EVERY == 0 {
             self.poll(cx);
+            self.load_tasks(cx);
         }
         let animating = self
             .stores
@@ -372,6 +378,82 @@ impl OfficePage {
         self.stores
             .sessions
             .update(cx, |s, cx| s.submit(seat_id, &text, cx));
+    }
+
+    /// Reads the project's task board on the background runtime.
+    fn load_tasks(&mut self, cx: &mut Context<Self>) {
+        let Some(root) = self.stores.projects.read(cx).path_of(&self.project_id) else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let loaded = runtime::run(async move { tasks::load(&root) }).await;
+            this.update(cx, |this, cx| {
+                if this.tasks != loaded {
+                    this.tasks = loaded;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn board(&self, seats: &[Seat]) -> gpui::AnyElement {
+        let open = self
+            .tasks
+            .iter()
+            .filter(|t| t.status == TaskStatus::Open)
+            .count();
+        let rows = self.tasks.iter().rev().take(BOARD_SHOWN).map(|task| {
+            let (mark, color) = match task.status {
+                TaskStatus::Open => ("○", theme::text_muted()),
+                TaskStatus::Claimed => ("●", theme::text()),
+                TaskStatus::Done => ("✓", theme::text_faint()),
+            };
+            let who = task.assignee.as_deref().map(|a| {
+                seats
+                    .iter()
+                    .find(|s| s.id == a)
+                    .map_or_else(|| a.to_string(), |s| s.name.clone())
+            });
+            div()
+                .flex()
+                .gap(px(8.0))
+                .text_size(px(12.0))
+                .text_color(color)
+                .child(mark)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .child(task.title.clone()),
+                )
+                .children(who.map(|w| div().text_color(theme::text_faint()).child(w)))
+        });
+        div()
+            .flex_none()
+            .flex()
+            .flex_col()
+            .gap(px(4.0))
+            .px(px(24.0))
+            .py(px(10.0))
+            .border_t_1()
+            .border_color(theme::border_subtle())
+            .child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(theme::text_faint())
+                    .child(crate::i18n::t_args(
+                        "office.board",
+                        &[
+                            ("open", &open.to_string()),
+                            ("total", &self.tasks.len().to_string()),
+                        ],
+                    )),
+            )
+            .children(rows)
+            .into_any_element()
     }
 
     fn skill_tray(&self, cx: &Context<Self>) -> gpui::AnyElement {
@@ -738,6 +820,7 @@ impl Render for OfficePage {
                     .min_w_0()
                     .min_h_0()
                     .child(body)
+                    .when(!self.tasks.is_empty(), |d| d.child(self.board(&seats)))
                     .when(!seats.is_empty(), |d| d.child(self.skill_tray(cx))),
             )
             .children(panel)
