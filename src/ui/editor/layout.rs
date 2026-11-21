@@ -1,4 +1,3 @@
-
 use std::ops::Range;
 
 use gpui::{Font, Hsla, Pixels, SharedString, TextRun, Window, WrappedLine, px};

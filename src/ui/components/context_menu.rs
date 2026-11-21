@@ -1,9 +1,9 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, Anchor, App, ElementId, FocusHandle, InteractiveElement, IntoElement, ParentElement,
-    Pixels, Point, SharedString, StatefulInteractiveElement, Styled, Window, anchored, deferred,
-    div, px,
+    Anchor, AnyElement, App, ElementId, FocusHandle, InteractiveElement, IntoElement,
+    ParentElement, Pixels, Point, SharedString, StatefulInteractiveElement, Styled, Window,
+    anchored, deferred, div, px,
 };
 
 use crate::ui::icons::{Icon, icon};

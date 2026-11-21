@@ -357,9 +357,7 @@ impl Sidebar {
             .isolated
             .borrow_mut()
             .entry(project.id.clone())
-            .or_insert_with(|| {
-                store::read_isolation(&settings_file(&project.path), &project.path)
-            })
+            .or_insert_with(|| store::read_isolation(&settings_file(&project.path), &project.path))
     }
 
     fn close_project_menu(&mut self, cx: &mut Context<Self>) {
@@ -387,7 +385,9 @@ impl Sidebar {
         };
         match result {
             Ok(()) => {
-                self.isolated.borrow_mut().insert(project_id.to_string(), on);
+                self.isolated
+                    .borrow_mut()
+                    .insert(project_id.to_string(), on);
                 cx.notify();
             }
             Err(e) => eprintln!("isolate: {e}"),
@@ -412,7 +412,11 @@ impl Sidebar {
             &self.menu_focus,
             vec![MenuItem {
                 id: "project-menu-isolate".into(),
-                icon: if menu.isolated { Icon::LockOpen } else { Icon::Lock },
+                icon: if menu.isolated {
+                    Icon::LockOpen
+                } else {
+                    Icon::Lock
+                },
                 label: t(if menu.isolated {
                     "sidebar.unisolate"
                 } else {
