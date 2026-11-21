@@ -125,6 +125,16 @@ fn sprite(
     }
 }
 
+fn wx_chair() -> f32 {
+    20.0
+}
+
+fn tint_rgba(c: u32, a: f32) -> Rgba {
+    let mut r = rgb(c);
+    r.alpha = a;
+    r
+}
+
 fn grayed(c: u32) -> u32 {
     let l = ((c >> 16 & 0xff) + (c >> 8 & 0xff) + (c & 0xff)) / 3;
     (l << 16) | (l << 8) | l
@@ -149,6 +159,23 @@ pub fn paint_scene(
         rows as f32 * CELL_H,
         theme::bg_terminal(),
     );
+    // Faint floor tiles so the room reads as a floor, not a flat panel.
+    for r in 0..rows * 4 {
+        for c in 0..cols * 4 {
+            if (r + c) % 2 == 0 {
+                let (tw, th) = (CELL_W / 4.0, CELL_H / 4.0);
+                rect(
+                    window,
+                    o,
+                    c as f32 * tw,
+                    r as f32 * th,
+                    tw,
+                    th,
+                    tint_rgba(0xffffff, 0.02),
+                );
+            }
+        }
+    }
     for (i, w) in workers.iter().enumerate() {
         let cell = point(
             o.x + px((i % cols) as f32 * CELL_W),
@@ -162,7 +189,37 @@ fn paint_desk(window: &mut Window, o: Point<Pixels>, slot: usize, w: &WorkerView
     let gone = w.action == Action::Gone;
     let tint = |c: u32| rgb(if gone { grayed(c) } else { c });
 
-    rect(window, o, 8.0, 8.0, CELL_W - 16.0, 112.0, theme::bg_panel());
+    // Booth: border, back wall, and a rug under the desk.
+    rect(
+        window,
+        o,
+        8.0,
+        8.0,
+        CELL_W - 16.0,
+        112.0,
+        theme::border_subtle(),
+    );
+    rect(window, o, 9.0, 9.0, CELL_W - 18.0, 110.0, theme::bg_panel());
+    rect(
+        window,
+        o,
+        9.0,
+        9.0,
+        CELL_W - 18.0,
+        4.0,
+        theme::border_subtle(),
+    );
+    rect(
+        window,
+        o,
+        20.0,
+        108.0,
+        CELL_W - 40.0,
+        8.0,
+        tint_rgba(0x000000, 0.18),
+    );
+    // Chair back behind the worker.
+    rect(window, o, wx_chair(), 58.0, 48.0, 30.0, tint(0x3a3a46));
 
     let shirt = SHIRTS[slot % SHIRTS.len()];
     let hair = HAIRS[slot % HAIRS.len()];
@@ -187,6 +244,12 @@ fn paint_desk(window: &mut Window, o: Point<Pixels>, slot: usize, w: &WorkerView
     // Desk top and front edge, over the torso's lower end.
     rect(window, o, 16.0, 84.0, 128.0, 20.0, tint(0x9a6f45));
     rect(window, o, 16.0, 104.0, 128.0, 8.0, tint(0x6e4c2e));
+    rect(window, o, 16.0, 84.0, 128.0, 2.0, tint(0xb88a5a));
+    // Keyboard and mug.
+    rect(window, o, 36.0, 92.0, 36.0, 6.0, tint(0x3a3a46));
+    rect(window, o, 38.0, 93.0, 32.0, 2.0, tint(0x5a5a68));
+    rect(window, o, 124.0, 72.0, 10.0, 12.0, tint(0xe8e4dc));
+    rect(window, o, 134.0, 75.0, 3.0, 6.0, tint(0xe8e4dc));
 
     // Hands on the desk: they alternate while typing, and one is raised while waiting.
     let hand = tint(0xe8b98f);

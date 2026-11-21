@@ -235,9 +235,12 @@ pub async fn push_branch(repo: &Path, branch: &str) -> Result<(), String> {
 
 /// Whether `origin` has a branch called `name`.
 pub async fn remote_has_branch(repo: &Path, name: &str) -> bool {
-    git(repo, &["ls-remote", "--exit-code", "--heads", "origin", name])
-        .await
-        .is_ok()
+    git(
+        repo,
+        &["ls-remote", "--exit-code", "--heads", "origin", name],
+    )
+    .await
+    .is_ok()
 }
 
 /// Deletes a local branch once its work lives somewhere else (a pushed PR).
