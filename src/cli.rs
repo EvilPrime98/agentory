@@ -10,9 +10,10 @@ const EXIT_USAGE: i32 = 2;
 
 mod commands;
 mod graphify;
+mod tasks;
 mod workflow;
 
-pub const AGENT_PROMPT: &str = "The Agentory app settings can be read and changed with the agentory settings CLI: agentory settings list, get KEY, set KEY VALUE, reset KEY. Run agentory settings --help for the keys and allowed values. Changes apply live in the running app. Project workflows (multi-step prompt pipelines) are managed with the agentory workflow CLI from inside the project: agentory workflow list, show ID, create NAME --prompt TEXT, apply ID|- --file PATH (or JSON on stdin), step add|set|rm|move, rename ID NAME, delete ID. Run agentory workflow --help for details. The running app reloads workflow changes automatically. The project knowledge graph is managed with agentory graphify status and agentory graphify update (run agentory graphify --help for details). The project's custom commands and default shell are managed with the agentory commands CLI from inside a registered project: agentory commands list, add NAME --command CMD [--shell S], set ID [--name] [--command] [--shell] [--clear-shell], rm ID --yes, shell [NAME|--clear] (run agentory commands --help for details). Changes apply live in the running app.";
+pub const AGENT_PROMPT: &str = "The Agentory app settings can be read and changed with the agentory settings CLI: agentory settings list, get KEY, set KEY VALUE, reset KEY. Run agentory settings --help for the keys and allowed values. Changes apply live in the running app. Project workflows (multi-step prompt pipelines) are managed with the agentory workflow CLI from inside the project: agentory workflow list, show ID, create NAME --prompt TEXT, apply ID|- --file PATH (or JSON on stdin), step add|set|rm|move, rename ID NAME, delete ID. Run agentory workflow --help for details. The running app reloads workflow changes automatically. The project knowledge graph is managed with agentory graphify status and agentory graphify update (run agentory graphify --help for details). The project's custom commands and default shell are managed with the agentory commands CLI from inside a registered project: agentory commands list, add NAME --command CMD [--shell S], set ID [--name] [--command] [--shell] [--clear-shell], rm ID --yes, shell [NAME|--clear] (run agentory commands --help for details). Changes apply live in the running app. The project task board is shared by every agent in the project: run agentory tasks claim to take the oldest open task (or claim ID), do the work, then agentory tasks close ID --summary TEXT. Use agentory tasks post TITLE --body TEXT [--write] to add a task (--write when it changes files), list to see the board, release ID to give a task back. When your task is closed and agentory tasks claim reports no open tasks, you are finished (run agentory tasks --help for details).";
 
 pub fn shim_dir() -> Option<std::path::PathBuf> {
     let exe = std::env::current_exe().ok()?;
@@ -38,7 +39,10 @@ pub fn shim_dir() -> Option<std::path::PathBuf> {
 
 pub fn run(args: &[String]) -> Option<i32> {
     let area = args.first().map(String::as_str)?;
-    if !matches!(area, "settings" | "workflow" | "graphify" | "commands") {
+    if !matches!(
+        area,
+        "settings" | "workflow" | "graphify" | "commands" | "tasks"
+    ) {
         return None;
     }
     attach_console();
@@ -53,6 +57,7 @@ pub fn run(args: &[String]) -> Option<i32> {
                 "workflow" => workflow::help_text(),
                 "graphify" => graphify::help_text(),
                 "commands" => commands::help_text(),
+                "tasks" => tasks::help_text(),
                 _ => help_text(),
             }
         );
@@ -62,6 +67,7 @@ pub fn run(args: &[String]) -> Option<i32> {
         "workflow" => workflow::dispatch(&mut rest, json),
         "graphify" => graphify::dispatch(&mut rest, json),
         "commands" => commands::dispatch(&mut rest, json),
+        "tasks" => tasks::dispatch(&mut rest, json),
         _ => dispatch(&rest, json),
     };
     Some(match result {

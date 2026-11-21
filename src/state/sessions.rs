@@ -23,6 +23,8 @@ use crate::ui::confirm::{self, ConfirmOptions};
 use crate::ui::terminal::{Terminal, TerminalExited, TerminalTitle};
 use crate::ui::toast;
 
+pub const PROJECT_ENV: &str = "AGENTORY_PROJECT";
+
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const MAX_TITLE_CHARS: usize = 40;
 const PREFILL_DELAY: Duration = Duration::from_millis(2500);
@@ -302,7 +304,13 @@ impl SessionsStore {
             (program.to_string_lossy().into_owned(), args)
         };
         let (rows, cols) = (30, 100);
-        let mut env = vec![("AGENTORY_SESSION".into(), id.clone())];
+        let mut env = vec![
+            ("AGENTORY_SESSION".into(), id.clone()),
+            (
+                PROJECT_ENV.into(),
+                project.path.to_string_lossy().into_owned(),
+            ),
+        ];
         if let Some(path) = path_with_shim_dir() {
             env.push(("PATH".into(), path));
         }

@@ -7,6 +7,7 @@ pub mod git;
 pub mod graphify;
 pub mod scripts;
 pub mod spm;
+pub mod tasks;
 pub mod transcripts;
 pub mod workflow;
 

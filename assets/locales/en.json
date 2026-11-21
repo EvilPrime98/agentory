@@ -50,6 +50,8 @@
   "settings.sessions.title": "Sessions",
   "settings.sessions.worktree": "Offer an isolated git worktree for new sessions in git projects",
   "settings.sessions.notify": "Notify when a session needs input or finishes",
+  "settings.sessions.max_workers": "Maximum workers",
+  "settings.sessions.max_workers_hint": "Task-board workers running at once. More open tasks wait on the board.",
   "settings.sessions.fullscreen": "Pin the prompt to the bottom (Claude Code fullscreen mode, applies to new sessions)",
   "settings.sessions.send_doc": "Send automatically",
   "settings.projects.title": "Projects",
@@ -553,5 +555,8 @@
   "office.status.exited": "Exited",
   "office.line.you": "You",
   "office.skills_hint": "Drag a skill onto a worker. The worker judges whether it fits before running it.",
-  "office.line.agent": "Agent"
+  "office.line.agent": "Agent",
+  "office.board": "Board: {open} open of {total}",
+  "office.done": "Done: {count} waiting for review",
+  "office.pr.failed": "Could not open a PR for a finished task. Its branch was kept. {error}"
 }

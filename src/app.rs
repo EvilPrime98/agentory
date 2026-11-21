@@ -188,6 +188,7 @@ impl AppRoot {
         let confirm = confirm::init(cx);
         let command_editor = command_editor::init(cx);
         cx.set_global(stores.clone());
+        crate::state::dispatch::watch(stores.clone(), cx);
 
         let sidebar = cx.new(|cx| Sidebar::new(stores.clone(), cx));
         let usage_pill = cx.new(|cx| UsagePill::new(stores.clone(), cx));

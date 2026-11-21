@@ -52,6 +52,9 @@ impl SpeechLanguage {
 pub const MIN_VAD_SILENCE_MS: u32 = 300;
 pub const MAX_VAD_SILENCE_MS: u32 = 3000;
 pub const VAD_SILENCE_STEP_MS: u32 = 100;
+pub const MIN_WORKERS: u32 = 1;
+pub const MAX_WORKERS: u32 = 16;
+pub const DEFAULT_WORKERS: u32 = 4;
 pub const MIN_AUTO_ENTER_MS: u32 = 300;
 pub const MAX_AUTO_ENTER_MS: u32 = 5000;
 pub const AUTO_ENTER_STEP_MS: u32 = 100;
@@ -91,6 +94,8 @@ pub struct Prefs {
     pub vad_silence_ms: u32,
     pub speech_auto_enter: bool,
     pub speech_auto_enter_ms: u32,
+    /// Most task-board workers running at once; further open tasks wait on the board.
+    pub max_workers: u32,
 }
 
 impl Prefs {
@@ -151,6 +156,7 @@ impl Default for Prefs {
             vad_silence_ms: 800,
             speech_auto_enter: false,
             speech_auto_enter_ms: 1000,
+            max_workers: DEFAULT_WORKERS,
         }
     }
 }
@@ -334,6 +340,7 @@ impl Prefs {
         self.speech_auto_enter_ms = self
             .speech_auto_enter_ms
             .clamp(MIN_AUTO_ENTER_MS, MAX_AUTO_ENTER_MS);
+        self.max_workers = self.max_workers.clamp(MIN_WORKERS, MAX_WORKERS);
     }
 }
 

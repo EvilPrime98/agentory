@@ -12,8 +12,8 @@ use crate::route::{GoBack, Navigate};
 use crate::state::Stores;
 use crate::state::prefs::{
     AUTO_ENTER_STEP_MS, DEFAULT_DOC_PROMPT, DEFAULT_ISSUE_PROMPT, DEFAULT_WORKFLOW_TOOLS,
-    MAX_AUTO_ENTER_MS, MAX_FONT, MAX_VAD_SILENCE_MS, MIN_AUTO_ENTER_MS, MIN_FONT,
-    MIN_VAD_SILENCE_MS, SpeechLanguage, VAD_SILENCE_STEP_MS,
+    MAX_AUTO_ENTER_MS, MAX_FONT, MAX_VAD_SILENCE_MS, MAX_WORKERS, MIN_AUTO_ENTER_MS, MIN_FONT,
+    MIN_VAD_SILENCE_MS, MIN_WORKERS, SpeechLanguage, VAD_SILENCE_STEP_MS,
 };
 use crate::state::prefs::{Prefs, SessionView};
 use crate::ui::components::button::{ButtonVariant, button, small_button};
@@ -134,6 +134,7 @@ fn ms_stepper(
     (min, max, step): (u32, u32, u32),
     stores: &Stores,
     field: fn(&mut Prefs) -> &mut u32,
+    unit: &'static str,
 ) -> Div {
     let (down, up) = (stores.clone(), stores.clone());
     div()
@@ -158,7 +159,7 @@ fn ms_stepper(
                 .flex()
                 .justify_center()
                 .text_size(px(13.0))
-                .child(format!("{ms} ms")),
+                .child(format!("{ms}{unit}")),
         )
         .child(small_button(format!("{id}-up"), "+", move |_, _, cx| {
             up.prefs.update(cx, |p, cx| {
@@ -461,6 +462,18 @@ impl SettingsPage {
                 set(|p, v| p.notifications = v),
             )
             .into_any_element(),
+            setting_row(
+                t("settings.sessions.max_workers"),
+                Some(t("settings.sessions.max_workers_hint").into()),
+                ms_stepper(
+                    "workers",
+                    prefs.max_workers,
+                    (MIN_WORKERS, MAX_WORKERS, 1),
+                    &self.stores,
+                    |p| &mut p.max_workers,
+                    "",
+                ),
+            ),
             checkbox(
                 "pref-fullscreen",
                 t("settings.sessions.fullscreen"),
@@ -743,6 +756,7 @@ impl SettingsPage {
                     (MIN_VAD_SILENCE_MS, MAX_VAD_SILENCE_MS, VAD_SILENCE_STEP_MS),
                     &self.stores,
                     |p| &mut p.vad_silence_ms,
+                    " ms",
                 ),
             ),
             checkbox(
@@ -767,6 +781,7 @@ impl SettingsPage {
                     (MIN_AUTO_ENTER_MS, MAX_AUTO_ENTER_MS, AUTO_ENTER_STEP_MS),
                     &self.stores,
                     |p| &mut p.speech_auto_enter_ms,
+                    " ms",
                 ),
             ));
         }

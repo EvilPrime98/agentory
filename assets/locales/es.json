@@ -50,6 +50,8 @@
   "settings.sessions.title": "Sesiones",
   "settings.sessions.worktree": "Ofrecer un worktree de git aislado para las sesiones nuevas en proyectos git",
   "settings.sessions.notify": "Avisar cuando una sesión necesite entrada o termine",
+  "settings.sessions.max_workers": "Máximo de trabajadores",
+  "settings.sessions.max_workers_hint": "Trabajadores del tablero activos a la vez. Las demás tareas esperan en el tablero.",
   "settings.sessions.fullscreen": "Fijar el prompt abajo (modo pantalla completa de Claude Code, se aplica a las sesiones nuevas)",
   "settings.sessions.send_doc": "Enviar automáticamente",
   "settings.projects.title": "Proyectos",
@@ -553,5 +555,8 @@
   "office.status.exited": "Terminado",
   "office.line.you": "Tú",
   "office.skills_hint": "Arrastra una skill a un trabajador. El trabajador juzga si encaja antes de ejecutarla.",
-  "office.line.agent": "Agente"
+  "office.line.agent": "Agente",
+  "office.board": "Tablero: {open} abiertas de {total}",
+  "office.done": "Hechas: {count} esperando revisión",
+  "office.pr.failed": "No se pudo abrir un PR de una tarea terminada. Se conservó su rama. {error}"
 }
