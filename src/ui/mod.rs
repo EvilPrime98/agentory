@@ -3,6 +3,7 @@ pub mod chat;
 pub mod command_editor;
 pub mod components;
 pub mod confirm;
+pub mod editor;
 pub mod icons;
 pub mod pages;
 pub mod selection;

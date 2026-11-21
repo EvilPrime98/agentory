@@ -1,28 +1,30 @@
-//! Multiline text editor, the counterpart of `TextInput` for whole files. Typing and newlines,
-//! caret and selection (mouse click/drag and shift+arrows), up/down/home/end, copy/cut/paste,
-//! vertical scroll, Tab inserts spaces, undo/redo (consecutive typing is one step).
-//! Known gaps: no IME composition, caret is
-//! char-based (not grapheme-based), and mouse placement assumes the monospace app font.
 
 use std::cell::{Cell, RefCell};
+use std::ops::Range;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use gpui::{
-    App, ClipboardItem, Context, EventEmitter, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Pixels,
-    Point, Render, ScrollHandle, StatefulInteractiveElement, Styled, Window, div, px,
+    App, AvailableSpace, Bounds, ClipboardItem, Context, Element, ElementId, ElementInputHandler,
+    Entity, EntityInputHandler, EventEmitter, FocusHandle, Focusable, GlobalElementId,
+    InspectorElementId, InteractiveElement, IntoElement, KeyDownEvent, LayoutId, MouseButton,
+    MouseDownEvent, MouseMoveEvent, PaintQuad, ParentElement, Pixels, Point, Render, SharedString,
+    StatefulInteractiveElement, Style, Styled, TextAlign, TextRun, UTF16Selection, Window, div,
+    fill, point, px, relative, size,
 };
 
+use crate::ui::components::scrollbar::Scrollbar;
+use crate::ui::editor::buffer::{Buffer, CharClass, char_class};
+use crate::ui::editor::document::{ClipboardText, Document};
+use crate::ui::editor::history::EditKind;
+use crate::ui::editor::layout::{Params, WrapLayout};
+use crate::ui::editor::selection::Selection;
 use crate::ui::theme;
 
 const TEXT_SIZE: f32 = 13.0;
 const LINE_HEIGHT: f32 = 19.0;
 const PAD: f32 = 10.0;
-/// Undo steps kept.
-const HISTORY: usize = 200;
-/// Extra rows rendered above and below the viewport.
-const OVERSCAN: usize = 8;
-const TAB: &str = "    ";
+const BLINK_HALF_PERIOD: Duration = Duration::from_millis(530);
 
 pub enum TextAreaEvent {
     Changed,
@@ -32,85 +34,156 @@ pub enum TextAreaEvent {
     Submit,
 }
 
-pub struct TextArea {
-    /// Text split by `\n`; always holds at least one line.
-    lines: Vec<String>,
-    /// Caret as (line, column in chars).
-    caret: (usize, usize),
-    /// Other end of the selection; `None` or equal to `caret` means no selection.
-    anchor: Option<(usize, usize)>,
-    /// Column kept while moving up/down across shorter lines.
-    goal_col: Option<usize>,
-    dragging: bool,
-    undo: Vec<Snapshot>,
-    redo: Vec<Snapshot>,
-    /// The last undo step was plain typing, so the next typed character joins it.
-    typing: bool,
-    focus: FocusHandle,
-    scroll: ScrollHandle,
-    /// Window position of the text origin and the glyph advance, written by `render`.
-    metrics: Rc<Cell<Metrics>>,
-    layout: RefCell<Option<(usize, Rc<Layout>)>>,
-    submit_on_enter: bool,
-}
-
-struct Layout {
-    starts: Vec<usize>,
-    breaks: Vec<Vec<usize>>,
-}
-
-fn wrap(text: &str, cols: usize) -> Vec<usize> {
-    let chars: Vec<char> = text.chars().collect();
-    let mut out = vec![0];
-    let mut s = 0;
-    while chars.len() - s > cols {
-        let end = s + cols;
-        let cut = if chars[end] == ' ' {
-            end
-        } else {
-            chars[s..end]
-                .iter()
-                .rposition(|&c| c == ' ')
-                .map_or(end, |j| s + j + 1)
-        };
-        out.push(cut);
-        s = cut;
-    }
-    out
-}
-
 #[derive(Clone)]
-struct Snapshot {
-    lines: Vec<String>,
-    caret: (usize, usize),
+enum Drag {
+    Char,
+    Word(Range<usize>),
+    Line(Range<usize>),
 }
 
-#[derive(Clone, Copy, Default)]
-struct Metrics {
-    origin: Point<Pixels>,
-    char_w: f32,
-    /// Columns that fit in one visual row; 0 until the first layout (no wrapping).
-    cols: usize,
+pub struct TextArea {
+    doc: Document,
+    focus: FocusHandle,
+    scrollbar: Scrollbar,
+    layout: RefCell<Option<Rc<WrapLayout>>>,
+    params: RefCell<Option<Params>>,
+    bounds: Cell<Bounds<Pixels>>,
+    rows: Cell<usize>,
+    marked: Option<Range<usize>>,
+    drag: Option<Drag>,
+    clip: Option<ClipboardText>,
+    submit_on_enter: bool,
+    placeholder: SharedString,
+    line_numbers: bool,
+    last_activity: Instant,
+    blink_pending: bool,
 }
 
 impl EventEmitter<TextAreaEvent> for TextArea {}
 
+fn sanitize(text: &str) -> String {
+    text.replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .chars()
+        .map(|c| if c == '\t' { ' ' } else { c })
+        .filter(|c| *c == '\n' || !c.is_control())
+        .collect()
+}
+
+fn prev_word(buffer: &Buffer, offset: usize) -> usize {
+    let mut at = offset;
+    let mut chars = buffer.reversed_chars_at(offset).peekable();
+    while let Some(&c) = chars.peek() {
+        if c != '\n' && c.is_whitespace() {
+            at -= c.len_utf8();
+            chars.next();
+        } else {
+            break;
+        }
+    }
+    if let Some(&c) = chars.peek() {
+        let class = char_class(c);
+        if matches!(class, CharClass::Word | CharClass::Punctuation) {
+            while let Some(&c) = chars.peek() {
+                if char_class(c) != class {
+                    break;
+                }
+                at -= c.len_utf8();
+                chars.next();
+            }
+        }
+    }
+    if at == offset {
+        buffer.previous_boundary(offset)
+    } else {
+        at
+    }
+}
+
+fn next_word(buffer: &Buffer, offset: usize) -> usize {
+    let mut at = offset;
+    let mut chars = buffer.chars_at(offset).peekable();
+    if let Some(&c) = chars.peek() {
+        let class = char_class(c);
+        if matches!(class, CharClass::Word | CharClass::Punctuation) {
+            while let Some(&c) = chars.peek() {
+                if char_class(c) != class {
+                    break;
+                }
+                at += c.len_utf8();
+                chars.next();
+            }
+        }
+    }
+    while let Some(&c) = chars.peek() {
+        if c != '\n' && c.is_whitespace() {
+            at += c.len_utf8();
+            chars.next();
+        } else {
+            break;
+        }
+    }
+    if at == offset {
+        buffer.next_boundary(offset)
+    } else {
+        at
+    }
+}
+
+fn line_range(buffer: &Buffer, line: usize) -> Range<usize> {
+    let start = buffer.line_start(line);
+    let end = if line + 1 < buffer.line_count() {
+        buffer.line_start(line + 1)
+    } else {
+        buffer.len()
+    };
+    start..end
+}
+
+fn word_or_run(buffer: &Buffer, offset: usize) -> Range<usize> {
+    if let Some(word) = buffer.word_range_at(offset) {
+        return word;
+    }
+    let Some(ch) = buffer.char_at(offset).filter(|ch| *ch != '\n') else {
+        return offset..offset;
+    };
+    if ch.is_whitespace() {
+        let class = char_class(ch);
+        let start = offset
+            - buffer
+                .reversed_chars_at(offset)
+                .take_while(|other| char_class(*other) == class)
+                .map(char::len_utf8)
+                .sum::<usize>();
+        let end = offset
+            + buffer
+                .chars_at(offset)
+                .take_while(|other| char_class(*other) == class)
+                .map(char::len_utf8)
+                .sum::<usize>();
+        return start..end;
+    }
+    offset..offset + ch.len_utf8()
+}
+
 impl TextArea {
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
-            lines: vec![String::new()],
-            caret: (0, 0),
-            anchor: None,
-            goal_col: None,
-            dragging: false,
-            undo: Vec::new(),
-            redo: Vec::new(),
-            typing: false,
+            doc: Document::new(""),
             focus: cx.focus_handle(),
-            scroll: ScrollHandle::new(),
-            metrics: Rc::default(),
+            scrollbar: Scrollbar::new(),
             layout: RefCell::new(None),
+            rows: Cell::new(1),
+            params: RefCell::new(None),
+            bounds: Cell::new(Bounds::default()),
+            marked: None,
+            drag: None,
+            clip: None,
             submit_on_enter: false,
+            placeholder: SharedString::default(),
+            line_numbers: false,
+            last_activity: Instant::now(),
+            blink_pending: false,
         }
     }
 
@@ -119,567 +192,597 @@ impl TextArea {
         self
     }
 
+    pub fn with_placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
+        self.placeholder = placeholder.into();
+        self
+    }
+
+    pub fn with_value(mut self, value: &str) -> Self {
+        self.doc.reset(value, usize::MAX);
+        self
+    }
+
+    pub fn with_line_numbers(mut self) -> Self {
+        self.line_numbers = true;
+        self
+    }
+
+    pub fn rows(&self) -> usize {
+        self.rows.get()
+    }
+
+    pub fn height_for_rows(rows: usize) -> f32 {
+        LINE_HEIGHT * rows as f32 + 2.0 * PAD
+    }
+
     pub fn text_before_caret(&self) -> String {
-        let (line, col) = self.caret;
-        let mut out = self.lines[..line].join("\n");
-        if line > 0 {
-            out.push('\n');
-        }
-        out.extend(self.lines[line].chars().take(col));
-        out
+        self.doc.buffer.slice(0..self.doc.newest_selection().head)
     }
 
     pub fn replace_before_caret(&mut self, chars: usize, with: &str, cx: &mut Context<Self>) {
-        let (line, col) = self.caret;
-        if chars > col {
+        let head = self.doc.newest_selection().head;
+        let buffer = &self.doc.buffer;
+        let mut start = head;
+        for ch in buffer.reversed_chars_at(head).take(chars) {
+            if ch == '\n' {
+                return;
+            }
+            start -= ch.len_utf8();
+        }
+        if buffer.reversed_chars_at(head).take(chars).count() < chars {
             return;
         }
-        self.undo.push(self.snapshot());
-        self.redo.clear();
-        self.typing = false;
-        self.anchor = Some((line, col - chars));
-        self.insert(with);
+        self.doc.select_range(start..head);
+        self.doc.insert_plain(&sanitize(with), EditKind::Other);
+        self.marked = None;
+        self.touch();
         cx.emit(TextAreaEvent::Changed);
         cx.notify();
     }
 
     pub fn set_text(&mut self, value: &str, cx: &mut Context<Self>) {
         self.set_value(value, cx);
-        let last = self.lines.len() - 1;
-        self.caret = (last, self.line_len(last));
+        self.doc.set_cursor(usize::MAX);
     }
 
     pub fn caret_on_first_line(&self) -> bool {
-        self.caret.0 == 0
+        self.doc.buffer.line_of(self.doc.newest_selection().head) == 0
     }
 
     pub fn caret_on_last_line(&self) -> bool {
-        self.caret.0 + 1 == self.lines.len()
+        self.doc.buffer.line_of(self.doc.newest_selection().head) + 1
+            == self.doc.buffer.line_count()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.lines.iter().all(|l| l.is_empty())
+        self.doc.buffer.rope().chars().all(|c| c == '\n')
     }
 
     pub fn value(&self) -> String {
-        self.lines.join("\n")
+        self.doc.buffer.text()
     }
 
     /// Replace the text (no `Changed` event: callers use this to load a file).
     pub fn set_value(&mut self, value: &str, cx: &mut Context<Self>) {
-        self.lines = split_lines(value);
-        self.invalidate();
-        self.caret = (0, 0);
-        self.anchor = None;
-        self.goal_col = None;
-        self.undo.clear();
-        self.redo.clear();
-        self.typing = false;
+        self.doc.reset(value, 0);
+        self.marked = None;
+        self.drag = None;
+        self.scrollbar.handle().set_offset(point(px(0.0), px(0.0)));
         cx.notify();
     }
 
-    fn snapshot(&self) -> Snapshot {
-        Snapshot {
-            lines: self.lines.clone(),
-            caret: self.caret,
-        }
-    }
-
-    fn restore(&mut self, snap: Snapshot) {
-        self.lines = snap.lines;
-        self.invalidate();
-        self.caret = snap.caret;
-        self.anchor = None;
-        self.goal_col = None;
-        self.typing = false;
-    }
-
-    fn undo(&mut self) -> bool {
-        let Some(prev) = self.undo.pop() else {
-            return false;
-        };
-        self.redo.push(self.snapshot());
-        self.restore(prev);
-        true
-    }
-
-    fn redo(&mut self) -> bool {
-        let Some(next) = self.redo.pop() else {
-            return false;
-        };
-        self.undo.push(self.snapshot());
-        self.restore(next);
-        true
-    }
-
-    fn line_len(&self, line: usize) -> usize {
-        self.lines[line].chars().count()
-    }
-
-    fn byte_index(&self, line: usize, col: usize) -> usize {
-        let s = &self.lines[line];
-        s.char_indices().nth(col).map(|(i, _)| i).unwrap_or(s.len())
-    }
-
-    /// Selection ordered start..end.
-    fn selection(&self) -> Option<((usize, usize), (usize, usize))> {
-        let anchor = self.anchor?;
-        (anchor != self.caret).then(|| (anchor.min(self.caret), anchor.max(self.caret)))
-    }
-
     pub fn has_selection(&self) -> bool {
-        self.selection().is_some()
+        self.doc.selections.iter().any(|s| !s.is_empty())
     }
 
-    fn selected_text(&self) -> Option<String> {
-        let (from, to) = self.selection()?;
-        if from.0 == to.0 {
-            let l = &self.lines[from.0];
-            return Some(
-                l[self.byte_index(from.0, from.1)..self.byte_index(to.0, to.1)].to_string(),
-            );
-        }
-        let mut out = self.lines[from.0][self.byte_index(from.0, from.1)..].to_string();
-        for l in &self.lines[from.0 + 1..to.0] {
-            out.push('\n');
-            out.push_str(l);
-        }
-        out.push('\n');
-        out.push_str(&self.lines[to.0][..self.byte_index(to.0, to.1)]);
-        Some(out)
+    fn touch(&mut self) {
+        self.last_activity = Instant::now();
     }
 
-    fn delete_selection(&mut self) -> bool {
-        let Some((from, to)) = self.selection() else {
-            return false;
-        };
-        self.invalidate();
-        let tail = self.lines[to.0][self.byte_index(to.0, to.1)..].to_string();
-        let head = self.byte_index(from.0, from.1);
-        self.lines[from.0].truncate(head);
-        self.lines[from.0].push_str(&tail);
-        self.lines.drain(from.0 + 1..=to.0);
-        self.caret = from;
-        self.anchor = None;
-        true
+    fn current_params(&self) -> Option<Params> {
+        self.params.borrow().clone()
     }
 
-    fn insert(&mut self, text: &str) {
-        let text = text.replace("\r\n", "\n").replace('\r', "\n");
-        let clean: String = text
-            .chars()
-            .map(|c| if c == '\t' { ' ' } else { c })
-            .filter(|c| *c == '\n' || !c.is_control())
-            .collect();
-        if clean.is_empty() {
-            return;
-        }
-        self.delete_selection();
-        self.anchor = None;
-        self.invalidate();
-        let (line, col) = self.caret;
-        let at = self.byte_index(line, col);
-        let tail = self.lines[line].split_off(at);
-        let mut parts = clean.split('\n');
-        self.lines[line].push_str(parts.next().unwrap_or(""));
-        let mut cur = line;
-        for part in parts {
-            cur += 1;
-            self.lines.insert(cur, part.to_string());
-        }
-        let col = self.line_len(cur);
-        self.lines[cur].push_str(&tail);
-        self.caret = (cur, col);
-        self.goal_col = None;
-    }
-
-    fn move_caret(&mut self, to: (usize, usize), extend: bool) {
-        if extend {
-            self.anchor.get_or_insert(self.caret);
-        } else {
-            self.anchor = None;
-        }
-        self.caret = to;
-    }
-
-    fn prev(&self, (line, col): (usize, usize)) -> (usize, usize) {
-        if col > 0 {
-            (line, col - 1)
-        } else if line > 0 {
-            (line - 1, self.line_len(line - 1))
-        } else {
-            (0, 0)
-        }
-    }
-
-    fn next(&self, (line, col): (usize, usize)) -> (usize, usize) {
-        if col < self.line_len(line) {
-            (line, col + 1)
-        } else if line + 1 < self.lines.len() {
-            (line + 1, 0)
-        } else {
-            (line, col)
-        }
-    }
-
-    /// Columns per visual row.
-    fn cols(&self) -> usize {
-        match self.metrics.get().cols {
-            0 => usize::MAX,
-            c => c,
-        }
-    }
-
-    fn invalidate(&self) {
-        *self.layout.borrow_mut() = None;
-    }
-
-    fn starts(&self) -> Rc<Layout> {
-        let cols = self.cols();
-        if let Some((c, v)) = &*self.layout.borrow()
-            && *c == cols
+    fn layout_for(&self, params: Params, window: &Window) -> Rc<WrapLayout> {
+        if let Some(layout) = &*self.layout.borrow()
+            && layout.is_current(&self.doc.buffer, &params)
         {
-            return v.clone();
+            return layout.clone();
         }
-        let mut starts = Vec::with_capacity(self.lines.len() + 1);
-        let mut breaks = Vec::with_capacity(self.lines.len());
-        let mut acc = 0;
-        for l in &self.lines {
-            starts.push(acc);
-            let b = wrap(l, cols);
-            acc += b.len();
-            breaks.push(b);
-        }
-        starts.push(acc);
-        let v = Rc::new(Layout { starts, breaks });
-        *self.layout.borrow_mut() = Some((cols, v.clone()));
-        v
+        let layout = Rc::new(WrapLayout::new(&self.doc.buffer, params.clone(), window));
+        *self.layout.borrow_mut() = Some(layout.clone());
+        *self.params.borrow_mut() = Some(params);
+        layout
     }
 
-    fn row_in_line(breaks: &[usize], col: usize) -> usize {
-        breaks.partition_point(|&b| b <= col) - 1
+    fn current_layout(&self, window: &Window) -> Option<Rc<WrapLayout>> {
+        Some(self.layout_for(self.current_params()?, window))
     }
 
-    /// Visual row index of a position, counted from the top of the text.
-    fn row_index(&self, (line, col): (usize, usize)) -> usize {
-        let l = self.starts();
-        l.starts[line] + Self::row_in_line(&l.breaks[line], col)
-    }
-
-    fn visual_col(&self, (line, col): (usize, usize)) -> usize {
-        let l = self.starts();
-        let b = &l.breaks[line];
-        col - b[Self::row_in_line(b, col)]
-    }
-
-    /// Line holding visual row `row` (must be below the total).
-    fn line_of_row(starts: &[usize], row: usize) -> usize {
-        starts.partition_point(|&x| x <= row) - 1
-    }
-
-    /// Position at visual row `row` and column offset `x` within it (both clamped).
-    fn pos_at_row(&self, row: usize, x: usize) -> (usize, usize) {
-        let l = self.starts();
-        if row >= *l.starts.last().unwrap_or(&0) {
-            let last = self.lines.len() - 1;
-            return (last, self.line_len(last));
-        }
-        let line = Self::line_of_row(&l.starts, row);
-        let b = &l.breaks[line];
-        let k = row - l.starts[line];
-        let start = b[k];
-        let max = match b.get(k + 1) {
-            Some(&next) => next - 1,
-            None => self.line_len(line),
-        };
-        (line, start.saturating_add(x).min(max))
-    }
-
-    /// Keep the caret row inside the viewport.
-    fn reveal_caret(&self) {
-        let view = self.scroll.bounds().size.height;
+    fn reveal_caret(&self, window: &Window) {
+        let handle = self.scrollbar.handle();
+        let view = handle.bounds().size.height;
         if view <= px(0.0) {
             return;
         }
-        let top = px(PAD + self.row_index(self.caret) as f32 * LINE_HEIGHT);
-        let bottom = top + px(LINE_HEIGHT + PAD);
-        let mut offset = self.scroll.offset();
+        let Some(layout) = self.current_layout(window) else {
+            return;
+        };
+        let head = self.doc.newest_selection().head;
+        let (row, _) = layout.locate_offset(&self.doc.buffer, head);
+        let top = px(PAD) + layout.line_height() * row as f32;
+        let bottom = top + layout.line_height() + px(PAD);
+        let mut offset = handle.offset();
         if top + offset.y < px(0.0) {
             offset.y = -top;
         } else if bottom + offset.y > view {
             offset.y = view - bottom;
         }
-        self.scroll.set_offset(offset);
+        handle.set_offset(offset);
     }
 
-    fn position_at(&self, pos: Point<Pixels>) -> (usize, usize) {
-        let m = self.metrics.get();
-        let y = f32::from(pos.y - m.origin.y);
-        let row = (y / LINE_HEIGHT).floor().max(0.0) as usize;
-        let x = f32::from(pos.x - m.origin.x);
-        let col = if m.char_w > 0.0 {
-            (x / m.char_w).round().max(0.0) as usize
-        } else {
-            0
-        };
-        self.pos_at_row(row, col)
+    fn finish(&mut self, changed: bool, window: &Window, cx: &mut Context<Self>) {
+        if changed {
+            cx.emit(TextAreaEvent::Changed);
+        }
+        self.touch();
+        self.reveal_caret(window);
+        cx.notify();
+    }
+
+    fn offset_at_point(&self, position: Point<Pixels>, window: &Window) -> Option<usize> {
+        let layout = self.current_layout(window)?;
+        let bounds = self.bounds.get();
+        Some(layout.offset_for_point(
+            &self.doc.buffer,
+            position.x - bounds.left() - layout.gutter,
+            position.y - bounds.top(),
+        ))
+    }
+
+    fn in_gutter(&self, position: Point<Pixels>, window: &Window) -> bool {
+        self.current_layout(window)
+            .is_some_and(|l| l.gutter > px(0.0) && position.x < self.bounds.get().left() + l.gutter)
+    }
+
+    fn select_single(&mut self, range: Range<usize>, reversed: bool) {
+        let id = self.doc.new_selection_id();
+        let mut selection = Selection::cursor(id, 0);
+        selection.set_range(range, reversed);
+        self.doc.set_selections(vec![selection]);
+    }
+
+    fn update_newest(&mut self, update: impl FnOnce(&mut Selection)) {
+        let mut newest = self.doc.newest_selection().clone();
+        update(&mut newest);
+        let mut selections: Vec<Selection> = self
+            .doc
+            .selections
+            .iter()
+            .filter(|s| s.id != newest.id)
+            .cloned()
+            .collect();
+        selections.push(newest);
+        self.doc.set_selections(selections);
     }
 
     fn on_mouse_down(&mut self, e: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
-        let to = self.position_at(e.position);
-        self.move_caret(to, e.modifiers.shift);
-        self.goal_col = None;
-        self.dragging = true;
+        let Some(offset) = self.offset_at_point(e.position, window) else {
+            return;
+        };
+        self.marked = None;
+        let in_gutter = self.in_gutter(e.position, window);
+        let buffer = &self.doc.buffer;
+        if in_gutter || e.click_count >= 3 {
+            let range = line_range(buffer, buffer.line_of(offset));
+            self.select_single(range.clone(), false);
+            self.drag = Some(Drag::Line(range));
+        } else if e.click_count == 2 {
+            let range = word_or_run(buffer, offset);
+            if e.modifiers.alt {
+                let id = self.doc.new_selection_id();
+                let mut selection = Selection::cursor(id, 0);
+                selection.set_range(range.clone(), false);
+                let mut selections = self.doc.selections.clone();
+                selections.push(selection);
+                self.doc.set_selections(selections);
+            } else {
+                self.select_single(range.clone(), false);
+            }
+            self.drag = Some(Drag::Word(range));
+        } else if e.modifiers.shift {
+            self.update_newest(|s| s.select_to(offset));
+            self.drag = Some(Drag::Char);
+        } else if e.modifiers.alt {
+            self.doc.toggle_caret(offset);
+            self.drag = Some(Drag::Char);
+        } else {
+            self.doc.set_cursor(offset);
+            self.drag = Some(Drag::Char);
+        }
+        self.doc.history.break_group();
+        self.touch();
         cx.notify();
     }
 
-    fn on_mouse_move(&mut self, e: &MouseMoveEvent, cx: &mut Context<Self>) {
-        if !self.dragging || !e.dragging() {
-            self.dragging = false;
+    fn on_mouse_move(&mut self, e: &MouseMoveEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(drag) = self.drag.clone() else {
+            return;
+        };
+        if !e.dragging() {
+            self.drag = None;
             return;
         }
-        let to = self.position_at(e.position);
-        self.move_caret(to, true);
-        self.reveal_caret();
-        cx.notify();
+        let Some(offset) = self.offset_at_point(e.position, window) else {
+            return;
+        };
+        let buffer = &self.doc.buffer;
+        match drag {
+            Drag::Char => self.update_newest(|s| s.select_to(offset)),
+            Drag::Word(origin) => {
+                let word = word_or_run(buffer, offset);
+                self.update_newest(|s| {
+                    if offset < origin.start {
+                        s.set_range(word.start..origin.end, true);
+                    } else {
+                        s.set_range(origin.start..word.end.max(origin.end), false);
+                    }
+                });
+            }
+            Drag::Line(origin) => {
+                let line = line_range(buffer, buffer.line_of(offset));
+                self.update_newest(|s| {
+                    if line.start < origin.start {
+                        s.set_range(line.start..origin.end, true);
+                    } else {
+                        s.set_range(origin.start..line.end.max(origin.end), false);
+                    }
+                });
+            }
+        }
+        self.finish(false, window, cx);
     }
 
-    fn on_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
+    fn move_vertical(&mut self, rows: isize, select: bool, window: &Window) {
+        let Some(layout) = self.current_layout(window) else {
+            return;
+        };
+        let buffer = &self.doc.buffer;
+        let selections = self
+            .doc
+            .selections
+            .iter()
+            .map(|selection| {
+                let mut selection = selection.clone();
+                let from = if select || selection.is_empty() {
+                    selection.head
+                } else if rows < 0 {
+                    selection.start()
+                } else {
+                    selection.end()
+                };
+                let (row, x) = layout.locate_offset(buffer, from);
+                let goal = selection.goal_column.map_or(x, |g| px(g as f32 / 16.0));
+                let target = row as isize + rows;
+                let head = if target < 0 {
+                    0
+                } else if target as usize >= layout.total_rows() {
+                    buffer.len()
+                } else {
+                    layout.offset_at(buffer, target as usize, goal)
+                };
+                if select {
+                    selection.head = head;
+                } else {
+                    selection.collapse_to(head);
+                }
+                selection.goal_column = Some((f32::from(goal) * 16.0).max(0.0) as usize);
+                selection
+            })
+            .collect();
+        self.doc.set_selections(selections);
+    }
+
+    fn add_cursors(&mut self, rows: isize, window: &Window) {
+        let Some(layout) = self.current_layout(window) else {
+            return;
+        };
+        let mut selections = self.doc.selections.clone();
+        let current = self.doc.selections.clone();
+        for selection in &current {
+            let (row, x) = layout.locate_offset(&self.doc.buffer, selection.head);
+            let goal = selection.goal_column.map_or(x, |g| px(g as f32 / 16.0));
+            let target = row as isize + rows;
+            if target < 0 || target as usize >= layout.total_rows() {
+                continue;
+            }
+            let offset = layout.offset_at(&self.doc.buffer, target as usize, goal);
+            let id = self.doc.new_selection_id();
+            let mut added = Selection::cursor(id, offset);
+            added.goal_column = Some((f32::from(goal) * 16.0).max(0.0) as usize);
+            selections.push(added);
+        }
+        self.doc.set_selections(selections);
+    }
+
+    fn copy(&mut self, cx: &mut Context<Self>) -> bool {
+        let copied = self.doc.copy_text();
+        if copied.text.trim().is_empty() {
+            return false;
+        }
+        cx.write_to_clipboard(ClipboardItem::new_string(copied.text.clone()));
+        self.clip = Some(copied);
+        true
+    }
+
+    fn paste(&mut self, cx: &mut Context<Self>) {
+        let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) else {
+            return;
+        };
+        let text = sanitize(&text);
+        if text.is_empty() {
+            return;
+        }
+        let clipboard = match &self.clip {
+            Some(clip) if clip.text == text => clip.clone(),
+            _ => ClipboardText {
+                pieces: vec![text.clone()],
+                text,
+                whole_lines: false,
+            },
+        };
+        self.doc.paste(&clipboard);
+    }
+
+    fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let ks = &event.keystroke;
         let altgr = super::is_altgr(ks);
         let command = (ks.modifiers.control && !altgr) || ks.modifiers.platform;
         let alt = ks.modifiers.alt && !altgr;
         let shift = ks.modifiers.shift;
-        if self.selection().is_none() {
-            self.anchor = None;
-        }
-        let line = self.caret.0;
+        let before = self.doc.buffer.version();
         let mut vertical = false;
-        let before = self.snapshot();
-        let typed = !command && !alt && ks.key_char.is_some() && ks.key != "enter";
+        self.marked = None;
         match ks.key.as_str() {
             "z" if command && !shift => {
-                if self.undo() {
-                    cx.emit(TextAreaEvent::Changed);
-                }
+                self.doc.undo();
             }
             "y" | "z" if command => {
-                if self.redo() {
-                    cx.emit(TextAreaEvent::Changed);
-                }
+                self.doc.redo();
             }
             "s" if command => cx.emit(TextAreaEvent::Save),
             "enter" if command || (self.submit_on_enter && !shift) => {
                 cx.emit(TextAreaEvent::Submit)
             }
-            "enter" => {
-                self.insert("\n");
-                cx.emit(TextAreaEvent::Changed);
-            }
-            "tab" => {
-                self.insert(TAB);
-                cx.emit(TextAreaEvent::Changed);
-            }
-            "backspace" => {
-                if !self.delete_selection() {
-                    let from = self.prev(self.caret);
-                    if from == self.caret {
-                        return cx.stop_propagation();
-                    }
-                    self.anchor = Some(from);
-                    self.delete_selection();
+            "enter" => self.doc.newline(),
+            "tab" if shift => self.doc.indent_lines(true),
+            "tab" => self.doc.tab(),
+            "backspace" if command => self.doc.delete_to(prev_word),
+            "backspace" => self.doc.backspace(),
+            "delete" if command => self.doc.delete_to(next_word),
+            "delete" => self.doc.delete_to(|b, o| b.next_boundary(o)),
+            "left" if command => self.doc.move_heads(shift, |b, s| prev_word(b, s.head)),
+            "left" => self.doc.move_heads(shift, |b, s| {
+                if !shift && !s.is_empty() {
+                    s.start()
+                } else {
+                    b.previous_boundary(s.head)
                 }
-                cx.emit(TextAreaEvent::Changed);
-            }
-            "delete" => {
-                if !self.delete_selection() {
-                    let to = self.next(self.caret);
-                    if to == self.caret {
-                        return cx.stop_propagation();
-                    }
-                    self.anchor = Some(to);
-                    self.delete_selection();
+            }),
+            "right" if command => self.doc.move_heads(shift, |b, s| next_word(b, s.head)),
+            "right" => self.doc.move_heads(shift, |b, s| {
+                if !shift && !s.is_empty() {
+                    s.end()
+                } else {
+                    b.next_boundary(s.head)
                 }
-                cx.emit(TextAreaEvent::Changed);
+            }),
+            "up" | "down" if command && alt => {
+                let rows = if ks.key == "up" { -1 } else { 1 };
+                self.add_cursors(rows, window);
             }
-            "left" => match self.selection() {
-                Some((from, _)) if !shift => self.move_caret(from, false),
-                _ => self.move_caret(self.prev(self.caret), shift),
-            },
-            "right" => match self.selection() {
-                Some((_, to)) if !shift => self.move_caret(to, false),
-                _ => self.move_caret(self.next(self.caret), shift),
-            },
+            "up" | "down" if alt => {
+                self.doc.reset_goal();
+                if shift {
+                    self.doc.copy_lines(ks.key == "down");
+                } else {
+                    self.doc.move_lines(ks.key == "up");
+                }
+            }
             "up" | "down" => {
                 vertical = true;
-                let vcol = self.visual_col(self.caret);
-                let goal = *self.goal_col.get_or_insert(vcol);
-                let row = self.row_index(self.caret);
-                let end = (self.lines.len() - 1, self.line_len(self.lines.len() - 1));
-                let last_row = self.row_index(end);
-                let to = if ks.key == "up" {
-                    if row == 0 {
-                        (0, 0)
-                    } else {
-                        self.pos_at_row(row - 1, goal)
-                    }
-                } else if row >= last_row {
-                    end
-                } else {
-                    self.pos_at_row(row + 1, goal)
-                };
-                self.move_caret(to, shift);
+                let rows = if ks.key == "up" { -1 } else { 1 };
+                self.move_vertical(rows, shift, window);
             }
-            "home" => {
-                let to = if command { (0, 0) } else { (line, 0) };
-                self.move_caret(to, shift);
+            "home" if command => self.doc.move_heads(shift, |_, _| 0),
+            "home" => self
+                .doc
+                .move_heads(shift, |b, s| b.line_start(b.line_of(s.head))),
+            "end" if command => self.doc.move_heads(shift, |b, _| b.len()),
+            "end" => self
+                .doc
+                .move_heads(shift, |b, s| b.line_end(b.line_of(s.head))),
+            "a" if command => self.doc.select_all(),
+            "d" if command => {
+                self.doc.select_next_occurrence();
             }
-            "end" => {
-                let to = if command {
-                    let last = self.lines.len() - 1;
-                    (last, self.line_len(last))
-                } else {
-                    (line, self.line_len(line))
-                };
-                self.move_caret(to, shift);
-            }
-            "a" if command => {
-                self.anchor = Some((0, 0));
-                let last = self.lines.len() - 1;
-                self.caret = (last, self.line_len(last));
-            }
+            "k" if command && shift => self.doc.delete_lines(),
             "c" if command => {
-                if let Some(text) = self.selected_text() {
-                    cx.write_to_clipboard(ClipboardItem::new_string(text));
-                }
+                self.copy(cx);
             }
             "x" if command => {
-                if let Some(text) = self.selected_text() {
-                    cx.write_to_clipboard(ClipboardItem::new_string(text));
-                    self.delete_selection();
-                    cx.emit(TextAreaEvent::Changed);
+                if self.copy(cx) {
+                    self.doc.cut();
                 }
             }
-            "v" if command => {
-                if let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) {
-                    self.insert(&text);
-                    cx.emit(TextAreaEvent::Changed);
+            "v" if command => self.paste(cx),
+            "escape" => {
+                if self.doc.selections.len() > 1 {
+                    self.doc.remove_secondary_cursors();
+                } else {
+                    return;
                 }
             }
-            "escape" => return,
-            _ if command || alt => return,
-            _ => match &ks.key_char {
-                Some(ch) => {
-                    self.insert(ch);
-                    cx.emit(TextAreaEvent::Changed);
-                }
-                None => return,
-            },
-        }
-        if self.lines != before.lines && !matches!(ks.key.as_str(), "z" | "y") {
-            // Typing joins the previous step; everything else is a step of its own.
-            if !(typed && self.typing) {
-                self.undo.push(before);
-                if self.undo.len() > HISTORY {
-                    self.undo.remove(0);
-                }
-            }
-            self.redo.clear();
-            self.typing = typed;
-        } else if !matches!(ks.key.as_str(), "z" | "y") {
-            self.typing = self.typing && typed;
+            _ => return,
         }
         if !vertical {
-            self.goal_col = None;
+            self.doc.reset_goal();
         }
-        self.reveal_caret();
+        let changed = self.doc.buffer.version() != before;
+        self.finish(changed, window, cx);
         cx.stop_propagation();
-        cx.notify();
     }
 
-    /// One visual row (`k`-th chunk of line `i`): text with the selected part highlighted. The
-    /// caret is an absolutely positioned bar so it never takes width and the glyphs stay put.
-    fn render_row(&self, i: usize, k: usize, focused: bool, char_w: f32) -> gpui::Div {
-        let text = &self.lines[i];
-        let len = self.line_len(i);
-        let layout = self.starts();
-        let b = &layout.breaks[i];
-        let start = b[k];
-        let end = b.get(k + 1).copied().unwrap_or(len);
-        let last = k + 1 == b.len();
-        let (sel_from, sel_to) = match self.selection() {
-            Some((from, to)) if from.0 <= i && i <= to.0 => (
-                if from.0 == i { from.1 } else { 0 },
-                // A selection running past the line end also highlights the newline cell.
-                if to.0 == i { to.1 } else { len + 1 },
-            ),
-            _ => (0, 0),
-        };
-        let has_sel = sel_to > sel_from;
-        let caret_col = (self.caret.0 == i && focused && Self::row_in_line(b, self.caret.1) == k)
-            .then(|| self.caret.1 - start);
+    fn to_utf16(&self, offset: usize) -> usize {
+        let rope = self.doc.buffer.rope();
+        rope.char_to_utf16_cu(rope.byte_to_char(offset.min(rope.len_bytes())))
+    }
 
-        // Split at the selection edges and style each piece.
-        let mut cuts = vec![start, end];
-        if has_sel {
-            cuts.extend([sel_from, sel_to].map(|c| c.clamp(start, end)));
-        }
-        cuts.sort_unstable();
-        cuts.dedup();
+    fn from_utf16(&self, offset: usize) -> usize {
+        let rope = self.doc.buffer.rope();
+        rope.char_to_byte(rope.utf16_cu_to_char(offset.min(rope.len_utf16_cu())))
+    }
 
-        let byte = |col: usize| {
-            text.char_indices()
-                .nth(col)
-                .map(|(b, _)| b)
-                .unwrap_or(text.len())
-        };
-        let mut row = div()
-            .relative()
-            .flex()
-            .flex_none()
-            .h(px(LINE_HEIGHT))
-            .items_center();
-        for w in cuts.windows(2) {
-            let (a, b) = (w[0], w[1]);
-            if a == b {
-                continue;
-            }
-            let piece = div().flex_none().child(text[byte(a)..byte(b)].to_string());
-            row = row.child(if has_sel && a >= sel_from && b <= sel_to {
-                piece.bg(theme::accent_soft())
-            } else {
-                piece
-            });
-        }
-        if has_sel && sel_to > len && last {
-            // Newline cell, so a multi-line selection reads as continuous.
-            row = row.child(
-                div()
-                    .flex_none()
-                    .w(px(6.0))
-                    .h_full()
-                    .bg(theme::accent_soft()),
-            );
-        }
-        if let Some(col) = caret_col {
-            row = row.child(
-                div()
-                    .absolute()
-                    .left(px(col as f32 * char_w))
-                    .top(px(1.5))
-                    .w(px(1.0))
-                    .h(px(LINE_HEIGHT - 3.0))
-                    .bg(theme::accent()),
-            );
-        }
-        row
+    fn range_from_utf16(&self, range: &Range<usize>) -> Range<usize> {
+        self.from_utf16(range.start)..self.from_utf16(range.end)
+    }
+
+    fn range_to_utf16(&self, range: &Range<usize>) -> Range<usize> {
+        self.to_utf16(range.start)..self.to_utf16(range.end)
     }
 }
 
-fn split_lines(text: &str) -> Vec<String> {
-    let text = text.replace("\r\n", "\n").replace('\r', "\n");
-    text.split('\n').map(str::to_string).collect()
+impl EntityInputHandler for TextArea {
+    fn text_for_range(
+        &mut self,
+        range_utf16: Range<usize>,
+        actual_range: &mut Option<Range<usize>>,
+        _: &mut Window,
+        _: &mut Context<Self>,
+    ) -> Option<String> {
+        let range = self.range_from_utf16(&range_utf16);
+        actual_range.replace(self.range_to_utf16(&range));
+        Some(self.doc.buffer.slice(range))
+    }
+
+    fn selected_text_range(
+        &mut self,
+        _: bool,
+        _: &mut Window,
+        _: &mut Context<Self>,
+    ) -> Option<UTF16Selection> {
+        let newest = self.doc.newest_selection();
+        Some(UTF16Selection {
+            range: self.range_to_utf16(&newest.range()),
+            reversed: newest.reversed(),
+        })
+    }
+
+    fn marked_text_range(&self, _: &mut Window, _: &mut Context<Self>) -> Option<Range<usize>> {
+        self.marked.as_ref().map(|range| self.range_to_utf16(range))
+    }
+
+    fn unmark_text(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        self.marked = None;
+        cx.notify();
+    }
+
+    fn replace_text_in_range(
+        &mut self,
+        range_utf16: Option<Range<usize>>,
+        text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let text = sanitize(text);
+        let range = range_utf16
+            .map(|range| self.range_from_utf16(&range))
+            .or(self.marked.take());
+        self.marked = None;
+        let before = self.doc.buffer.version();
+        match range {
+            Some(range) => {
+                self.doc.select_range(range);
+                self.doc.insert_plain(&text, EditKind::Insert);
+            }
+            None if text.is_empty() => return,
+            None => self.doc.insert(&text),
+        }
+        self.doc.reset_goal();
+        let changed = self.doc.buffer.version() != before;
+        self.finish(changed, window, cx);
+    }
+
+    fn replace_and_mark_text_in_range(
+        &mut self,
+        range_utf16: Option<Range<usize>>,
+        text: &str,
+        new_selected_range_utf16: Option<Range<usize>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let text = sanitize(text);
+        let range = range_utf16
+            .map(|range| self.range_from_utf16(&range))
+            .or(self.marked.clone())
+            .unwrap_or_else(|| self.doc.newest_selection().range());
+        let start = range.start;
+        self.doc.select_range(range);
+        self.doc.insert_plain(&text, EditKind::Insert);
+        self.marked = (!text.is_empty()).then(|| start..start + text.len());
+        if let Some(selected) = new_selected_range_utf16 {
+            let byte_at = |utf16: usize| {
+                let mut count = 0;
+                for (index, ch) in text.char_indices() {
+                    if count >= utf16 {
+                        return index;
+                    }
+                    count += ch.len_utf16();
+                }
+                text.len()
+            };
+            self.doc
+                .select_range(start + byte_at(selected.start)..start + byte_at(selected.end));
+        }
+        self.finish(true, window, cx);
+    }
+
+    fn bounds_for_range(
+        &mut self,
+        range_utf16: Range<usize>,
+        _: Bounds<Pixels>,
+        window: &mut Window,
+        _: &mut Context<Self>,
+    ) -> Option<Bounds<Pixels>> {
+        let range = self.range_from_utf16(&range_utf16);
+        let layout = self.current_layout(window)?;
+        let bounds = self.bounds.get();
+        let (row, x) = layout.locate_offset(&self.doc.buffer, range.start);
+        let end_x = if range.end > range.start {
+            let (end_row, end_x) = layout.locate_offset(&self.doc.buffer, range.end);
+            if end_row == row { end_x } else { x + px(1.0) }
+        } else {
+            x + px(1.0)
+        };
+        Some(Bounds::new(
+            point(
+                bounds.left() + layout.gutter + x,
+                bounds.top() + layout.line_height() * row as f32,
+            ),
+            size((end_x - x).max(px(1.0)), layout.line_height()),
+        ))
+    }
+
+    fn character_index_for_point(
+        &mut self,
+        position: Point<Pixels>,
+        window: &mut Window,
+        _: &mut Context<Self>,
+    ) -> Option<usize> {
+        let offset = self.offset_at_point(position, window)?;
+        Some(self.to_utf16(offset))
+    }
 }
 
 impl Focusable for TextArea {
@@ -689,129 +792,279 @@ impl Focusable for TextArea {
 }
 
 impl Render for TextArea {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let focused = self.focus.is_focused(window);
-        let font_size = px(TEXT_SIZE);
-        let font = window.text_style().font();
-        let ts = window.text_system();
-        let char_w = ts
-            .advance(ts.resolve_font(&font), font_size, 'm')
-            .map(|s| f32::from(s.width))
-            .unwrap_or(0.0);
-
-        // Text origin = viewport origin + padding + current scroll offset.
-        let bounds = self.scroll.bounds();
-        let mut m = self.metrics.get();
-        m.char_w = char_w;
-        m.origin = Point {
-            x: bounds.origin.x + px(PAD),
-            y: bounds.origin.y + px(PAD) + self.scroll.offset().y,
-        };
-        self.metrics.set(m);
-
-        // Wrap width: the viewport minus padding. Changing it re-renders on the next frame.
-        let cols = if char_w > 0.0 {
-            (f32::from(bounds.size.width - px(2.0 * PAD)) / char_w).floor() as usize
-        } else {
-            0
-        };
-        if cols > 0 && cols != m.cols {
-            m.cols = cols;
-            self.metrics.set(m);
-            cx.notify();
-        }
-
-        // Only the rows in (or near) the viewport are built; spacers keep the scroll extent.
-        let starts = self.starts();
-        let total = *starts.starts.last().unwrap_or(&0);
-        let top = (-f32::from(self.scroll.offset().y) - PAD).max(0.0);
-        let view_h = f32::from(bounds.size.height);
-        let visible = if view_h > 0.0 {
-            (view_h / LINE_HEIGHT).ceil() as usize
-        } else {
-            60
-        };
-        let first = ((top / LINE_HEIGHT) as usize)
-            .saturating_sub(OVERSCAN)
-            .min(total);
-        let end = (first + visible + 2 * OVERSCAN).min(total);
-        let rows: Vec<_> = (first..end)
-            .map(|r| {
-                let i = Self::line_of_row(&starts.starts, r);
-                self.render_row(i, r - starts.starts[i], focused, char_w)
-            })
-            .collect();
-        let above = div().flex_none().h(px(first as f32 * LINE_HEIGHT));
-        let below = div().flex_none().h(px((total - end) as f32 * LINE_HEIGHT));
-
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let scroll = div().id("text-area-scroll").overflow_y_scroll().child(
+            div()
+                .w_full()
+                .p(px(PAD))
+                .child(EditorElement { area: cx.entity() }),
+        );
         div()
             .id("text-area")
             .key_context("TextArea")
             .track_focus(&self.focus)
-            .on_key_down(cx.listener(|this, e, _, cx| this.on_key(e, cx)))
+            .on_key_down(cx.listener(|this, e, window, cx| this.on_key(e, window, cx)))
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|this, e, w, cx| this.on_mouse_down(e, w, cx)),
+                cx.listener(|this, e, window, cx| this.on_mouse_down(e, window, cx)),
             )
-            .on_mouse_move(cx.listener(|this, e, _, cx| this.on_mouse_move(e, cx)))
+            .on_mouse_move(cx.listener(|this, e, window, cx| this.on_mouse_move(e, window, cx)))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, _, _, _| this.dragging = false),
+                cx.listener(|this, _, _, _| this.drag = None),
             )
             .on_mouse_up_out(
                 MouseButton::Left,
-                cx.listener(|this, _, _, _| this.dragging = false),
+                cx.listener(|this, _, _, _| this.drag = None),
             )
             .flex()
             .flex_col()
             .size_full()
             .min_h_0()
-            .overflow_y_scroll()
-            .track_scroll(&self.scroll)
-            .p(px(PAD))
-            .text_size(font_size)
+            .text_size(px(TEXT_SIZE))
             .text_color(theme::text())
             .cursor_text()
-            .child(above)
-            .children(rows)
-            .child(below)
+            .child(self.scrollbar.overlay(scroll))
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+struct EditorElement {
+    area: Entity<TextArea>,
+}
 
-    #[test]
-    fn splits_crlf() {
-        assert_eq!(split_lines("a\r\nb\rc"), vec!["a", "b", "c"]);
-        assert_eq!(split_lines(""), vec![""]);
+struct Prepaint {
+    layout: Rc<WrapLayout>,
+    selections: Vec<PaintQuad>,
+    marks: Vec<PaintQuad>,
+    carets: Vec<PaintQuad>,
+    lines: Range<usize>,
+    numbers: Vec<(usize, SharedString)>,
+}
+
+impl IntoElement for EditorElement {
+    type Element = Self;
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for EditorElement {
+    type RequestLayoutState = ();
+    type PrepaintState = Prepaint;
+
+    fn id(&self) -> Option<ElementId> {
+        None
     }
 
-    #[test]
-    fn wraps_short_and_exact_rows() {
-        assert_eq!(wrap("", 5), vec![0]);
-        assert_eq!(wrap("abc", 5), vec![0]);
-        assert_eq!(wrap("abcde", 5), vec![0]);
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
     }
 
-    #[test]
-    fn wraps_at_words_with_hanging_space() {
-        assert_eq!(wrap("aaa bbb ccc", 5), vec![0, 4, 8]);
-        assert_eq!(wrap("aaaaa bbb", 5), vec![0, 5]);
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, ()) {
+        let style = window.text_style();
+        let font = style.font();
+        let font_size = style.font_size.to_pixels(window.rem_size());
+        let area = self.area.clone();
+        let (line_numbers, placeholder) = {
+            let a = area.read(cx);
+            (a.line_numbers, a.placeholder.clone())
+        };
+        let mut layout_style = Style::default();
+        layout_style.size.width = relative(1.).into();
+        let id =
+            window.request_measured_layout(layout_style, move |known, available, window, cx| {
+                let width = known.width.unwrap_or(match available.width {
+                    AvailableSpace::Definite(width) => width,
+                    _ => px(400.0),
+                });
+                let params = Params {
+                    font: font.clone(),
+                    font_size,
+                    line_height: px(LINE_HEIGHT),
+                    width,
+                    line_numbers,
+                    placeholder: placeholder.clone(),
+                    color: gpui::rgb_to_hsla(theme::text()),
+                    faint: gpui::rgb_to_hsla(theme::text_faint()),
+                };
+                let layout = area.read(cx).layout_for(params, window);
+                size(width, layout.height())
+            });
+        (id, ())
     }
 
-    #[test]
-    fn splits_overlong_words() {
-        assert_eq!(wrap("abcdefghij", 4), vec![0, 4, 8]);
-        assert_eq!(wrap("ab cdefghij", 4), vec![0, 3, 7]);
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Prepaint {
+        let area = self.area.read(cx);
+        let layout = area
+            .current_layout(window)
+            .expect("measured before prepaint");
+        let buffer = &area.doc.buffer;
+        let rows = layout.total_rows().max(1);
+        let rows_changed = area.rows.replace(rows) != rows;
+        let lh = layout.line_height();
+        let mask = window.content_mask().bounds;
+        let first_row = ((mask.top() - bounds.top()) / lh).floor().max(0.0) as usize;
+        let last_row = (((mask.bottom() - bounds.top()) / lh).ceil().max(0.0) as usize)
+            .min(layout.total_rows().max(1));
+        let rows = first_row..last_row;
+        let lines =
+            layout.line_of_row(first_row)..layout.line_of_row(last_row.saturating_sub(1)) + 1;
+        let origin_x = bounds.left() + layout.gutter;
+        let rect = |row: usize, x0: Pixels, x1: Pixels, top: Pixels, height: Pixels| {
+            Bounds::new(
+                point(origin_x + x0, bounds.top() + lh * row as f32 + top),
+                size(x1 - x0, height),
+            )
+        };
+
+        let mut selections = Vec::new();
+        let mut carets = Vec::new();
+        let focused = area.focus.is_focused(window);
+        let elapsed = area.last_activity.elapsed();
+        let phase = BLINK_HALF_PERIOD.as_millis();
+        let blink_on = (elapsed.as_millis() / phase) % 2 == 0;
+        for selection in &area.doc.selections {
+            for (row, x0, x1) in layout.range_rects(buffer, selection.range(), true, rows.clone()) {
+                selections.push(fill(rect(row, x0, x1, px(0.0), lh), theme::accent_soft()));
+            }
+            if focused && blink_on && rows.contains(&layout.locate_offset(buffer, selection.head).0)
+            {
+                let (row, x) = layout.locate_offset(buffer, selection.head);
+                carets.push(fill(
+                    rect(row, x, x + px(1.0), px(1.5), lh - px(3.0)),
+                    theme::accent(),
+                ));
+            }
+        }
+        let marks = area
+            .marked
+            .clone()
+            .map(|range| {
+                layout
+                    .range_rects(buffer, range, false, rows.clone())
+                    .into_iter()
+                    .map(|(row, x0, x1)| {
+                        fill(rect(row, x0, x1, lh - px(2.0), px(1.0)), theme::text())
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let numbers = if layout.gutter > px(0.0) {
+            lines
+                .clone()
+                .map(|line| (line, SharedString::from((line + 1).to_string())))
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        let blink_pending = area.blink_pending;
+        if rows_changed {
+            let entity = self.area.clone();
+            cx.defer(move |cx| entity.update(cx, |_, cx| cx.notify()));
+        }
+        if focused && !blink_pending {
+            let wait = Duration::from_millis((phase - elapsed.as_millis() % phase) as u64);
+            let timer = cx.background_executor().timer(wait);
+            let entity = self.area.clone();
+            entity.update(cx, |area, _| area.blink_pending = true);
+            window
+                .spawn(cx, async move |cx| {
+                    timer.await;
+                    let _ = entity.update(cx, |area, cx| {
+                        area.blink_pending = false;
+                        cx.notify();
+                    });
+                })
+                .detach();
+        }
+
+        Prepaint {
+            layout,
+            selections,
+            marks,
+            carets,
+            lines,
+            numbers,
+        }
     }
 
-    #[test]
-    fn caret_at_break_belongs_to_next_row() {
-        let b = wrap("aaa bbb ccc", 5);
-        assert_eq!(TextArea::row_in_line(&b, 3), 0);
-        assert_eq!(TextArea::row_in_line(&b, 4), 1);
-        assert_eq!(TextArea::row_in_line(&b, 11), 2);
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _: &mut (),
+        prepaint: &mut Prepaint,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let focus = self.area.read(cx).focus.clone();
+        window.handle_input(
+            &focus,
+            ElementInputHandler::new(bounds, self.area.clone()),
+            cx,
+        );
+        let layout = prepaint.layout.clone();
+        let lh = layout.line_height();
+        for quad in prepaint.selections.drain(..) {
+            window.paint_quad(quad);
+        }
+
+        if layout.gutter > px(0.0) {
+            for (line, number) in prepaint.numbers.drain(..) {
+                let run = TextRun {
+                    len: number.len(),
+                    font: layout.params.font.clone(),
+                    color: layout.params.faint,
+                    background_color: None,
+                    underline: None,
+                    strikethrough: None,
+                    letter_spacing: None,
+                };
+                let shaped =
+                    window
+                        .text_system()
+                        .shape_line(number, layout.params.font_size, &[run], None);
+                let x = bounds.left() + layout.gutter - px(8.0) - shaped.width;
+                let y = bounds.top() + lh * layout.row_starts[line] as f32;
+                let _ = shaped.paint(point(x, y), lh, TextAlign::Left, None, window, cx);
+            }
+        }
+
+        let origin_x = bounds.left() + layout.gutter;
+        let mut y = bounds.top();
+        for line in &layout.placeholder {
+            let _ = line.paint(point(origin_x, y), lh, TextAlign::Left, None, window, cx);
+            y += line.size(lh).height;
+        }
+        for line in prepaint.lines.clone() {
+            let y = bounds.top() + lh * layout.row_starts[line] as f32;
+            let _ =
+                layout.lines[line].paint(point(origin_x, y), lh, TextAlign::Left, None, window, cx);
+        }
+
+        for quad in prepaint.marks.drain(..) {
+            window.paint_quad(quad);
+        }
+        for quad in prepaint.carets.drain(..) {
+            window.paint_quad(quad);
+        }
+        self.area.update(cx, |area, _| area.bounds.set(bounds));
     }
 }
