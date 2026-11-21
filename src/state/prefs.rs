@@ -52,6 +52,9 @@ impl SpeechLanguage {
 pub const MIN_VAD_SILENCE_MS: u32 = 300;
 pub const MAX_VAD_SILENCE_MS: u32 = 3000;
 pub const VAD_SILENCE_STEP_MS: u32 = 100;
+pub const MIN_AUTO_ENTER_MS: u32 = 300;
+pub const MAX_AUTO_ENTER_MS: u32 = 5000;
+pub const AUTO_ENTER_STEP_MS: u32 = 100;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -86,6 +89,8 @@ pub struct Prefs {
     pub speech_language: SpeechLanguage,
     pub mic_device: String,
     pub vad_silence_ms: u32,
+    pub speech_auto_enter: bool,
+    pub speech_auto_enter_ms: u32,
 }
 
 impl Prefs {
@@ -144,6 +149,8 @@ impl Default for Prefs {
             speech_language: SpeechLanguage::App,
             mic_device: String::new(),
             vad_silence_ms: 800,
+            speech_auto_enter: false,
+            speech_auto_enter_ms: 1000,
         }
     }
 }
@@ -324,6 +331,9 @@ impl Prefs {
         self.vad_silence_ms = self
             .vad_silence_ms
             .clamp(MIN_VAD_SILENCE_MS, MAX_VAD_SILENCE_MS);
+        self.speech_auto_enter_ms = self
+            .speech_auto_enter_ms
+            .clamp(MIN_AUTO_ENTER_MS, MAX_AUTO_ENTER_MS);
     }
 }
 
@@ -383,6 +393,11 @@ mod tests {
         let p = Prefs::default();
         assert!(!p.speech_enabled);
         assert_eq!(p.vad_silence_ms, 800);
+        assert!(!p.speech_auto_enter);
+        assert_eq!(p.speech_auto_enter_ms, 1000);
+        let old: Prefs = serde_json::from_str(r#"{"speechEnabled":true}"#).unwrap();
+        assert!(!old.speech_auto_enter);
+        assert_eq!(old.speech_auto_enter_ms, 1000);
         let p: Prefs =
             serde_json::from_str(r#"{"speechLanguage":"auto","vadSilenceMs":1200}"#).unwrap();
         assert_eq!(p.speech_language_code(), None);
