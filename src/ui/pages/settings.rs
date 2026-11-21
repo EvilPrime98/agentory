@@ -18,6 +18,7 @@ use crate::ui::components::button::{ButtonVariant, button, small_button};
 use crate::ui::components::checkbox::checkbox;
 use crate::ui::components::scrollbar::Scrollbar;
 use crate::ui::components::segmented::segmented;
+use crate::ui::components::text_area::{TextArea, TextAreaEvent};
 use crate::ui::components::text_input::{TextInput, TextInputEvent};
 use crate::ui::pages::selfbuild_section;
 use crate::ui::theme::{self, ThemePref};
@@ -55,9 +56,9 @@ pub struct SettingsPage {
     scrollbar: Scrollbar,
     stores: Stores,
     claude_input: Entity<TextInput>,
-    doc_prompt_input: Entity<TextInput>,
-    issue_prompt_input: Entity<TextInput>,
-    tools_input: Entity<TextInput>,
+    doc_prompt_input: Entity<TextArea>,
+    issue_prompt_input: Entity<TextArea>,
+    tools_input: Entity<TextArea>,
     tab: SettingsTab,
     _subs: Vec<Subscription>,
 }
@@ -67,6 +68,13 @@ impl EventEmitter<GoBack> for SettingsPage {}
 
 const CONTROL_W: f32 = 280.0;
 const TOGGLE_W: f32 = 190.0;
+const FIELD_H: f32 = 32.0;
+const AREA_MAX_ROWS: usize = 8;
+
+fn area_height(input: &Entity<TextArea>, cx: &gpui::App) -> f32 {
+    let rows = input.read(cx).rows().min(AREA_MAX_ROWS);
+    TextArea::height_for_rows(rows) + 2.0
+}
 
 fn list(rows: Vec<AnyElement>) -> gpui::Div {
     div()
@@ -136,7 +144,8 @@ fn setting_row(
 fn wide_row(
     label: impl Into<SharedString>,
     hint: Option<SharedString>,
-    input: Entity<TextInput>,
+    input: impl IntoElement,
+    height: f32,
     toggle: Option<AnyElement>,
 ) -> AnyElement {
     div()
@@ -155,7 +164,7 @@ fn wide_row(
         .child(
             div()
                 .flex()
-                .h(px(32.0))
+                .h(px(height))
                 .px(px(10.0))
                 .rounded(px(6.0))
                 .border_1()
@@ -173,21 +182,34 @@ fn group_title(title: impl Into<SharedString>) -> gpui::Div {
         .child(title.into())
 }
 
+fn prompt_area(
+    placeholder: &str,
+    initial: &str,
+    cx: &mut Context<SettingsPage>,
+) -> Entity<TextArea> {
+    cx.new(|cx| {
+        TextArea::new(cx)
+            .with_placeholder(placeholder.to_string())
+            .with_value(initial)
+            .with_line_numbers()
+    })
+}
+
 impl SettingsPage {
     pub fn new(stores: Stores, cx: &mut Context<Self>) -> Self {
         let initial = stores.prefs.read(cx).prefs.claude_command.clone();
         let claude_input = cx.new(|cx| TextInput::new("claude", cx).with_value(initial));
         let initial = stores.prefs.read(cx).prefs.doc_prompt.clone();
-        let doc_prompt_input =
-            cx.new(|cx| TextInput::new(DEFAULT_DOC_PROMPT, cx).with_value(initial));
+        let doc_prompt_input = prompt_area(DEFAULT_DOC_PROMPT, &initial, cx);
         let initial = stores.prefs.read(cx).prefs.issue_prompt.clone();
-        let issue_prompt_input =
-            cx.new(|cx| TextInput::new(DEFAULT_ISSUE_PROMPT, cx).with_value(initial));
+        let issue_prompt_input = prompt_area(DEFAULT_ISSUE_PROMPT, &initial, cx);
         let initial = stores.prefs.read(cx).prefs.workflow_allowed_tools.clone();
-        let tools_input =
-            cx.new(|cx| TextInput::new(DEFAULT_WORKFLOW_TOOLS, cx).with_value(initial));
+        let tools_input = prompt_area(DEFAULT_WORKFLOW_TOOLS, &initial, cx);
         let subs = vec![
             cx.observe(&stores.prefs, |_, _, cx| cx.notify()),
+            cx.observe(&doc_prompt_input, |_, _, cx| cx.notify()),
+            cx.observe(&issue_prompt_input, |_, _, cx| cx.notify()),
+            cx.observe(&tools_input, |_, _, cx| cx.notify()),
             cx.observe(&stores.projects, |_, _, cx| cx.notify()),
             cx.observe(&stores.selfbuild, |_, _, cx| cx.notify()),
             cx.subscribe(&claude_input, |this, input, ev: &TextInputEvent, cx| {
@@ -198,16 +220,16 @@ impl SettingsPage {
                         .update(cx, |p, cx| p.update(cx, |p| p.claude_command = value));
                 }
             }),
-            cx.subscribe(&tools_input, |this, input, ev: &TextInputEvent, cx| {
-                if matches!(ev, TextInputEvent::Changed) {
+            cx.subscribe(&tools_input, |this, input, ev: &TextAreaEvent, cx| {
+                if matches!(ev, TextAreaEvent::Changed) {
                     let value = input.read(cx).value().to_string();
                     this.stores.prefs.update(cx, |p, cx| {
                         p.update(cx, |p| p.workflow_allowed_tools = value)
                     });
                 }
             }),
-            cx.subscribe(&doc_prompt_input, |this, input, ev: &TextInputEvent, cx| {
-                if matches!(ev, TextInputEvent::Changed) {
+            cx.subscribe(&doc_prompt_input, |this, input, ev: &TextAreaEvent, cx| {
+                if matches!(ev, TextAreaEvent::Changed) {
                     let value = input.read(cx).value().to_string();
                     this.stores
                         .prefs
@@ -216,8 +238,8 @@ impl SettingsPage {
             }),
             cx.subscribe(
                 &issue_prompt_input,
-                |this, input, ev: &TextInputEvent, cx| {
-                    if matches!(ev, TextInputEvent::Changed) {
+                |this, input, ev: &TextAreaEvent, cx| {
+                    if matches!(ev, TextAreaEvent::Changed) {
                         let value = input.read(cx).value().to_string();
                         this.stores
                             .prefs
@@ -291,13 +313,14 @@ impl SettingsPage {
                 t("settings.claude.title"),
                 Some(t("settings.claude.hint").into()),
                 self.claude_input.clone(),
+                FIELD_H,
                 None,
             ),
         ])
         .into_any_element()
     }
 
-    fn sessions_tab(&self, prefs: &crate::state::prefs::Prefs) -> AnyElement {
+    fn sessions_tab(&self, prefs: &crate::state::prefs::Prefs, cx: &gpui::App) -> AnyElement {
         let stores = self.stores.clone();
         let set = move |change: fn(&mut crate::state::prefs::Prefs, bool)| {
             let stores = stores.clone();
@@ -343,6 +366,7 @@ impl SettingsPage {
                 t("settings.sessions.doc_prompt_title"),
                 Some(t("settings.sessions.doc_prompt").into()),
                 self.doc_prompt_input.clone(),
+                area_height(&self.doc_prompt_input, cx),
                 Some(
                     checkbox(
                         "pref-send-doc",
@@ -357,6 +381,7 @@ impl SettingsPage {
                 t("settings.sessions.issue_prompt_title"),
                 Some(t("settings.sessions.issue_prompt").into()),
                 self.issue_prompt_input.clone(),
+                area_height(&self.issue_prompt_input, cx),
                 Some(
                     checkbox(
                         "pref-send-issue",
@@ -371,6 +396,7 @@ impl SettingsPage {
                 t("settings.sessions.tools_title"),
                 Some(t("settings.sessions.tools").into()),
                 self.tools_input.clone(),
+                area_height(&self.tools_input, cx),
                 None,
             ),
             checkbox(
@@ -580,7 +606,7 @@ impl Render for SettingsPage {
 
         let content = match tab {
             SettingsTab::General => self.general_tab(&prefs),
-            SettingsTab::Sessions => self.sessions_tab(&prefs),
+            SettingsTab::Sessions => self.sessions_tab(&prefs, cx),
             SettingsTab::Projects => self.projects_tab(cx),
             SettingsTab::Terminal => self.terminal_tab(prefs.terminal_font_size),
             SettingsTab::Data => self.data_tab(cx),
