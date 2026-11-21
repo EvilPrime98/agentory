@@ -301,10 +301,15 @@ impl OfficePage {
             div()
                 .id(gpui::SharedString::from(format!("pr-{}", pr.number)))
                 .flex()
+                .items_center()
                 .gap(px(8.0))
+                .px(px(6.0))
+                .py(px(3.0))
+                .rounded(px(4.0))
                 .text_size(px(12.0))
                 .text_color(theme::text())
                 .cursor_pointer()
+                .hover(|d| d.bg(theme::hover_soft()))
                 .on_click(move |_, _, cx| cx.open_url(&url))
                 .child(
                     div()
@@ -317,15 +322,16 @@ impl OfficePage {
             .flex_none()
             .flex()
             .flex_col()
-            .gap(px(4.0))
+            .gap(px(2.0))
             .px(px(24.0))
-            .py(px(10.0))
+            .py(px(12.0))
             .border_t_1()
             .border_color(theme::border_subtle())
             .child(
                 div()
+                    .pb(px(4.0))
                     .text_size(px(11.0))
-                    .text_color(theme::text_faint())
+                    .text_color(theme::text_muted())
                     .child(crate::i18n::t_args(
                         "office.done",
                         &[("count", &self.prs.len().to_string())],
@@ -561,10 +567,14 @@ impl OfficePage {
             });
             div()
                 .flex()
+                .items_center()
                 .gap(px(8.0))
+                .px(px(6.0))
+                .py(px(3.0))
+                .rounded(px(4.0))
                 .text_size(px(12.0))
                 .text_color(color)
-                .child(mark)
+                .child(div().flex_none().w(px(12.0)).child(mark))
                 .child(
                     div()
                         .flex_1()
@@ -572,21 +582,24 @@ impl OfficePage {
                         .truncate()
                         .child(task.title.clone()),
                 )
-                .children(who.map(|w| div().text_color(theme::text_faint()).child(w)))
+                .children(
+                    who.map(|w| div().flex_none().text_color(theme::text_faint()).child(w)),
+                )
         });
         div()
             .flex_none()
             .flex()
             .flex_col()
-            .gap(px(4.0))
+            .gap(px(2.0))
             .px(px(24.0))
-            .py(px(10.0))
+            .py(px(12.0))
             .border_t_1()
             .border_color(theme::border_subtle())
             .child(
                 div()
+                    .pb(px(4.0))
                     .text_size(px(11.0))
-                    .text_color(theme::text_faint())
+                    .text_color(theme::text_muted())
                     .child(crate::i18n::t_args(
                         "office.board",
                         &[
@@ -596,6 +609,15 @@ impl OfficePage {
                     )),
             )
             .children(rows)
+            .when(shown.is_empty(), |d| {
+                d.child(
+                    div()
+                        .px(px(6.0))
+                        .text_size(px(12.0))
+                        .text_color(theme::text_faint())
+                        .child(t("office.board_empty")),
+                )
+            })
             .into_any_element()
     }
 
@@ -781,7 +803,7 @@ impl OfficePage {
             .items_center()
             .gap(px(16.0))
             .px(px(24.0))
-            .py(px(10.0))
+            .py(px(12.0))
             .border_b_1()
             .border_color(theme::border_subtle())
             .when(busy, |d| d.opacity(0.7))
@@ -811,9 +833,11 @@ impl OfficePage {
                     .flex()
                     .flex_col()
                     .gap(px(6.0))
+                    .flex_1()
                     .min_w_0()
                     .child(
                         div()
+                            .self_start()
                             .px(px(8.0))
                             .py(px(2.0))
                             .rounded(px(4.0))
@@ -849,25 +873,35 @@ impl OfficePage {
     fn foreman_pick(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let heading = |key: &str| {
             div()
+                .pt(px(8.0))
+                .pb(px(2.0))
+                .px(px(6.0))
                 .text_size(px(11.0))
-                .text_color(theme::text_faint())
+                .text_color(theme::text_muted())
                 .child(t(key))
         };
         let note = |key: &str| {
             div()
+                .px(px(6.0))
+                .py(px(2.0))
                 .text_size(px(12.0))
-                .text_color(theme::text_muted())
+                .text_color(theme::text_faint())
                 .child(t(key))
         };
         let row = |id: gpui::SharedString, number: String, name: String| {
             div()
                 .id(id)
                 .flex()
+                .items_center()
                 .gap(px(8.0))
+                .px(px(6.0))
+                .py(px(4.0))
+                .rounded(px(4.0))
                 .text_size(px(12.0))
                 .text_color(theme::text())
                 .cursor_pointer()
-                .child(div().text_color(theme::text_faint()).child(number))
+                .hover(|d| d.bg(theme::hover_soft()))
+                .child(div().flex_none().text_color(theme::text_faint()).child(number))
                 .child(div().flex_1().min_w_0().truncate().child(name))
         };
         let root = self.stores.projects.read(cx).path_of(&self.project_id);
@@ -875,7 +909,7 @@ impl OfficePage {
             .id("foreman-pick")
             .flex()
             .flex_col()
-            .gap(px(6.0))
+            .gap(px(2.0))
             .p(px(10.0))
             .overflow_y_scroll()
             .child(heading("office.foreman.pick_issue"));
@@ -939,7 +973,13 @@ impl OfficePage {
             .children(self.drafts().map(|task| {
                 div()
                     .flex()
+                    .items_start()
                     .gap(px(8.0))
+                    .px(px(8.0))
+                    .py(px(6.0))
+                    .rounded(px(4.0))
+                    .border_1()
+                    .border_color(theme::border_subtle())
                     .text_size(px(12.0))
                     .text_color(theme::text())
                     .child(div().flex_1().min_w_0().child(task.title.clone()))
@@ -1025,15 +1065,15 @@ impl OfficePage {
             .flex_none()
             .flex()
             .flex_col()
-            .gap(px(6.0))
+            .gap(px(8.0))
             .px(px(24.0))
-            .py(px(10.0))
+            .py(px(12.0))
             .border_t_1()
             .border_color(theme::border_subtle())
             .child(
                 div()
                     .text_size(px(11.0))
-                    .text_color(theme::text_faint())
+                    .text_color(theme::text_muted())
                     .child(t("office.skills_hint")),
             )
             .child(
@@ -1185,9 +1225,17 @@ impl OfficePage {
             .id("office-activity")
             .flex()
             .flex_col()
-            .gap(px(6.0))
+            .gap(px(8.0))
             .p(px(10.0))
             .overflow_y_scroll()
+            .when(lines.is_empty(), |d| {
+                d.child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(theme::text_faint())
+                        .child(t("office.activity_empty")),
+                )
+            })
             .children(lines.into_iter().map(|line| {
                 let (tag, text) = match line {
                     Line::User(s) => (t("office.line.you"), s.clone()),
@@ -1281,6 +1329,7 @@ impl OfficePage {
                     )
                     .child(
                         div()
+                            .flex_1()
                             .min_w_0()
                             .text_size(px(14.0))
                             .text_color(theme::text())
@@ -1289,6 +1338,7 @@ impl OfficePage {
                     )
                     .child(
                         div()
+                            .flex_none()
                             .text_size(px(11.5))
                             .text_color(theme::text_muted())
                             .child(Self::status_label(seat.status)),
@@ -1297,6 +1347,11 @@ impl OfficePage {
             .when(seat.status == SessionStatus::NeedsInput, |d| {
                 d.child(
                     div()
+                        .px(px(10.0))
+                        .py(px(8.0))
+                        .rounded(px(4.0))
+                        .border_1()
+                        .border_color(theme::warning())
                         .text_size(px(12.0))
                         .text_color(theme::warning())
                         .child(t("office.needs_input_hint")),
