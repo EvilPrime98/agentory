@@ -19,6 +19,9 @@ use crate::state::Stores;
 use crate::state::sessions::SessionKind;
 use crate::ui::toast;
 
+/// Session ids of foremen start with this, which tells them apart from workers.
+pub const FOREMAN_PREFIX: &str = "foreman-";
+
 const TICK: Duration = Duration::from_secs(2);
 
 struct Worker {
@@ -63,6 +66,13 @@ pub fn worker_prompt(task: &tasks::Task) -> String {
     )
 }
 
+/// The startup prompt of a foreman. `input` is a markdown file with the issue or document to plan.
+pub fn foreman_prompt(input: &str) -> String {
+    format!(
+        "You are the foreman of the project task board. Read {input} and plan the work in it. Break it into independent tasks: none may depend on another or need another's result. For each task run `agentory tasks post TITLE --body TEXT --draft`, and add --write when the task changes files (each write task becomes its own PR into dev); leave it out for read-only tasks. Do not do the work yourself. Then run `agentory tasks headcount N` with how many workers should run in parallel, never more than the number of tasks. Run headcount last, then stop.\r"
+    )
+}
+
 /// Pushes the task's branch and opens a PR into `dev`. The local branch is deleted only once the
 /// PR exists; on any failure it stays, so the work is not lost.
 async fn publish_pr(repo: &Path, branch: &str, task: &tasks::Task) -> Result<(), String> {
@@ -93,18 +103,45 @@ impl Dispatcher {
             .cloned()
             .collect();
         self.reap(stores, &projects, cx);
+        Self::reap_foremen(stores, &projects, cx);
         let cap = stores.prefs.read(cx).prefs.max_workers as usize;
         for project in projects {
             if self.workers.len() >= cap {
                 break;
             }
-            for task in tasks::load(&project.path) {
-                if self.workers.len() >= cap {
+            let board = tasks::load(&project.path);
+            let limit = tasks::worker_limit(cap, &tasks::load_plan(&project.path), &board);
+            for task in board {
+                let mine = self
+                    .workers
+                    .values()
+                    .filter(|w| w.project.id == project.id)
+                    .count();
+                if self.workers.len() >= cap || mine >= limit {
                     break;
                 }
                 if task.status == tasks::TaskStatus::Open && !self.failed.contains(&task.id) {
                     self.start(stores, &project, task, cx);
                 }
+            }
+        }
+    }
+
+    /// Closes a foreman once it recorded its headcount (its last step) or its session died, so
+    /// the desk is free again.
+    fn reap_foremen(stores: &Stores, projects: &[Project], cx: &mut Context<Self>) {
+        for project in projects {
+            let proposed = tasks::load_plan(&project.path).headcount.is_some();
+            let done: Vec<String> = stores
+                .sessions
+                .read(cx)
+                .agents(&project.id)
+                .filter(|s| s.id.starts_with(FOREMAN_PREFIX))
+                .filter(|s| proposed || s.status == SessionStatus::Exited)
+                .map(|s| s.id.clone())
+                .collect();
+            for sid in done {
+                stores.sessions.update(cx, |s, cx| s.close(&sid, cx));
             }
         }
     }
@@ -265,6 +302,13 @@ impl Dispatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn foreman_prompt_names_the_input_and_submits() {
+        let p = foreman_prompt("C:/tmp/plan.md");
+        assert!(p.contains("C:/tmp/plan.md") && p.contains("--draft") && p.contains("headcount"));
+        assert!(p.ends_with('\r') && !p.contains('\n'));
+    }
 
     #[test]
     fn prompt_names_the_task_and_submits() {

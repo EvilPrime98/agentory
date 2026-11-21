@@ -3,7 +3,7 @@
 //! Clicking a worker opens a side panel to steer that session.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -16,18 +16,20 @@ use gpui::{
 use super::office_art::{self, Action, CELL_H, CELL_W, LABEL_Y, WorkerView};
 use crate::backend::gh;
 use crate::backend::spm::store::parse_skill;
-use crate::backend::tasks::{self, Task, TaskStatus};
+use crate::backend::tasks::{self, Plan, Task, TaskStatus};
 use crate::backend::transcripts::{ChatItem, Tail};
-use crate::i18n::t;
-use crate::model::SessionStatus;
+use crate::i18n::{t, t_args};
+use crate::model::{SessionStatus, new_id};
 use crate::route::{Navigate, Route};
 use crate::runtime;
+use crate::state::dispatch::{FOREMAN_PREFIX, foreman_prompt};
+use crate::state::sessions::SessionKind;
 use crate::state::{Stores, sessions};
 use crate::ui::components::button::{ButtonVariant, button};
 use crate::ui::components::scrollbar::Scrollbar;
 use crate::ui::components::text_input::{TextInput, TextInputEvent};
 use crate::ui::shell::sidebar::status_color;
-use crate::ui::theme;
+use crate::ui::{theme, toast};
 
 /// Fixed animation timestep (8 frames per second: it is pixel art).
 const FRAME: Duration = Duration::from_millis(125);
@@ -77,6 +79,26 @@ fn skill_prompt(name: &str, description: &str, hint: &str) -> String {
     format!(
         "The user dropped the skill /{name} on you. Description: {description}.{hint}          Judge whether it fits what you are doing and this project. If it fits, run /{name}.          If it does not, say why and do not run it. If it fits but needs a flag or argument          you were not given (for example --apply), ask permission first."
     )
+}
+
+/// The markdown files a foreman can plan from: those in the project root and in `docs/`.
+fn markdown_files(root: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    for dir in [root.to_path_buf(), root.join("docs")] {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for path in entries.flatten().map(|e| e.path()) {
+            let md = path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("md"));
+            if md && path.is_file() {
+                found.push(path);
+            }
+        }
+    }
+    found.sort();
+    found
 }
 
 enum Line {
@@ -152,7 +174,24 @@ struct Seat {
     cwd: PathBuf,
 }
 
+/// What the right-hand panel shows for the foreman.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ForemanPanel {
+    /// Choose the issue or document to plan.
+    Pick,
+    /// Review the draft tasks, then approve or reject them.
+    Review,
+}
+
 pub struct OfficePage {
+    foreman_bar: Scrollbar,
+    foreman: Option<ForemanPanel>,
+    plan: Plan,
+    /// The user's headcount; the proposal is used until it is changed.
+    headcount: Option<u32>,
+    /// Open issues of the project; `None` while loading.
+    issues: Option<Vec<gh::IssueSummary>>,
+    docs: Vec<PathBuf>,
     scrollbar: Scrollbar,
     activity_bar: Scrollbar,
     stores: Stores,
@@ -192,6 +231,12 @@ impl OfficePage {
         })
         .detach();
         let mut this = Self {
+            foreman_bar: Scrollbar::new(),
+            foreman: None,
+            plan: Plan::default(),
+            headcount: None,
+            issues: None,
+            docs: Vec::new(),
             scrollbar: Scrollbar::new(),
             activity_bar: Scrollbar::new(),
             stores,
@@ -266,13 +311,7 @@ impl OfficePage {
                         .text_color(theme::text_faint())
                         .child(format!("#{}", pr.number)),
                 )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .child(pr.title.clone()),
-                )
+                .child(div().flex_1().min_w_0().truncate().child(pr.title.clone()))
         });
         div()
             .flex_none()
@@ -301,6 +340,7 @@ impl OfficePage {
             .sessions
             .read(cx)
             .agents(&self.project_id)
+            .filter(|s| !s.id.starts_with(FOREMAN_PREFIX))
             .map(|s| Seat {
                 id: s.id.clone(),
                 name: s.name.clone(),
@@ -402,6 +442,7 @@ impl OfficePage {
 
     fn select(&mut self, id: &str, cx: &mut Context<Self>) {
         self.selected = (self.selected.as_deref() != Some(id)).then(|| id.to_string());
+        self.foreman = None;
         self.input.update(cx, |i, cx| i.set_value("", cx));
         cx.notify();
     }
@@ -477,10 +518,16 @@ impl OfficePage {
             return;
         };
         cx.spawn(async move |this, cx| {
-            let loaded = runtime::run(async move { tasks::load(&root) }).await;
+            let (loaded, plan) =
+                runtime::run(async move { (tasks::load(&root), tasks::load_plan(&root)) }).await;
             this.update(cx, |this, cx| {
-                if this.tasks != loaded {
+                if this.tasks != loaded || this.plan != plan {
                     this.tasks = loaded;
+                    this.plan = plan;
+                    if this.foreman == Some(ForemanPanel::Review) && this.drafts().next().is_none()
+                    {
+                        this.foreman = None;
+                    }
                     cx.notify();
                 }
             })
@@ -490,13 +537,18 @@ impl OfficePage {
     }
 
     fn board(&self, seats: &[Seat]) -> gpui::AnyElement {
-        let open = self
+        let shown: Vec<&Task> = self
             .tasks
+            .iter()
+            .filter(|t| t.status != TaskStatus::Draft)
+            .collect();
+        let open = shown
             .iter()
             .filter(|t| t.status == TaskStatus::Open)
             .count();
-        let rows = self.tasks.iter().rev().take(BOARD_SHOWN).map(|task| {
+        let rows = shown.iter().rev().take(BOARD_SHOWN).map(|task| {
             let (mark, color) = match task.status {
+                TaskStatus::Draft => ("◌", theme::text_faint()),
                 TaskStatus::Open => ("○", theme::text_muted()),
                 TaskStatus::Claimed => ("●", theme::text()),
                 TaskStatus::Done => ("✓", theme::text_faint()),
@@ -539,11 +591,423 @@ impl OfficePage {
                         "office.board",
                         &[
                             ("open", &open.to_string()),
-                            ("total", &self.tasks.len().to_string()),
+                            ("total", &shown.len().to_string()),
                         ],
                     )),
             )
             .children(rows)
+            .into_any_element()
+    }
+
+    fn drafts(&self) -> impl Iterator<Item = &Task> {
+        self.tasks.iter().filter(|t| t.status == TaskStatus::Draft)
+    }
+
+    /// The status of the foreman's session, while one is running.
+    fn foreman_status(&self, cx: &Context<Self>) -> Option<SessionStatus> {
+        self.stores
+            .sessions
+            .read(cx)
+            .agents(&self.project_id)
+            .find(|s| s.id.starts_with(FOREMAN_PREFIX))
+            .map(|s| s.status)
+    }
+
+    fn worker_cap(&self, cx: &Context<Self>) -> u32 {
+        self.stores.prefs.read(cx).prefs.max_workers.max(1)
+    }
+
+    fn headcount(&self, cap: u32) -> u32 {
+        let proposed = tasks::proposed_headcount(cap, &self.plan, &self.tasks);
+        self.headcount.unwrap_or(proposed).clamp(1, cap)
+    }
+
+    fn step_headcount(&mut self, delta: i32, cx: &mut Context<Self>) {
+        let cap = self.worker_cap(cx);
+        let next = (self.headcount(cap) as i32 + delta).clamp(1, cap as i32);
+        self.headcount = Some(next as u32);
+        cx.notify();
+    }
+
+    fn click_desk(&mut self, cx: &mut Context<Self>) {
+        if self.foreman_status(cx).is_some() {
+            return;
+        }
+        self.selected = None;
+        if self.foreman.take().is_some() {
+            cx.notify();
+            return;
+        }
+        if self.drafts().next().is_some() {
+            self.foreman = Some(ForemanPanel::Review);
+        } else {
+            self.foreman = Some(ForemanPanel::Pick);
+            self.open_picker(cx);
+        }
+        cx.notify();
+    }
+
+    fn open_picker(&mut self, cx: &mut Context<Self>) {
+        let Some(root) = self.stores.projects.read(cx).path_of(&self.project_id) else {
+            return;
+        };
+        self.docs = markdown_files(&root);
+        self.issues = None;
+        cx.spawn(async move |this, cx| {
+            let issues = runtime::run(async move {
+                if gh::setup(&root).await != gh::Setup::Ready {
+                    return Vec::new();
+                }
+                gh::issue_list(&root)
+                    .await
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|i| i.state == "OPEN")
+                    .collect::<Vec<_>>()
+            })
+            .await;
+            this.update(cx, |this, cx| {
+                this.issues = Some(issues);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Starts a foreman that plans the work in the markdown file at `input`.
+    fn start_foreman(&mut self, input: &Path, cx: &mut Context<Self>) {
+        let Some(project) = self.stores.projects.read(cx).get(&self.project_id).cloned() else {
+            return;
+        };
+        if let Err(e) = tasks::clear_plan(&project.path) {
+            toast::error(
+                cx,
+                t_args("office.foreman.failed", &[("error", &format!("{e:?}"))]),
+            );
+            return;
+        }
+        let prefs = self.stores.prefs.read(cx).prefs.clone();
+        let prompt = foreman_prompt(&input.to_string_lossy());
+        let sid = new_id(FOREMAN_PREFIX);
+        let started = self.stores.sessions.update(cx, |s, cx| {
+            s.start(
+                &project,
+                sid,
+                None,
+                SessionKind::Agent,
+                &prefs,
+                Some(prompt),
+                cx,
+            )
+        });
+        match started {
+            Ok(()) => {
+                self.foreman = None;
+                self.headcount = None;
+            }
+            Err(e) => toast::error(cx, t_args("office.foreman.failed", &[("error", &e)])),
+        }
+        cx.notify();
+    }
+
+    fn plan_issue(&mut self, number: u64, cx: &mut Context<Self>) {
+        let Some(root) = self.stores.projects.read(cx).path_of(&self.project_id) else {
+            return;
+        };
+        let project_id = self.project_id.clone();
+        cx.spawn(async move |this, cx| {
+            let written = runtime::run(async move {
+                let issue = gh::issue_view(&root, number).await?;
+                let dir = std::env::temp_dir().join("agentory").join("foreman");
+                std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                let path = dir.join(format!("{project_id}-{number}.md"));
+                let text = format!("# {} (#{})\n\n{}\n", issue.title, issue.number, issue.body);
+                std::fs::write(&path, text).map_err(|e| e.to_string())?;
+                Ok::<_, String>(path)
+            })
+            .await;
+            this.update(cx, |this, cx| match written {
+                Ok(path) => this.start_foreman(&path, cx),
+                Err(e) => toast::error(cx, t_args("office.foreman.failed", &[("error", &e)])),
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Ends the review: the drafts are opened (`approve`) or deleted.
+    fn resolve_plan(&mut self, approve: bool, cx: &mut Context<Self>) {
+        let Some(root) = self.stores.projects.read(cx).path_of(&self.project_id) else {
+            return;
+        };
+        let done = if approve {
+            let n = self.headcount(self.worker_cap(cx));
+            tasks::approve(&root, n).map(|_| ())
+        } else {
+            tasks::discard(&root).map(|_| ())
+        };
+        if let Err(e) = done {
+            toast::error(cx, format!("{e:?}"));
+            return;
+        }
+        self.tasks = tasks::load(&root);
+        self.plan = tasks::load_plan(&root);
+        self.foreman = None;
+        self.headcount = None;
+        cx.notify();
+    }
+
+    fn foreman_desk(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let status = self.foreman_status(cx);
+        let busy = status.is_some();
+        let drafts = self.drafts().count();
+        let label = if busy {
+            t("office.foreman.drafting")
+        } else if drafts > 0 {
+            t_args("office.foreman.review", &[("count", &drafts.to_string())])
+        } else {
+            t("office.foreman.idle")
+        };
+        let view = WorkerView {
+            action: Action::of(status.unwrap_or(SessionStatus::Idle), None),
+            context_pct: 0.0,
+        };
+        let frame = self.frame;
+        div()
+            .id("foreman-desk")
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(16.0))
+            .px(px(24.0))
+            .py(px(10.0))
+            .border_b_1()
+            .border_color(theme::border_subtle())
+            .when(busy, |d| d.opacity(0.7))
+            .when(!busy, |d| {
+                d.cursor_pointer()
+                    .on_click(cx.listener(|this, _, _, cx| this.click_desk(cx)))
+            })
+            .child(
+                div()
+                    .relative()
+                    .flex_none()
+                    .w(px(CELL_W))
+                    .h(px(CELL_H))
+                    .child(
+                        canvas(
+                            |_, _, _| (),
+                            move |bounds, _, window, _| {
+                                office_art::paint_scene(window, bounds.origin, 1, &[view], frame);
+                            },
+                        )
+                        .absolute()
+                        .size_full(),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.0))
+                    .min_w_0()
+                    .child(
+                        div()
+                            .px(px(8.0))
+                            .py(px(2.0))
+                            .rounded(px(4.0))
+                            .border_1()
+                            .border_color(theme::accent())
+                            .text_size(px(11.0))
+                            .text_color(theme::accent())
+                            .child(t("office.foreman.title")),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.0))
+                            .text_color(theme::text_muted())
+                            .child(label),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    fn foreman_shell() -> gpui::Div {
+        div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .w(px(PANEL_W))
+            .h_full()
+            .gap(px(10.0))
+            .p(px(14.0))
+            .border_l_1()
+            .border_color(theme::border_subtle())
+    }
+
+    fn foreman_pick(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let heading = |key: &str| {
+            div()
+                .text_size(px(11.0))
+                .text_color(theme::text_faint())
+                .child(t(key))
+        };
+        let note = |key: &str| {
+            div()
+                .text_size(px(12.0))
+                .text_color(theme::text_muted())
+                .child(t(key))
+        };
+        let row = |id: gpui::SharedString, number: String, name: String| {
+            div()
+                .id(id)
+                .flex()
+                .gap(px(8.0))
+                .text_size(px(12.0))
+                .text_color(theme::text())
+                .cursor_pointer()
+                .child(div().text_color(theme::text_faint()).child(number))
+                .child(div().flex_1().min_w_0().truncate().child(name))
+        };
+        let root = self.stores.projects.read(cx).path_of(&self.project_id);
+        let mut list = div()
+            .id("foreman-pick")
+            .flex()
+            .flex_col()
+            .gap(px(6.0))
+            .p(px(10.0))
+            .overflow_y_scroll()
+            .child(heading("office.foreman.pick_issue"));
+        match &self.issues {
+            None => list = list.child(note("office.foreman.loading")),
+            Some(issues) if issues.is_empty() => {
+                list = list.child(note("office.foreman.no_issues"));
+            }
+            Some(issues) => {
+                for issue in issues {
+                    let number = issue.number;
+                    list = list.child(
+                        row(
+                            format!("foreman-issue-{number}").into(),
+                            format!("#{number}"),
+                            issue.title.clone(),
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| this.plan_issue(number, cx))),
+                    );
+                }
+            }
+        }
+        list = list.child(heading("office.foreman.pick_doc"));
+        if self.docs.is_empty() {
+            list = list.child(note("office.foreman.no_docs"));
+        }
+        for (i, doc) in self.docs.iter().enumerate() {
+            let shown = root
+                .as_deref()
+                .and_then(|r| doc.strip_prefix(r).ok())
+                .unwrap_or(doc)
+                .to_string_lossy()
+                .into_owned();
+            let doc = doc.clone();
+            list = list.child(
+                row(format!("foreman-doc-{i}").into(), "▤".into(), shown)
+                    .on_click(cx.listener(move |this, _, _, cx| this.start_foreman(&doc, cx))),
+            );
+        }
+        Self::foreman_shell()
+            .child(
+                div()
+                    .text_size(px(14.0))
+                    .text_color(theme::text())
+                    .child(t("office.foreman.title")),
+            )
+            .child(self.foreman_bar.overlay(list))
+            .into_any_element()
+    }
+
+    fn foreman_review(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let cap = self.worker_cap(cx);
+        let count = self.headcount(cap);
+        let list = div()
+            .id("foreman-drafts")
+            .flex()
+            .flex_col()
+            .gap(px(8.0))
+            .p(px(10.0))
+            .overflow_y_scroll()
+            .children(self.drafts().map(|task| {
+                div()
+                    .flex()
+                    .gap(px(8.0))
+                    .text_size(px(12.0))
+                    .text_color(theme::text())
+                    .child(div().flex_1().min_w_0().child(task.title.clone()))
+                    .child(div().flex_none().text_color(theme::text_faint()).child(t(
+                        if task.write {
+                            "office.foreman.write"
+                        } else {
+                            "office.foreman.read"
+                        },
+                    )))
+            }));
+        let stepper = div()
+            .flex()
+            .items_center()
+            .gap(px(8.0))
+            .child(
+                div()
+                    .flex_1()
+                    .text_size(px(12.0))
+                    .text_color(theme::text_muted())
+                    .child(t("office.foreman.workers")),
+            )
+            .child(button(
+                "foreman-fewer",
+                "−",
+                ButtonVariant::Secondary,
+                cx.listener(|this, _, _, cx| this.step_headcount(-1, cx)),
+            ))
+            .child(
+                div()
+                    .w(px(20.0))
+                    .flex()
+                    .justify_center()
+                    .text_size(px(13.0))
+                    .text_color(theme::text())
+                    .child(count.to_string()),
+            )
+            .child(button(
+                "foreman-more",
+                "+",
+                ButtonVariant::Secondary,
+                cx.listener(|this, _, _, cx| this.step_headcount(1, cx)),
+            ));
+        let actions = div()
+            .flex()
+            .gap(px(8.0))
+            .child(button(
+                "foreman-approve",
+                t("office.foreman.approve"),
+                ButtonVariant::Classic,
+                cx.listener(|this, _, _, cx| this.resolve_plan(true, cx)),
+            ))
+            .child(button(
+                "foreman-reject",
+                t("office.foreman.reject"),
+                ButtonVariant::Secondary,
+                cx.listener(|this, _, _, cx| this.resolve_plan(false, cx)),
+            ));
+        Self::foreman_shell()
+            .child(
+                div()
+                    .text_size(px(14.0))
+                    .text_color(theme::text())
+                    .child(t("office.foreman.plan")),
+            )
+            .child(self.foreman_bar.overlay(list))
+            .child(stepper)
+            .child(actions)
             .into_any_element()
     }
 
@@ -864,10 +1328,13 @@ impl Render for OfficePage {
             .selected
             .as_ref()
             .and_then(|id| seats.iter().find(|s| &s.id == id));
-        let panel = match selected {
-            Some(s) => Some(self.panel(s, cx)),
-            None => None,
+        let panel = match (self.foreman, selected) {
+            (Some(ForemanPanel::Pick), _) => Some(self.foreman_pick(cx)),
+            (Some(ForemanPanel::Review), _) => Some(self.foreman_review(cx)),
+            (None, Some(s)) => Some(self.panel(s, cx)),
+            (None, None) => None,
         };
+        let desk = self.foreman_desk(cx);
 
         let body = if seats.is_empty() {
             div()
@@ -910,8 +1377,12 @@ impl Render for OfficePage {
                     .flex_1()
                     .min_w_0()
                     .min_h_0()
+                    .child(desk)
                     .child(body)
-                    .when(!self.tasks.is_empty(), |d| d.child(self.board(&seats)))
+                    .when(
+                        self.tasks.iter().any(|t| t.status != TaskStatus::Draft),
+                        |d| d.child(self.board(&seats)),
+                    )
                     .when(!self.prs.is_empty(), |d| d.child(self.done_tray()))
                     .when(!seats.is_empty(), |d| d.child(self.skill_tray(cx))),
             )
