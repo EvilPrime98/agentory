@@ -3,7 +3,8 @@
     Build the Agentory Windows installer with Inno Setup.
 
 .DESCRIPTION
-    Mirrors packaging/stage.sh + the release workflow: builds the release binary, stages
+    Mirrors packaging/stage.sh + the release workflow: builds the release binary with the
+    `speech` feature (voice dictation) and stages it with the sherpa-onnx DLLs, stages
     dist\Agentory\, then compiles packaging\windows\agentory.iss with ISCC.
     Output: dist\Agentory-Setup-<version>.exe
 
@@ -61,7 +62,7 @@ if (-not $SkipBuild) {
     Write-Host '==> cargo build --release'
     Push-Location $Root
     try {
-        cargo build --release --locked
+        cargo build --release --locked --features speech
         if ($LASTEXITCODE -ne 0) { throw "cargo build failed ($LASTEXITCODE)" }
         cargo build --release --locked -p agentory-helper
         if ($LASTEXITCODE -ne 0) { throw "helper build failed ($LASTEXITCODE)" }
@@ -78,6 +79,9 @@ Copy-Item $exe $Stage
 $helper = Join-Path $Root 'target\release\agentory-helper.exe'
 if (-not (Test-Path $helper)) { throw "$helper not found; run without -SkipBuild" }
 Copy-Item $helper $Stage
+$dlls = Get-ChildItem (Join-Path $Root 'target\release\*.dll')
+if (-not $dlls) { throw 'No sherpa-onnx DLLs in target\release; voice recognition needs a build with --features speech (run without -SkipBuild)' }
+Copy-Item $dlls.FullName $Stage
 Copy-Item (Join-Path $Root 'packaging\NOTICE.txt') (Join-Path $Stage 'NOTICE.txt')
 $license = Join-Path $Root 'LICENSE'
 if (Test-Path $license) { Copy-Item $license $Stage }
