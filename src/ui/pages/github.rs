@@ -41,6 +41,12 @@ enum PrView {
     Checks,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Picker {
+    Labels,
+    Assignees,
+}
+
 struct Failure {
     op: String,
     output: String,
@@ -72,6 +78,15 @@ pub struct GithubPage {
     diff_loaded: bool,
     diff_scroll: ScrollHandle,
     comment: Entity<TextArea>,
+    me: Option<String>,
+    editing_issue: bool,
+    edit_title: Entity<TextInput>,
+    edit_body: Entity<TextArea>,
+    editing_comment: Option<u64>,
+    edit_comment: Entity<TextArea>,
+    picker: Option<Picker>,
+    repo_labels: Vec<String>,
+    repo_users: Vec<String>,
     creating: bool,
     new_title: Entity<TextInput>,
     new_body: Entity<TextArea>,
@@ -126,7 +141,15 @@ impl GithubPage {
         let comment = cx.new(TextArea::new);
         let new_title = cx.new(|cx| TextInput::new(t("github.new.title_placeholder"), cx));
         let new_body = cx.new(TextArea::new);
+        let edit_title = cx.new(|cx| TextInput::new(t("github.new.title_placeholder"), cx));
+        let edit_body = cx.new(TextArea::new);
+        let edit_comment = cx.new(TextArea::new);
         let subs = vec![
+            cx.subscribe(&edit_title, |this, _, ev: &TextInputEvent, cx| match ev {
+                TextInputEvent::Submit => this.save_issue_edit(cx),
+                TextInputEvent::Cancel => this.cancel_issue_edit(cx),
+                TextInputEvent::Changed => {}
+            }),
             cx.subscribe(&new_title, |this, _, ev: &TextInputEvent, cx| match ev {
                 TextInputEvent::Submit => this.create(cx),
                 TextInputEvent::Cancel => this.close_create(cx),
@@ -159,6 +182,15 @@ impl GithubPage {
             diff_loaded: false,
             diff_scroll: ScrollHandle::new(),
             comment,
+            me: None,
+            editing_issue: false,
+            edit_title,
+            edit_body,
+            editing_comment: None,
+            edit_comment,
+            picker: None,
+            repo_labels: Vec::new(),
+            repo_users: Vec::new(),
             creating: false,
             new_title,
             new_body,
@@ -302,9 +334,142 @@ impl GithubPage {
         self.issue = Some(number);
         self.issue_detail = None;
         self.detail_error = None;
+        self.editing_issue = false;
+        self.editing_comment = None;
+        self.picker = None;
         self.clear_comment(cx);
         self.load_issue(cx);
         cx.notify();
+    }
+
+    fn load_me(&mut self, cx: &mut Context<Self>) {
+        let Some(dir) = self.dir(cx) else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let login = runtime::run(async move { gh::current_user(&dir).await }).await;
+            this.update(cx, |this, cx| {
+                if let Ok(login) = login {
+                    this.me = Some(login);
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn toggle_picker(&mut self, picker: Picker, cx: &mut Context<Self>) {
+        if self.picker == Some(picker) {
+            self.picker = None;
+            cx.notify();
+            return;
+        }
+        self.picker = Some(picker);
+        let loaded = match picker {
+            Picker::Labels => !self.repo_labels.is_empty(),
+            Picker::Assignees => !self.repo_users.is_empty(),
+        };
+        if !loaded && let Some(dir) = self.dir(cx) {
+            cx.spawn(async move |this, cx| {
+                let result = runtime::run(async move {
+                    match picker {
+                        Picker::Labels => gh::repo_labels(&dir).await,
+                        Picker::Assignees => gh::assignable_users(&dir).await,
+                    }
+                })
+                .await;
+                this.update(cx, |this, cx| {
+                    match result {
+                        Ok(v) => match picker {
+                            Picker::Labels => this.repo_labels = v,
+                            Picker::Assignees => this.repo_users = v,
+                        },
+                        Err(e) => {
+                            toast::error(cx, t_args("github.read_failed", &[("error", &e)]));
+                        }
+                    }
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+        }
+        cx.notify();
+    }
+
+    fn toggle_pick(&mut self, picker: Picker, name: String, on: bool, cx: &mut Context<Self>) {
+        let Some(number) = self.issue else {
+            return;
+        };
+        let label = t(match picker {
+            Picker::Labels => "github.labels",
+            Picker::Assignees => "github.assignees",
+        });
+        self.op(label, false, cx, move |dir| async move {
+            match picker {
+                Picker::Labels => gh::issue_label(&dir, number, &name, !on).await,
+                Picker::Assignees => gh::issue_assignee(&dir, number, &name, !on).await,
+            }
+        });
+    }
+
+    fn start_issue_edit(&mut self, cx: &mut Context<Self>) {
+        let Some(issue) = &self.issue_detail else {
+            return;
+        };
+        let (title, body) = (issue.title.clone(), issue.body.clone());
+        self.edit_title.update(cx, |i, cx| i.set_value(title, cx));
+        self.edit_body.update(cx, |b, cx| b.set_value(&body, cx));
+        self.editing_issue = true;
+        cx.notify();
+    }
+
+    fn cancel_issue_edit(&mut self, cx: &mut Context<Self>) {
+        self.editing_issue = false;
+        cx.notify();
+    }
+
+    fn save_issue_edit(&mut self, cx: &mut Context<Self>) {
+        let title = self.edit_title.read(cx).value().trim().to_string();
+        if title.is_empty() {
+            toast::error(cx, t("github.new.title_required"));
+            return;
+        }
+        let body = self.edit_body.read(cx).value();
+        let Some(number) = self.issue else {
+            return;
+        };
+        self.editing_issue = false;
+        self.op(t("github.edit"), false, cx, move |dir| async move {
+            gh::issue_edit(&dir, number, &title, &body).await
+        });
+    }
+
+    fn start_comment_edit(&mut self, id: u64, body: &str, cx: &mut Context<Self>) {
+        self.edit_comment.update(cx, |b, cx| b.set_value(body, cx));
+        self.editing_comment = Some(id);
+        cx.notify();
+    }
+
+    fn cancel_comment_edit(&mut self, cx: &mut Context<Self>) {
+        self.editing_comment = None;
+        cx.notify();
+    }
+
+    fn save_comment_edit(&mut self, cx: &mut Context<Self>) {
+        let Some(id) = self.editing_comment else {
+            return;
+        };
+        let body = self.edit_comment.read(cx).value().trim().to_string();
+        if body.is_empty() {
+            toast::error(cx, t("github.comment.empty"));
+            return;
+        }
+        self.editing_comment = None;
+        self.op(t("github.edit"), false, cx, move |dir| async move {
+            gh::comment_edit(&dir, id, &body).await
+        });
     }
 
     fn load_pr(&mut self, cx: &mut Context<Self>) {
@@ -346,6 +511,9 @@ impl GithubPage {
         let (Some(dir), Some(number)) = (self.dir(cx), self.issue) else {
             return;
         };
+        if self.me.is_none() {
+            self.load_me(cx);
+        }
         self.detail_gen += 1;
         let generation = self.detail_gen;
         cx.spawn(async move |this, cx| {
@@ -1317,6 +1485,169 @@ impl GithubPage {
             .into_any_element()
     }
 
+    fn edit_actions(
+        id: &'static str,
+        save: impl Fn(&mut Self, &mut Context<Self>) + 'static,
+        cancel: impl Fn(&mut Self, &mut Context<Self>) + 'static,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        div()
+            .flex()
+            .gap(px(8.0))
+            .child(button(
+                SharedString::from(format!("{id}-save")),
+                t("github.save"),
+                ButtonVariant::Classic,
+                cx.listener(move |this, _, _, cx| save(this, cx)),
+            ))
+            .child(button(
+                SharedString::from(format!("{id}-cancel")),
+                t("common.cancel"),
+                ButtonVariant::Secondary,
+                cx.listener(move |this, _, _, cx| cancel(this, cx)),
+            ))
+            .into_any_element()
+    }
+
+    fn issue_edit_form(&self, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .gap(px(8.0))
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .h(px(28.0))
+                    .rounded(px(4.0))
+                    .border_1()
+                    .border_color(theme::border_subtle())
+                    .px(px(8.0))
+                    .child(self.edit_title.clone()),
+            )
+            .child(
+                div()
+                    .flex()
+                    .h(px(160.0))
+                    .rounded(px(4.0))
+                    .border_1()
+                    .border_color(theme::border_subtle())
+                    .child(self.edit_body.clone()),
+            )
+            .child(Self::edit_actions(
+                "github-issue-edit",
+                Self::save_issue_edit,
+                Self::cancel_issue_edit,
+                cx,
+            ))
+            .into_any_element()
+    }
+
+    fn issue_comment_block(&self, c: &Comment, index: usize, cx: &mut Context<Self>) -> AnyElement {
+        let id = c.id();
+        let own = id.is_some() && self.me.as_deref() == Some(c.author.login.as_str());
+        let header = byline("github.commented", &c.author.login, &c.created_at);
+        let body = match id {
+            Some(id) if own && self.editing_comment == Some(id) => div()
+                .flex()
+                .flex_col()
+                .gap(px(8.0))
+                .child(
+                    div()
+                        .flex()
+                        .h(px(120.0))
+                        .rounded(px(4.0))
+                        .border_1()
+                        .border_color(theme::border_subtle())
+                        .child(self.edit_comment.clone()),
+                )
+                .child(Self::edit_actions(
+                    "github-comment-edit",
+                    Self::save_comment_edit,
+                    Self::cancel_comment_edit,
+                    cx,
+                ))
+                .into_any_element(),
+            Some(id) if own => {
+                let text = c.body.clone();
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_start()
+                    .gap(px(8.0))
+                    .text_size(px(12.5))
+                    .text_color(theme::text())
+                    .child(c.body.clone())
+                    .child(small_button(
+                        SharedString::from(format!("github-comment-edit-{index}")),
+                        t("github.edit"),
+                        cx.listener(move |this, _, _, cx| this.start_comment_edit(id, &text, cx)),
+                    ))
+                    .into_any_element()
+            }
+            _ => div()
+                .text_size(px(12.5))
+                .text_color(theme::text())
+                .child(c.body.clone())
+                .into_any_element(),
+        };
+        Self::card("github-comment", index, header, None, body)
+    }
+
+    fn picker_panel(&self, issue: &IssueDetail, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let picker = self.picker?;
+        let (options, selected, id): (&[String], Vec<&str>, &'static str) = match picker {
+            Picker::Labels => (
+                &self.repo_labels,
+                issue.labels.iter().map(|l| l.name.as_str()).collect(),
+                "github-label",
+            ),
+            Picker::Assignees => (
+                &self.repo_users,
+                issue.assignees.iter().map(|a| a.login.as_str()).collect(),
+                "github-assignee",
+            ),
+        };
+        let chips = options.iter().enumerate().map(|(i, name)| {
+            let on = selected.contains(&name.as_str());
+            let pick = name.clone();
+            div()
+                .id(SharedString::from(format!("{id}-{i}")))
+                .px(px(8.0))
+                .py(px(2.0))
+                .rounded(px(10.0))
+                .border_1()
+                .border_color(if on {
+                    theme::accent()
+                } else {
+                    theme::border_subtle()
+                })
+                .text_size(px(11.5))
+                .text_color(if on {
+                    theme::accent()
+                } else {
+                    theme::text_secondary()
+                })
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::hover()))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.toggle_pick(picker, pick.clone(), on, cx)
+                }))
+                .child(name.clone())
+        });
+        Some(
+            div()
+                .flex()
+                .flex_wrap()
+                .flex_none()
+                .gap(px(6.0))
+                .when(options.is_empty(), |s| s.child(muted_note(t("github.loading").into())))
+                .children(chips)
+                .into_any_element(),
+        )
+    }
+
     fn scroll_body(&self, id: &'static str, items: Vec<AnyElement>) -> AnyElement {
         self.detail_bar
             .overlay(
@@ -1350,22 +1681,45 @@ impl GithubPage {
                 cx.listener(|this, _, _, cx| this.send_issue_to_agent(cx)),
             )
             .into_any_element(),
+            small_button(
+                "github-edit-issue",
+                t("github.edit"),
+                cx.listener(|this, _, _, cx| this.start_issue_edit(cx)),
+            )
+            .into_any_element(),
+            small_button(
+                "github-pick-labels",
+                t("github.labels"),
+                cx.listener(|this, _, _, cx| this.toggle_picker(Picker::Labels, cx)),
+            )
+            .into_any_element(),
+            small_button(
+                "github-pick-assignees",
+                t("github.assignees"),
+                cx.listener(|this, _, _, cx| this.toggle_picker(Picker::Assignees, cx)),
+            )
+            .into_any_element(),
         ];
         let head = self.detail_head(number, &issue.title, &issue.state, false, actions);
-        let mut items: Vec<AnyElement> = vec![Self::body_block(
-            &issue.body,
-            &issue.author.login,
-            &issue.created_at,
-            None,
-        )];
+        let mut items: Vec<AnyElement> = Vec::new();
+        items.extend(self.picker_panel(issue, cx));
+        items.push(if self.editing_issue {
+            self.issue_edit_form(cx)
+        } else {
+            Self::body_block(&issue.body, &issue.author.login, &issue.created_at, None)
+        });
         items.extend(
             issue
                 .comments
                 .iter()
                 .enumerate()
-                .map(|(i, c)| Self::comment_block(c, i)),
+                .map(|(i, c)| self.issue_comment_block(c, i, cx)),
         );
-        items.push(self.comment_box(self.state_toggle(number, &issue.state, cx), cx));
+        if self.editing_issue || self.editing_comment.is_some() {
+            items.push(muted_note(t("github.editing_locked").into()).into_any_element());
+        } else {
+            items.push(self.comment_box(self.state_toggle(number, &issue.state, cx), cx));
+        }
         Self::panel()
             .gap(px(10.0))
             .p(px(12.0))
