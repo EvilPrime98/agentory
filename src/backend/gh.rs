@@ -40,6 +40,21 @@ pub struct Comment {
     pub body: String,
     #[serde(default)]
     pub created_at: String,
+    #[serde(default)]
+    pub url: String,
+}
+
+impl Comment {
+    /// REST id of the comment, taken from its `...#issuecomment-<id>` url.
+    pub fn id(&self) -> Option<u64> {
+        self.url.rsplit_once('-')?.1.parse().ok()
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct Label {
+    #[serde(default)]
+    pub name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -177,6 +192,10 @@ pub struct IssueDetail {
     pub url: String,
     #[serde(default)]
     pub comments: Vec<Comment>,
+    #[serde(default)]
+    pub labels: Vec<Label>,
+    #[serde(default)]
+    pub assignees: Vec<Author>,
 }
 
 fn parse<T: for<'de> Deserialize<'de>>(json: &str) -> Result<T, String> {
@@ -256,7 +275,7 @@ pub async fn issue_view(dir: &Path, number: u64) -> Result<IssueDetail, String> 
             "view",
             &n,
             "--json",
-            "number,title,state,body,createdAt,author,url,comments",
+            "number,title,state,body,createdAt,author,url,comments,labels,assignees",
         ],
         dir,
     )
@@ -379,6 +398,81 @@ pub async fn issue_comment(dir: &Path, number: u64, body: &str) -> Result<(), St
         &["issue", "comment", &number.to_string(), "--body", body],
     )
     .await
+}
+
+pub async fn issue_edit(dir: &Path, number: u64, title: &str, body: &str) -> Result<(), String> {
+    run(
+        dir,
+        &[
+            "issue",
+            "edit",
+            &number.to_string(),
+            "--title",
+            title,
+            "--body",
+            body,
+        ],
+    )
+    .await
+}
+
+pub async fn comment_edit(dir: &Path, id: u64, body: &str) -> Result<(), String> {
+    run(
+        dir,
+        &[
+            "api",
+            "-X",
+            "PATCH",
+            &format!("repos/{{owner}}/{{repo}}/issues/comments/{id}"),
+            "-f",
+            &format!("body={body}"),
+        ],
+    )
+    .await
+}
+
+pub async fn current_user(dir: &Path) -> Result<String, String> {
+    let out = capture("gh", &["api", "user", "--jq", ".login"], dir).await?;
+    Ok(out.trim().to_string())
+}
+
+pub async fn repo_labels(dir: &Path) -> Result<Vec<String>, String> {
+    let out = capture(
+        "gh",
+        &["label", "list", "--limit", "200", "--json", "name"],
+        dir,
+    )
+    .await?;
+    Ok(parse::<Vec<Label>>(&out)?
+        .into_iter()
+        .map(|l| l.name)
+        .collect())
+}
+
+pub async fn assignable_users(dir: &Path) -> Result<Vec<String>, String> {
+    let out = capture(
+        "gh",
+        &[
+            "api",
+            "--paginate",
+            "repos/{owner}/{repo}/assignees",
+            "--jq",
+            ".[].login",
+        ],
+        dir,
+    )
+    .await?;
+    Ok(out.lines().map(str::to_string).filter(|l| !l.is_empty()).collect())
+}
+
+pub async fn issue_label(dir: &Path, number: u64, label: &str, add: bool) -> Result<(), String> {
+    let flag = if add { "--add-label" } else { "--remove-label" };
+    run(dir, &["issue", "edit", &number.to_string(), flag, label]).await
+}
+
+pub async fn issue_assignee(dir: &Path, number: u64, login: &str, add: bool) -> Result<(), String> {
+    let flag = if add { "--add-assignee" } else { "--remove-assignee" };
+    run(dir, &["issue", "edit", &number.to_string(), flag, login]).await
 }
 
 pub async fn issue_close(dir: &Path, number: u64) -> Result<(), String> {
