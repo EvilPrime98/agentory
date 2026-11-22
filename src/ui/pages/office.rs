@@ -2,10 +2,12 @@
 //! Status sets the pose, the tool call in progress sets the action, a meter shows context use.
 //! Clicking a worker opens a side panel to steer that session.
 
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -13,7 +15,8 @@ use gpui::{
     Render, StatefulInteractiveElement, Styled, Subscription, Window, canvas, div, px,
 };
 
-use super::office_art::{self, Action, CELL_H, CELL_W, LABEL_Y, WorkerView};
+use super::office_anim::{DUR, SCENE_PAD, Tween, cols_for, ease_out, fade};
+use super::office_art::{self, Action, CELL_H, CELL_W, LABEL_Y, Placed, WorkerView};
 use crate::backend::gh;
 use crate::backend::spm::store::parse_skill;
 use crate::backend::tasks::{self, Plan, Task, TaskStatus};
@@ -36,11 +39,16 @@ const FRAME: Duration = Duration::from_millis(125);
 /// Transcripts are tailed every this many frames.
 const POLL_EVERY: u64 = 4;
 const PR_POLL: Duration = Duration::from_secs(30);
-const COLS: usize = 3;
 const RECENT_KEPT: usize = 40;
 const RECENT_SHOWN: usize = 14;
 const PANEL_W: f32 = 340.0;
 const BOARD_SHOWN: usize = 6;
+const SECTIONS: usize = 3;
+const BOARD: usize = 0;
+const DONE: usize = 1;
+const ROW_H: f32 = 24.0;
+const FOREMAN: &str = "foreman";
+const ENTER_DROP: f32 = 36.0;
 
 /// A skill chip being dragged from the tray onto a worker.
 #[derive(Clone)]
@@ -204,6 +212,16 @@ pub struct OfficePage {
     tasks: Vec<Task>,
     /// Open PRs opened by finished workers, waiting for the user's review.
     prs: Vec<gh::PrSummary>,
+    scene_w: Rc<Cell<f32>>,
+    rail_bar: Scrollbar,
+    glides: HashMap<String, (Tween, Tween)>,
+    sel_fx: HashMap<String, Tween>,
+    ctx_fx: HashMap<String, Tween>,
+    panel_fx: Tween,
+    open: [bool; SECTIONS],
+    section_fx: [Tween; SECTIONS],
+    rows: HashMap<String, (String, Instant)>,
+    rows_primed: bool,
     _subs: Vec<Subscription>,
 }
 
@@ -248,6 +266,16 @@ impl OfficePage {
             polling: false,
             tasks: Vec::new(),
             prs: Vec::new(),
+            scene_w: Rc::new(Cell::new(0.0)),
+            rail_bar: Scrollbar::new(),
+            glides: HashMap::new(),
+            sel_fx: HashMap::new(),
+            ctx_fx: HashMap::new(),
+            panel_fx: Tween::at(0.0, Instant::now()),
+            open: [true; SECTIONS],
+            section_fx: [Tween::at(1.0, Instant::now()); SECTIONS],
+            rows: HashMap::new(),
+            rows_primed: false,
             _subs: subs,
         };
         this.poll(cx);
@@ -295,7 +323,14 @@ impl OfficePage {
         .detach();
     }
 
-    fn done_tray(&self) -> gpui::AnyElement {
+    fn row_opacity(&self, key: &str, now: Instant) -> f32 {
+        self.rows.get(key).map_or(1.0, |(_, since)| {
+            let t = now.saturating_duration_since(*since).as_secs_f32() / DUR.as_secs_f32();
+            0.3 + 0.7 * ease_out(t)
+        })
+    }
+
+    fn done_body(&self, now: Instant) -> gpui::AnyElement {
         let rows = self.prs.iter().map(|pr| {
             let url = pr.url.clone();
             div()
@@ -304,10 +339,11 @@ impl OfficePage {
                 .items_center()
                 .gap(px(8.0))
                 .px(px(6.0))
-                .py(px(3.0))
+                .h(px(ROW_H))
                 .rounded(px(4.0))
                 .text_size(px(12.0))
                 .text_color(theme::text())
+                .opacity(self.row_opacity(&format!("pr-{}", pr.number), now))
                 .cursor_pointer()
                 .hover(|d| d.bg(theme::hover_soft()))
                 .on_click(move |_, _, cx| cx.open_url(&url))
@@ -319,24 +355,11 @@ impl OfficePage {
                 .child(div().flex_1().min_w_0().truncate().child(pr.title.clone()))
         });
         div()
-            .flex_none()
             .flex()
             .flex_col()
             .gap(px(2.0))
-            .px(px(24.0))
-            .py(px(12.0))
-            .border_t_1()
-            .border_color(theme::border_subtle())
-            .child(
-                div()
-                    .pb(px(4.0))
-                    .text_size(px(11.0))
-                    .text_color(theme::text_muted())
-                    .child(crate::i18n::t_args(
-                        "office.done",
-                        &[("count", &self.prs.len().to_string())],
-                    )),
-            )
+            .px(px(8.0))
+            .pb(px(8.0))
             .children(rows)
             .into_any_element()
     }
@@ -542,16 +565,12 @@ impl OfficePage {
         .detach();
     }
 
-    fn board(&self, seats: &[Seat]) -> gpui::AnyElement {
+    fn board_body(&self, seats: &[Seat], now: Instant) -> gpui::AnyElement {
         let shown: Vec<&Task> = self
             .tasks
             .iter()
             .filter(|t| t.status != TaskStatus::Draft)
             .collect();
-        let open = shown
-            .iter()
-            .filter(|t| t.status == TaskStatus::Open)
-            .count();
         let rows = shown.iter().rev().take(BOARD_SHOWN).map(|task| {
             let (mark, color) = match task.status {
                 TaskStatus::Draft => ("◌", theme::text_faint()),
@@ -570,10 +589,11 @@ impl OfficePage {
                 .items_center()
                 .gap(px(8.0))
                 .px(px(6.0))
-                .py(px(3.0))
+                .h(px(ROW_H))
                 .rounded(px(4.0))
                 .text_size(px(12.0))
                 .text_color(color)
+                .opacity(self.row_opacity(&format!("task-{}", task.id), now))
                 .child(div().flex_none().w(px(12.0)).child(mark))
                 .child(
                     div()
@@ -587,37 +607,12 @@ impl OfficePage {
                 )
         });
         div()
-            .flex_none()
             .flex()
             .flex_col()
             .gap(px(2.0))
-            .px(px(24.0))
-            .py(px(12.0))
-            .border_t_1()
-            .border_color(theme::border_subtle())
-            .child(
-                div()
-                    .pb(px(4.0))
-                    .text_size(px(11.0))
-                    .text_color(theme::text_muted())
-                    .child(crate::i18n::t_args(
-                        "office.board",
-                        &[
-                            ("open", &open.to_string()),
-                            ("total", &shown.len().to_string()),
-                        ],
-                    )),
-            )
+            .px(px(8.0))
+            .pb(px(8.0))
             .children(rows)
-            .when(shown.is_empty(), |d| {
-                d.child(
-                    div()
-                        .px(px(6.0))
-                        .text_size(px(12.0))
-                        .text_color(theme::text_faint())
-                        .child(t("office.board_empty")),
-                )
-            })
             .into_any_element()
     }
 
@@ -778,83 +773,6 @@ impl OfficePage {
         self.foreman = None;
         self.headcount = None;
         cx.notify();
-    }
-
-    fn foreman_desk(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let status = self.foreman_status(cx);
-        let busy = status.is_some();
-        let drafts = self.drafts().count();
-        let label = if busy {
-            t("office.foreman.drafting")
-        } else if drafts > 0 {
-            t_args("office.foreman.review", &[("count", &drafts.to_string())])
-        } else {
-            t("office.foreman.idle")
-        };
-        let view = WorkerView {
-            action: Action::of(status.unwrap_or(SessionStatus::Idle), None),
-            context_pct: 0.0,
-        };
-        let frame = self.frame;
-        div()
-            .id("foreman-desk")
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap(px(16.0))
-            .px(px(24.0))
-            .py(px(12.0))
-            .border_b_1()
-            .border_color(theme::border_subtle())
-            .when(busy, |d| d.opacity(0.7))
-            .when(!busy, |d| {
-                d.cursor_pointer()
-                    .on_click(cx.listener(|this, _, _, cx| this.click_desk(cx)))
-            })
-            .child(
-                div()
-                    .relative()
-                    .flex_none()
-                    .w(px(CELL_W))
-                    .h(px(CELL_H))
-                    .child(
-                        canvas(
-                            |_, _, _| (),
-                            move |bounds, _, window, _| {
-                                office_art::paint_scene(window, bounds.origin, 1, &[view], frame);
-                            },
-                        )
-                        .absolute()
-                        .size_full(),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.0))
-                    .flex_1()
-                    .min_w_0()
-                    .child(
-                        div()
-                            .self_start()
-                            .px(px(8.0))
-                            .py(px(2.0))
-                            .rounded(px(4.0))
-                            .border_1()
-                            .border_color(theme::accent())
-                            .text_size(px(11.0))
-                            .text_color(theme::accent())
-                            .child(t("office.foreman.title")),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(12.0))
-                            .text_color(theme::text_muted())
-                            .child(label),
-                    ),
-            )
-            .into_any_element()
     }
 
     fn foreman_shell() -> gpui::Div {
@@ -1051,7 +969,7 @@ impl OfficePage {
             .into_any_element()
     }
 
-    fn skill_tray(&self, cx: &Context<Self>) -> gpui::AnyElement {
+    fn skills_body(&self, cx: &Context<Self>) -> gpui::AnyElement {
         let names: Vec<String> = self
             .stores
             .skills
@@ -1062,18 +980,15 @@ impl OfficePage {
             .cloned()
             .collect();
         div()
-            .flex_none()
             .flex()
             .flex_col()
             .gap(px(8.0))
-            .px(px(24.0))
-            .py(px(12.0))
-            .border_t_1()
-            .border_color(theme::border_subtle())
+            .px(px(14.0))
+            .pb(px(10.0))
             .child(
                 div()
                     .text_size(px(11.0))
-                    .text_color(theme::text_muted())
+                    .text_color(theme::text_faint())
                     .child(t("office.skills_hint")),
             )
             .child(
@@ -1089,6 +1004,105 @@ impl OfficePage {
                             .on_drag(drag, |d, _, _, cx| cx.new(|_| SkillGhost(d.0.clone())))
                     })),
             )
+            .into_any_element()
+    }
+
+    fn toggle_section(&mut self, i: usize, cx: &mut Context<Self>) {
+        self.open[i] = !self.open[i];
+        let to = if self.open[i] { 1.0 } else { 0.0 };
+        self.section_fx[i].retarget(to, Instant::now());
+        cx.notify();
+    }
+
+    fn section_height(&self, i: usize, cx: &Context<Self>) -> f32 {
+        match i {
+            BOARD => {
+                let shown = self
+                    .tasks
+                    .iter()
+                    .filter(|t| t.status != TaskStatus::Draft)
+                    .count()
+                    .min(BOARD_SHOWN);
+                shown.max(1) as f32 * (ROW_H + 2.0) + 8.0
+            }
+            DONE => self.prs.len() as f32 * (ROW_H + 2.0) + 8.0,
+            _ => {
+                let n = self.stores.skills.read(cx).snapshot.installed.len();
+                44.0 + n.div_ceil(3) as f32 * 32.0
+            }
+        }
+    }
+
+    fn rail(&self, seats: &[Seat], now: Instant, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let open_tasks = self
+            .tasks
+            .iter()
+            .filter(|t| t.status == TaskStatus::Open)
+            .count();
+        let total = self
+            .tasks
+            .iter()
+            .filter(|t| t.status != TaskStatus::Draft)
+            .count();
+        let titles = [
+            t_args(
+                "office.board",
+                &[("open", &open_tasks.to_string()), ("total", &total.to_string())],
+            ),
+            t_args("office.done", &[("count", &self.prs.len().to_string())]),
+            t("office.skills"),
+        ];
+        let mut list = div().id("office-rail").flex().flex_col().overflow_y_scroll();
+        for (i, title) in titles.into_iter().enumerate() {
+            let k = self.section_fx[i].value(now);
+            let chevron = if self.open[i] { "▾" } else { "▸" };
+            list = list.child(
+                div()
+                    .id(gpui::SharedString::from(format!("rail-head-{i}")))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.0))
+                    .px(px(14.0))
+                    .h(px(32.0))
+                    .border_t_1()
+                    .border_color(theme::border_subtle())
+                    .text_size(px(11.0))
+                    .text_color(theme::text_muted())
+                    .cursor_pointer()
+                    .hover(|d| d.bg(theme::hover_soft()))
+                    .on_click(cx.listener(move |this, _, _, cx| this.toggle_section(i, cx)))
+                    .child(div().flex_none().w(px(10.0)).child(chevron))
+                    .child(div().flex_1().min_w_0().truncate().child(title)),
+            );
+            if k <= 0.001 {
+                continue;
+            }
+            let body = match i {
+                BOARD if total == 0 => div()
+                    .px(px(14.0))
+                    .pb(px(8.0))
+                    .text_size(px(12.0))
+                    .text_color(theme::text_faint())
+                    .child(t("office.board_empty"))
+                    .into_any_element(),
+                BOARD => self.board_body(seats, now),
+                DONE => self.done_body(now),
+                _ => self.skills_body(cx),
+            };
+            let mut wrap = div().flex_none().overflow_hidden().child(body);
+            if k < 0.999 {
+                wrap = wrap.max_h(px(self.section_height(i, cx) * k));
+            }
+            list = list.child(wrap);
+        }
+        div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .border_l_1()
+            .border_color(theme::border_subtle())
+            .child(self.rail_bar.overlay(list))
             .into_any_element()
     }
 
@@ -1112,44 +1126,219 @@ impl OfficePage {
         (seat.status == SessionStatus::Working).then(|| tool.to_string())
     }
 
-    fn scene(&self, seats: &[Seat], cx: &mut Context<Self>) -> gpui::AnyElement {
-        let usage = self.stores.usage.read(cx);
-        let views: Vec<WorkerView> = seats
-            .iter()
-            .map(|s| WorkerView {
-                action: Action::of(s.status, self.tool_of(s).as_deref()),
-                context_pct: usage
-                    .sessions
-                    .get(&s.id)
-                    .map_or(0.0, |u| u.context_percent()),
-            })
-            .collect();
-        let rows = seats.len().div_ceil(COLS).max(1);
-        let frame = self.frame;
+    fn desk_pos(&self, key: &str, now: Instant) -> (f32, f32) {
+        self.glides
+            .get(key)
+            .map_or((0.0, 0.0), |(x, y)| (x.value(now), y.value(now)))
+    }
 
-        let mut cells = Vec::new();
+    fn sync_fx(
+        &mut self,
+        seats: &[Seat],
+        cols: usize,
+        panel_open: bool,
+        now: Instant,
+        cx: &Context<Self>,
+    ) -> bool {
+        let keys: Vec<&str> = std::iter::once(FOREMAN)
+            .chain(seats.iter().map(|s| s.id.as_str()))
+            .collect();
+        for (slot, key) in keys.iter().enumerate() {
+            let tx = (slot % cols) as f32 * CELL_W;
+            let ty = (slot / cols) as f32 * CELL_H;
+            match self.glides.get_mut(*key) {
+                Some((x, y)) => {
+                    x.retarget(tx, now);
+                    y.retarget(ty, now);
+                }
+                None => {
+                    let drop = if *key == FOREMAN { 0.0 } else { ENTER_DROP };
+                    self.glides.insert(
+                        key.to_string(),
+                        (Tween::at(tx, now), Tween::between(ty + drop, ty, now)),
+                    );
+                }
+            }
+            let selected = if *key == FOREMAN {
+                self.foreman.is_some()
+            } else {
+                self.selected.as_deref() == Some(*key)
+            };
+            let to = if selected { 1.0 } else { 0.0 };
+            self.sel_fx
+                .entry(key.to_string())
+                .or_insert_with(|| Tween::at(0.0, now))
+                .retarget(to, now);
+        }
+        let usage = self.stores.usage.read(cx);
+        for seat in seats {
+            let pct = usage
+                .sessions
+                .get(&seat.id)
+                .map_or(0.0, |u| u.context_percent());
+            self.ctx_fx
+                .entry(seat.id.clone())
+                .or_insert_with(|| Tween::at(pct, now))
+                .retarget(pct, now);
+        }
+        self.glides.retain(|k, _| keys.contains(&k.as_str()));
+        self.sel_fx.retain(|k, _| keys.contains(&k.as_str()));
+        self.ctx_fx.retain(|k, _| keys.contains(&k.as_str()));
+
+        self.panel_fx
+            .retarget(if panel_open { 1.0 } else { 0.0 }, now);
+
+        let seen = if self.rows_primed {
+            now
+        } else {
+            now.checked_sub(DUR * 2).unwrap_or(now)
+        };
+        self.rows_primed = true;
+        let mut live: Vec<(String, String)> = self
+            .tasks
+            .iter()
+            .filter(|t| t.status != TaskStatus::Draft)
+            .map(|t| (format!("task-{}", t.id), format!("{:?}", t.status)))
+            .collect();
+        live.extend(
+            self.prs
+                .iter()
+                .map(|p| (format!("pr-{}", p.number), String::new())),
+        );
+        self.rows.retain(|k, _| live.iter().any(|(l, _)| l == k));
+        for (key, marker) in live {
+            match self.rows.get_mut(&key) {
+                Some(row) if row.0 == marker => {}
+                Some(row) => *row = (marker, now),
+                None => {
+                    self.rows.insert(key, (marker, seen));
+                }
+            }
+        }
+
+        let tween_running = self
+            .glides
+            .values()
+            .any(|(x, y)| x.active(now) || y.active(now))
+            || self.sel_fx.values().any(|t| t.active(now))
+            || self.ctx_fx.values().any(|t| t.active(now))
+            || self.panel_fx.active(now)
+            || self.section_fx.iter().any(|t| t.active(now));
+        tween_running
+            || self
+                .rows
+                .values()
+                .any(|(_, since)| now.saturating_duration_since(*since) < DUR)
+    }
+
+    fn scene(
+        &self,
+        seats: &[Seat],
+        cols: usize,
+        now: Instant,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let rows = (seats.len() + 1).div_ceil(cols).max(1);
+        let (width, height) = (cols as f32 * CELL_W, rows as f32 * CELL_H);
+        let frame = self.frame;
+        let fx = |key: &str| self.sel_fx.get(key).map_or(0.0, |t| t.value(now));
+
+        let fstatus = self.foreman_status(cx);
+        let busy = fstatus.is_some();
+        let drafts = self.drafts().count();
+        let badge = if busy {
+            t("office.foreman.drafting")
+        } else if drafts > 0 {
+            t_args(
+                "office.foreman.badge_review",
+                &[("count", &drafts.to_string())],
+            )
+        } else {
+            t("office.status.idle")
+        };
+        let (fx_, fy) = self.desk_pos(FOREMAN, now);
+        let mut desks = vec![Placed {
+            x: fx_,
+            y: fy,
+            slot: 0,
+            view: WorkerView {
+                action: Action::of(fstatus.unwrap_or(SessionStatus::Idle), None),
+                context_pct: 0.0,
+            },
+        }];
+        let mut cells = vec![
+            div()
+                .id("foreman-desk")
+                .absolute()
+                .left(px(fx_))
+                .top(px(fy))
+                .w(px(CELL_W))
+                .h(px(CELL_H))
+                .border_1()
+                .border_color(fade(theme::accent(), fx(FOREMAN)))
+                .when(busy, |d| d.opacity(0.7))
+                .when(!busy, |d| {
+                    d.cursor_pointer()
+                        .on_click(cx.listener(|this, _, _, cx| this.click_desk(cx)))
+                })
+                .child(
+                    div()
+                        .absolute()
+                        .top(px(LABEL_Y))
+                        .left(px(16.0))
+                        .w(px(CELL_W - 32.0))
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.0))
+                        .child(
+                            div()
+                                .self_start()
+                                .px(px(6.0))
+                                .rounded(px(4.0))
+                                .border_1()
+                                .border_color(theme::accent())
+                                .text_size(px(11.0))
+                                .text_color(theme::accent())
+                                .child(t("office.foreman.title")),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(theme::text_muted())
+                                .truncate()
+                                .child(badge),
+                        ),
+                ),
+        ];
+
         for (i, seat) in seats.iter().enumerate() {
             let id = seat.id.clone();
             let drop_id = seat.id.clone();
-            let selected = self.selected.as_deref() == Some(seat.id.as_str());
             let tool = self
                 .tool_of(seat)
                 .unwrap_or_else(|| Self::status_label(seat.status));
+            let (x, y) = self.desk_pos(&seat.id, now);
+            let pct = self.ctx_fx.get(&seat.id).map_or(0.0, |t| t.value(now));
+            desks.push(Placed {
+                x,
+                y,
+                slot: i,
+                view: WorkerView {
+                    action: Action::of(seat.status, self.tool_of(seat).as_deref()),
+                    context_pct: pct,
+                },
+            });
             cells.push(
                 div()
                     .id(gpui::SharedString::from(format!("worker-{}", seat.id)))
                     .absolute()
-                    .left(px((i % COLS) as f32 * CELL_W))
-                    .top(px((i / COLS) as f32 * CELL_H))
+                    .left(px(x))
+                    .top(px(y))
                     .w(px(CELL_W))
                     .h(px(CELL_H))
                     .cursor_pointer()
                     .border_1()
-                    .border_color(if selected {
-                        theme::accent()
-                    } else {
-                        gpui::rgba(0x00000000)
-                    })
+                    .border_color(fade(theme::accent(), fx(&seat.id)))
                     .on_click(cx.listener(move |this, _, _, cx| this.select(&id, cx)))
                     .drag_over::<DraggedSkill>(|s, _, _, _| s.border_color(theme::accent()))
                     .on_drop(cx.listener(move |this, d: &DraggedSkill, _, cx| {
@@ -1199,13 +1388,20 @@ impl OfficePage {
 
         div()
             .relative()
-            .w(px(COLS as f32 * CELL_W))
-            .h(px(rows as f32 * CELL_H))
+            .w(px(width))
+            .h(px(height))
             .child(
                 canvas(
                     |_, _, _| (),
                     move |bounds, _, window, _| {
-                        office_art::paint_scene(window, bounds.origin, COLS, &views, frame);
+                        office_art::paint_scene(
+                            window,
+                            bounds.origin,
+                            width,
+                            height,
+                            &desks,
+                            frame,
+                        );
                     },
                 )
                 .absolute()
@@ -1378,7 +1574,8 @@ impl OfficePage {
 }
 
 impl Render for OfficePage {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let now = Instant::now();
         let seats = self.seats(cx);
         let selected = self
             .selected
@@ -1390,90 +1587,101 @@ impl Render for OfficePage {
             (None, Some(s)) => Some(self.panel(s, cx)),
             (None, None) => None,
         };
-        let desk = self.foreman_desk(cx);
 
-        let body = if seats.is_empty() {
-            div()
-                .flex_1()
-                .min_h_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_size(px(13.0))
-                .text_color(theme::text_muted())
-                .child(t("office.empty"))
-                .into_any_element()
+        let measured = self.scene_w.get();
+        let width = if measured > 0.0 {
+            measured
         } else {
-            let scene = self.scene(&seats, cx);
-            div()
-                .relative()
-                .flex_1()
-                .min_w_0()
-                .min_h_0()
-                .child(
-                    self.scrollbar.overlay(
-                        div()
-                            .id("office-scroll")
-                            .absolute()
-                            .top_0()
-                            .left_0()
-                            .right_0()
-                            .bottom_0()
-                            .overflow_y_scroll()
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .items_center()
-                                    .p(px(24.0))
-                                    .child(scene),
-                            ),
-                    ),
-                )
-                .into_any_element()
+            f32::from(window.viewport_size().width) - PANEL_W - 240.0
         };
+        let cols = cols_for(width);
+        if self.sync_fx(&seats, cols, panel.is_some(), now, cx) {
+            window.request_animation_frame();
+        }
+        let scene = self.scene(&seats, cols, now, cx);
 
-        let show_board = self.tasks.iter().any(|t| t.status != TaskStatus::Draft);
-        let show_done = !self.prs.is_empty();
-        let ledger = (show_board || show_done).then(|| {
-            div()
-                .flex_none()
-                .flex()
-                .flex_wrap()
-                .child(
+        let measure = {
+            let cell = self.scene_w.clone();
+            canvas(
+                move |bounds, window, _| {
+                    let w = f32::from(bounds.size.width);
+                    let old = cell.replace(w);
+                    if cols_for(w) != cols_for(old) {
+                        window.request_animation_frame();
+                    }
+                },
+                |_, _, _, _| (),
+            )
+            .absolute()
+            .size_full()
+        };
+        let body = div()
+            .relative()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .child(measure)
+            .child(
+                self.scrollbar.overlay(
                     div()
-                        .flex_1()
-                        .min_w(px(320.0))
-                        .when(show_board, |d| d.child(self.board(&seats))),
-                )
-                .when(show_done, |d| {
-                    d.child(
-                        div()
-                            .flex_1()
-                            .min_w(px(320.0))
-                            .child(self.done_tray()),
-                    )
-                })
-        });
+                        .id("office-scroll")
+                        .overflow_y_scroll()
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .items_center()
+                                .gap(px(16.0))
+                                .p(px(SCENE_PAD))
+                                .child(scene)
+                                .when(seats.is_empty(), |d| {
+                                    d.child(
+                                        div()
+                                            .text_size(px(13.0))
+                                            .text_color(theme::text_muted())
+                                            .child(t("office.empty")),
+                                    )
+                                }),
+                        ),
+                ),
+            );
+
+        let slide = self.panel_fx.value(now);
+        let rail = div()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .left(px(-slide * 40.0))
+            .w(px(PANEL_W))
+            .opacity(1.0 - slide)
+            .child(self.rail(&seats, now, cx));
+        let column = div()
+            .relative()
+            .flex_none()
+            .w(px(PANEL_W))
+            .h_full()
+            .overflow_hidden()
+            .child(rail)
+            .children(panel.map(|panel| {
+                div()
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .left(px((1.0 - slide) * PANEL_W))
+                    .w(px(PANEL_W))
+                    .bg(theme::bg_app())
+                    .child(panel)
+            }));
 
         div()
             .flex()
             .flex_1()
             .min_w_0()
             .min_h_0()
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w_0()
-                    .min_h_0()
-                    .child(desk)
-                    .child(body)
-                    .children(ledger)
-                    .when(!seats.is_empty(), |d| d.child(self.skill_tray(cx))),
-            )
-            .children(panel)
+            .child(body)
+            .child(column)
     }
 }
 

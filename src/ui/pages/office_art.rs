@@ -140,30 +140,28 @@ fn grayed(c: u32) -> u32 {
     (l << 16) | (l << 8) | l
 }
 
-/// Draws the whole scene: floor, then one desk per worker on a grid of `cols` columns.
+pub struct Placed {
+    pub x: f32,
+    pub y: f32,
+    pub slot: usize,
+    pub view: WorkerView,
+}
+
 /// `frame` is the fixed-timestep animation clock.
 pub fn paint_scene(
     window: &mut Window,
     o: Point<Pixels>,
-    cols: usize,
-    workers: &[WorkerView],
+    width: f32,
+    height: f32,
+    desks: &[Placed],
     frame: u64,
 ) {
-    let rows = workers.len().div_ceil(cols.max(1)).max(1);
-    rect(
-        window,
-        o,
-        0.0,
-        0.0,
-        cols as f32 * CELL_W,
-        rows as f32 * CELL_H,
-        theme::bg_terminal(),
-    );
+    rect(window, o, 0.0, 0.0, width, height, theme::bg_terminal());
     // Faint floor tiles so the room reads as a floor, not a flat panel.
-    for r in 0..rows * 4 {
-        for c in 0..cols * 4 {
+    let (tw, th) = (CELL_W / 4.0, CELL_H / 4.0);
+    for r in 0..(height / th).round() as usize {
+        for c in 0..(width / tw).round() as usize {
             if (r + c) % 2 == 0 {
-                let (tw, th) = (CELL_W / 4.0, CELL_H / 4.0);
                 rect(
                     window,
                     o,
@@ -176,12 +174,9 @@ pub fn paint_scene(
             }
         }
     }
-    for (i, w) in workers.iter().enumerate() {
-        let cell = point(
-            o.x + px((i % cols) as f32 * CELL_W),
-            o.y + px((i / cols) as f32 * CELL_H),
-        );
-        paint_desk(window, cell, i, w, frame);
+    for d in desks {
+        let cell = point(o.x + px(d.x), o.y + px(d.y));
+        paint_desk(window, cell, d.slot, &d.view, frame);
     }
 }
 

@@ -561,6 +561,8 @@
   "office.board": "Tablero: {open} abiertas de {total}",
   "office.done": "Hechas: {count} esperando revisión",
   "office.pr.failed": "No se pudo abrir un PR de una tarea terminada. Se conservó su rama. {error}",
+  "office.skills": "Habilidades",
+  "office.foreman.badge_review": "Revisar {count}",
   "office.foreman.title": "Capataz",
   "office.foreman.idle": "Elige un issue o un archivo markdown y el capataz planifica el trabajo como tareas en borrador.",
   "office.foreman.drafting": "Planificando…",

@@ -4,6 +4,7 @@ pub mod git;
 pub mod github;
 pub mod graphify;
 pub mod office;
+mod office_anim;
 mod office_art;
 pub mod review;
 pub mod selfbuild_section;
