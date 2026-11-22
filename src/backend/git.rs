@@ -110,6 +110,27 @@ pub async fn conflicted_files(wt: &Path) -> Result<Vec<String>, String> {
         .collect())
 }
 
+/// Files an unfinished merge in the worktree still has to resolve: unmerged ones, and staged
+/// ones that keep conflict markers. Empty when no merge is in progress.
+pub async fn unresolved_files(wt: &Path) -> Result<Vec<String>, String> {
+    if git(wt, &["rev-parse", "-q", "--verify", "MERGE_HEAD"])
+        .await
+        .is_err()
+    {
+        return Ok(Vec::new());
+    }
+    // A file resolved by hand is only unmerged until it is staged.
+    stage_all(wt).await?;
+    let mut files = conflicted_files(wt).await?;
+    let marked = git(wt, &["grep", "--cached", "-l", "-E", "^(<{7}|>{7})( |$)"])
+        .await
+        .unwrap_or_default();
+    files.extend(marked.lines().map(str::to_string).filter(|l| !l.is_empty()));
+    files.sort();
+    files.dedup();
+    Ok(files)
+}
+
 /// Commit all changes in the worktree. `false` when there was nothing to commit. Completes a
 /// merge the user resolved by hand.
 pub async fn commit_all(wt: &Path, message: &str) -> Result<bool, String> {
@@ -158,6 +179,34 @@ pub async fn merge_branch(wt: &Path, branch: &str) -> Result<Merged, String> {
 /// Move the checked-out branch of `repo` to `branch` without creating a merge commit.
 pub async fn fast_forward(repo: &Path, branch: &str) -> Result<(), String> {
     git(repo, &["merge", "--ff-only", branch]).await.map(|_| ())
+}
+
+/// Makes the local branch `name` at `repo`'s HEAD unless it exists. Safe to call concurrently.
+pub async fn ensure_branch(repo: &Path, name: &str) -> Result<(), String> {
+    let r = format!("refs/heads/{name}");
+    if git(repo, &["rev-parse", "--verify", "--quiet", &r])
+        .await
+        .is_ok()
+    {
+        return Ok(());
+    }
+    match git(repo, &["branch", name]).await {
+        Ok(_) => Ok(()),
+        Err(e) => git(repo, &["rev-parse", "--verify", "--quiet", &r])
+            .await
+            .map(|_| ())
+            .map_err(|_| e),
+    }
+}
+
+pub async fn rev_sha(dir: &Path, rev: &str) -> Result<String, String> {
+    Ok(git(dir, &["rev-parse", rev]).await?.trim().to_string())
+}
+
+/// Moves local branch `branch` from `from` to `to`, failing if it moved meanwhile.
+pub async fn advance_branch(repo: &Path, branch: &str, to: &str, from: &str) -> Result<(), String> {
+    let r = format!("refs/heads/{branch}");
+    git(repo, &["update-ref", &r, to, from]).await.map(|_| ())
 }
 
 /// Fetch tags from `origin` without overwriting local ones: a tag upstream moved makes this fail

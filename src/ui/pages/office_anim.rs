@@ -38,7 +38,11 @@ impl Tween {
     }
 
     pub fn between(from: f32, to: f32, now: Instant) -> Self {
-        Self { from, to, start: now }
+        Self {
+            from,
+            to,
+            start: now,
+        }
     }
 
     fn progress(&self, now: Instant) -> f32 {

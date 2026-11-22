@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 use super::workflow::{project, take_value};
 use super::{SettingError, err, pretty};
-use crate::backend::tasks::{self, Failure, Task};
+use crate::backend::tasks::{self, DraftEdit, Failure, NewTask, Task};
 
 type Res<T> = Result<T, SettingError>;
 
@@ -17,7 +17,16 @@ fn fail(f: Failure, id: &str) -> SettingError {
         Failure::NotFound => err("not_found", format!("no task with id `{id}`")),
         Failure::Taken(by) => err("taken", format!("task `{id}` is already claimed by `{by}`")),
         Failure::NotOwner => err("not_owner", format!("task `{id}` is not claimed by you")),
-        Failure::Closed => err("closed", format!("task `{id}` is already done")),
+        Failure::Closed => err(
+            "closed",
+            format!("task `{id}` is already done or waiting for review"),
+        ),
+        Failure::Blocked => err(
+            "blocked",
+            format!("task `{id}` waits for tasks it depends on"),
+        ),
+        Failure::NotInReview => err("not_in_review", format!("task `{id}` is not in review")),
+        Failure::Invalid(why) => err("invalid", why),
         Failure::Io(e) => err("io", format!("could not access the task board: {e}")),
     }
 }
@@ -32,6 +41,15 @@ fn root(explicit: Option<&str>) -> Res<PathBuf> {
         }
     }
     project(explicit)
+}
+
+/// A comma separated list of task ids; empty entries are ignored.
+fn ids(raw: Option<String>) -> Vec<String> {
+    raw.unwrap_or_default()
+        .split(',')
+        .map(|d| d.trim().to_string())
+        .filter(|d| !d.is_empty())
+        .collect()
 }
 
 fn who() -> String {
@@ -49,6 +67,7 @@ fn task_json(t: &Task) -> Value {
     json!({
         "id": t.id, "title": t.title, "body": t.body, "status": t.status.name(),
         "assignee": t.assignee, "summary": t.summary, "write": t.write,
+        "dependsOn": t.depends_on, "acceptance": t.acceptance,
     })
 }
 
@@ -67,6 +86,12 @@ fn show_one(t: &Task, json: bool) -> String {
     let mut out = line(t);
     if !t.body.is_empty() {
         out.push_str(&format!("\n\n{}", t.body));
+    }
+    if !t.depends_on.is_empty() {
+        out.push_str(&format!("\n\nDepends on: {}", t.depends_on.join(", ")));
+    }
+    if !t.acceptance.is_empty() {
+        out.push_str(&format!("\n\nAcceptance criteria: {}", t.acceptance));
     }
     if !t.summary.is_empty() {
         out.push_str(&format!("\n\nResult: {}", t.summary));
@@ -89,10 +114,10 @@ pub fn dispatch(args: &mut Vec<&str>, json: bool) -> Res<String> {
                 return Err(usage("`list` takes no arguments"));
             }
             if let Some(s) = &status {
-                if !["open", "claimed", "done", "draft"].contains(&s.as_str()) {
+                if !["open", "claimed", "review", "done", "draft"].contains(&s.as_str()) {
                     return Err(err(
                         "invalid",
-                        format!("status must be open, claimed, done or draft, got `{s}`"),
+                        format!("status must be open, claimed, review, done or draft, got `{s}`"),
                     ));
                 }
             }
@@ -120,6 +145,8 @@ pub fn dispatch(args: &mut Vec<&str>, json: bool) -> Res<String> {
         }
         "post" => {
             let body = take_value(&mut rest, "--body")?.unwrap_or_default();
+            let acceptance = take_value(&mut rest, "--accept")?.unwrap_or_default();
+            let depends_on = ids(take_value(&mut rest, "--depends-on")?);
             let write = match rest.iter().position(|a| *a == "--write") {
                 Some(at) => {
                     rest.remove(at);
@@ -141,13 +168,49 @@ pub fn dispatch(args: &mut Vec<&str>, json: bool) -> Res<String> {
             if title.trim().is_empty() {
                 return Err(err("invalid", "the task title cannot be empty".into()));
             }
-            let task = tasks::post(&root, title.trim(), body.trim(), write, draft)
-                .map_err(|f| fail(f, ""))?;
+            let task = tasks::post(
+                &root,
+                NewTask {
+                    title: title.trim(),
+                    body: body.trim(),
+                    write,
+                    draft,
+                    depends_on,
+                    acceptance: acceptance.trim(),
+                },
+            )
+            .map_err(|f| fail(f, ""))?;
             Ok(if json {
                 pretty(&task_json(&task))
             } else {
                 format!("posted {}", task.id)
             })
+        }
+        "edit" => {
+            let change = DraftEdit {
+                title: take_value(&mut rest, "--title")?.map(|v| v.trim().to_string()),
+                body: take_value(&mut rest, "--body")?.map(|v| v.trim().to_string()),
+                depends_on: take_value(&mut rest, "--depends-on")?.map(|v| ids(Some(v))),
+                acceptance: take_value(&mut rest, "--accept")?.map(|v| v.trim().to_string()),
+            };
+            reject_flags("edit", &rest)?;
+            let [id] = rest.as_slice() else {
+                return Err(usage("wrong number of arguments for `edit`"));
+            };
+            let task = tasks::edit_draft(&root, id, change).map_err(|f| fail(f, id))?;
+            Ok(if json {
+                pretty(&task_json(&task))
+            } else {
+                format!("edited {}", task.id)
+            })
+        }
+        "drop" => {
+            reject_flags("drop", &rest)?;
+            let [id] = rest.as_slice() else {
+                return Err(usage("wrong number of arguments for `drop`"));
+            };
+            tasks::drop_draft(&root, id).map_err(|f| fail(f, id))?;
+            Ok(format!("dropped {id}"))
         }
         "headcount" => {
             reject_flags("headcount", &rest)?;
@@ -189,7 +252,7 @@ pub fn dispatch(args: &mut Vec<&str>, json: bool) -> Res<String> {
             Ok(if json {
                 pretty(&task_json(&task))
             } else {
-                format!("closed {}", task.id)
+                format!("{} is waiting for review", task.id)
             })
         }
         "release" => {
@@ -214,17 +277,19 @@ pub fn help_text() -> String {
      pass --project <path> to override. Claiming and closing are done as $AGENTORY_SESSION. The \
      running app reloads changes.\n\n\
      USAGE:\n  \
-     agentory tasks list [--status open|claimed|done|draft]\n  \
+     agentory tasks list [--status open|claimed|review|done|draft]\n  \
      agentory tasks show ID\n  \
-     agentory tasks post TITLE [--body TEXT] [--write] [--draft]\n  \
+     agentory tasks post TITLE [--body TEXT] [--accept CRITERIA] [--depends-on ID,ID] [--write] [--draft]\n  \
+     agentory tasks edit ID [--title T] [--body T] [--accept T] [--depends-on ID,ID]   change a draft\n  \
+     agentory tasks drop ID                           delete a draft\n  \
      agentory tasks headcount N                       propose how many workers the plan needs\n  \
      agentory tasks claim [ID]                        the oldest open task when ID is omitted\n  \
-     agentory tasks close ID [--summary TEXT]         only the task's assignee can close it\n  \
+     agentory tasks close ID [--summary TEXT]         hand the result to the user for review; only the assignee\n  \
      agentory tasks release ID                        put a claimed task back on the board\n\n\
      FLAGS:\n  \
      --project PATH   project directory\n  \
      --json           JSON output (the default when stdout is not a terminal)\n\n\
      Errors go to stderr with a non-zero exit code (1 file error, 2 bad usage or state, including \
-     not_found, taken, not_owner and closed)."
+     not_found, taken, not_owner, closed, blocked and invalid)."
         .to_string()
 }

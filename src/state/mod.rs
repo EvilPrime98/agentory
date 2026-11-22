@@ -2,6 +2,7 @@
 
 pub mod dispatch;
 pub mod git;
+pub mod plan;
 pub mod prefs;
 pub mod projects;
 pub mod review;

@@ -462,7 +462,11 @@ pub async fn assignable_users(dir: &Path) -> Result<Vec<String>, String> {
         dir,
     )
     .await?;
-    Ok(out.lines().map(str::to_string).filter(|l| !l.is_empty()).collect())
+    Ok(out
+        .lines()
+        .map(str::to_string)
+        .filter(|l| !l.is_empty())
+        .collect())
 }
 
 pub async fn issue_label(dir: &Path, number: u64, label: &str, add: bool) -> Result<(), String> {
@@ -471,7 +475,11 @@ pub async fn issue_label(dir: &Path, number: u64, label: &str, add: bool) -> Res
 }
 
 pub async fn issue_assignee(dir: &Path, number: u64, login: &str, add: bool) -> Result<(), String> {
-    let flag = if add { "--add-assignee" } else { "--remove-assignee" };
+    let flag = if add {
+        "--add-assignee"
+    } else {
+        "--remove-assignee"
+    };
     run(dir, &["issue", "edit", &number.to_string(), flag, login]).await
 }
 

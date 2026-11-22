@@ -28,7 +28,12 @@ fn error_code(out: &Output) -> String {
 }
 
 fn project() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("agentory-tasks-cli-{}", std::process::id()));
+    let test = std::thread::current()
+        .name()
+        .unwrap_or("t")
+        .replace("::", "-");
+    let dir =
+        std::env::temp_dir().join(format!("agentory-tasks-cli-{}-{test}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
@@ -48,9 +53,25 @@ fn post_claim_close_round_trip() {
     let stolen = run(&dir, "b", &["close", "t1"]);
     assert_eq!(error_code(&stolen), "not_owner");
     let closed = run(&dir, "a", &["close", "t1", "--summary", "done it"]);
-    assert_eq!(json(&closed)["status"], "done");
+    assert_eq!(json(&closed)["status"], "review");
+    assert_eq!(error_code(&run(&dir, "a", &["close", "t1"])), "closed");
 
     let open = run(&dir, "a", &["list", "--status", "open"]);
     assert_eq!(json(&open).as_array().unwrap().len(), 0);
     assert_eq!(error_code(&run(&dir, "a", &["show", "nope"])), "not_found");
+}
+
+#[test]
+fn dependencies_block_claims_and_are_validated() {
+    let dir = project();
+    run(&dir, "u", &["post", "first", "--accept", "builds"]);
+    let second = run(&dir, "u", &["post", "second", "--depends-on", "t1"]);
+    assert_eq!(json(&second)["dependsOn"][0], "t1");
+    assert_eq!(
+        error_code(&run(&dir, "u", &["post", "bad", "--depends-on", "t9"])),
+        "invalid"
+    );
+    assert_eq!(error_code(&run(&dir, "b", &["claim", "t2"])), "blocked");
+    assert_eq!(json(&run(&dir, "a", &["claim"]))["id"], "t1");
+    assert_eq!(json(&run(&dir, "b", &["claim"])), serde_json::Value::Null);
 }

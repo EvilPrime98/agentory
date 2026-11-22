@@ -565,7 +565,7 @@
   "office.activity_empty": "Nothing yet. Activity shows up here once the agent starts working.",
   "office.board": "Board: {open} open of {total}",
   "office.done": "Done: {count} waiting for review",
-  "office.pr.failed": "Could not open a PR for a finished task. Its branch was kept. {error}",
+  "office.pr.failed": "Could not open the PR of the finished plan. Its branch was kept. {error}",
   "office.skills": "Skills",
   "office.foreman.badge_review": "Review {count}",
   "office.foreman.title": "Foreman",
@@ -583,5 +583,16 @@
   "office.foreman.reject": "Reject",
   "office.foreman.write": "write",
   "office.foreman.read": "read-only",
-  "office.foreman.failed": "Could not start the foreman. {error}"
+  "office.foreman.failed": "Could not start the foreman. {error}",
+  "office.review.failed": "Could not accept the task. {error}",
+  "office.review.conflict": "Task {task} conflicts with the plan branch. Its worker was asked to resolve the conflicts.",
+  "office.review.summary": "Result",
+  "office.review.criteria": "Acceptance criteria",
+  "office.review.changes": "Changes",
+  "office.review.no_changes": "Read-only task: nothing changed.",
+  "office.review.empty_diff": "No changes.",
+  "office.review.feedback_hint": "Feedback for the worker, then Enter to send the task back",
+  "office.review.accept": "Accept",
+  "office.foreman.after": "after {ids}",
+  "office.foreman.discuss": "Discuss"
 }

@@ -1,22 +1,24 @@
 //! Turns open tasks on a project's board into worker sessions, up to the worker cap.
 //!
-//! A worker handles one task: it is claimed for the session before the session starts, a write
-//! task runs in its own worktree, and when the task is closed the session ends and the worktree
-//! folder is removed (the branch stays, so the work is not lost).
+//! A worker handles one task: it is claimed for the session before the session starts and a write
+//! task runs in its own worktree, branched off the plan branch. A task starts once the tasks it
+//! depends on are accepted. When the worker closes its task it parks in review, session and
+//! worktree alive, until the user accepts it (`crate::state::plan`) or sends it back. Once a task
+//! is accepted the session ends and the worktree folder is removed. When every task of the plan
+//! is accepted, the plan branch is published as one PR.
 
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 use std::time::Duration;
 
 use gpui::{App, AppContext as _, AsyncApp, Context};
 
 use crate::backend::git::{self, Worktree};
-use crate::backend::{gh, spm, tasks};
+use crate::backend::{spm, tasks};
 use crate::i18n::t_args;
 use crate::model::{Project, SessionStatus, new_id};
 use crate::runtime;
-use crate::state::Stores;
 use crate::state::sessions::SessionKind;
+use crate::state::{Stores, plan};
 use crate::ui::toast;
 
 /// Session ids of foremen start with this, which tells them apart from workers.
@@ -37,6 +39,8 @@ struct Dispatcher {
     workers: HashMap<String, Worker>,
     /// Tasks whose worker failed to start; they are not retried until the app restarts.
     failed: HashSet<String>,
+    /// Projects whose plan is being published, or failed to be; not retried until the app restarts.
+    publishing: HashSet<String>,
 }
 
 pub fn watch(stores: Stores, cx: &mut App) {
@@ -51,16 +55,39 @@ pub fn watch(stores: Stores, cx: &mut App) {
     .detach();
 }
 
-pub fn worker_prompt(task: &tasks::Task) -> String {
+pub fn worker_prompt(task: &tasks::Task, board: &[tasks::Task]) -> String {
     let commit = if task.write {
         " Commit your changes on the current branch before closing the task."
     } else {
         " This task is read-only: do not change files."
     };
+    let mut extra = String::new();
+    if !task.acceptance.is_empty() {
+        extra.push_str(&format!(
+            " Acceptance criteria: {}.",
+            plan::one_line(&task.acceptance)
+        ));
+    }
+    for dep in task
+        .depends_on
+        .iter()
+        .filter_map(|d| board.iter().find(|t| t.id == *d))
+    {
+        if !dep.summary.is_empty() {
+            extra.push_str(&format!(
+                " Result of {} ({}), which this task builds on: {}.",
+                dep.id,
+                plan::one_line(&dep.title),
+                plan::one_line(&dep.summary)
+            ));
+        }
+    }
     format!(
         "You are a worker on the project task board. Your task is {id}: {title}. Run \
-         `agentory tasks show {id}` for the details and do the work.{commit} Then run \
-         `agentory tasks close {id} --summary TEXT` with a short result. Do not claim other tasks.\r",
+         `agentory tasks show {id}` for the details and do the work.{commit}{extra} Then run \
+         `agentory tasks close {id} --summary TEXT` with a short result. The result goes to the user \
+         for review and may come back with feedback: keep this session open and address it. Do not \
+         claim other tasks.\r",
         id = task.id,
         title = task.title,
     )
@@ -69,27 +96,8 @@ pub fn worker_prompt(task: &tasks::Task) -> String {
 /// The startup prompt of a foreman. `input` is a markdown file with the issue or document to plan.
 pub fn foreman_prompt(input: &str) -> String {
     format!(
-        "You are the foreman of the project task board. Read {input} and plan the work in it. Break it into independent tasks: none may depend on another or need another's result. For each task run `agentory tasks post TITLE --body TEXT --draft`, and add --write when the task changes files (each write task becomes its own PR into dev); leave it out for read-only tasks. Do not do the work yourself. Then run `agentory tasks headcount N` with how many workers should run in parallel, never more than the number of tasks. Run headcount last, then stop.\r"
+        "You are the foreman of the project task board and you plan with the user in this chat. First read {input} and explore the code it touches. Ask the user clarifying questions whenever the scope, constraints or priorities are unclear, then propose the plan in the chat (the tasks, which depend on which, which change files) and wait for the user's agreement before posting anything. Then post each task with `agentory tasks post TITLE --body TEXT --accept CRITERIA --depends-on ID,ID --draft`: add --write when the task changes files (its work is merged into one plan branch, and one PR into dev is opened when the plan is done); leave it out for read-only tasks. `post` prints the task's id: post prerequisites first and use their ids in --depends-on, and make tasks independent only when they really are. Size each task so one worker finishes it in one session, and give it acceptance criteria the user can check. Fix a draft with `agentory tasks edit ID` or `agentory tasks drop ID`. Do not do the work yourself. When the plan is final run `agentory tasks headcount N` with how many workers should run in parallel, never more than the number of tasks, as the last step: the user then reviews and approves the plan. If the user asks for changes after that, edit the drafts and run headcount again.\r"
     )
-}
-
-/// Pushes the task's branch and opens a PR into `dev`. The local branch is deleted only once the
-/// PR exists; on any failure it stays, so the work is not lost.
-async fn publish_pr(repo: &Path, branch: &str, task: &tasks::Task) -> Result<(), String> {
-    if gh::setup(repo).await != gh::Setup::Ready {
-        return Err(format!("{}: GitHub is not set up", task.id));
-    }
-    if !git::remote_has_branch(repo, "dev").await {
-        return Err(format!("{}: the remote has no dev branch", task.id));
-    }
-    git::push_branch(repo, branch)
-        .await
-        .map_err(|e| format!("{}: {e}", task.id))?;
-    let body = format!("Task {}\n\n{}", task.id, task.summary);
-    gh::pr_create_from(repo, branch, "dev", &task.title, &body)
-        .await
-        .map_err(|e| format!("{}: {e}", task.id))?;
-    git::delete_local_branch(repo, branch).await
 }
 
 impl Dispatcher {
@@ -105,39 +113,96 @@ impl Dispatcher {
         self.reap(stores, &projects, cx);
         Self::reap_foremen(stores, &projects, cx);
         let cap = stores.prefs.read(cx).prefs.max_workers as usize;
-        for project in projects {
-            if self.workers.len() >= cap {
-                break;
-            }
-            let board = tasks::load(&project.path);
-            let limit = tasks::worker_limit(cap, &tasks::load_plan(&project.path), &board);
+        let boards: Vec<(Project, Vec<tasks::Task>)> = projects
+            .into_iter()
+            .map(|p| {
+                let board = tasks::load(&p.path);
+                (p, board)
+            })
+            .collect();
+        let mut total: usize = boards.iter().map(|(p, b)| self.working_in(p, b)).sum();
+        for (project, board) in &boards {
+            let plan = tasks::load_plan(&project.path);
+            self.publish_plan(project, &plan, board, cx);
+            let limit = tasks::worker_limit(cap, &plan, board);
+            let mut mine = self.working_in(project, board);
             for task in board {
-                let mine = self
-                    .workers
-                    .values()
-                    .filter(|w| w.project.id == project.id)
-                    .count();
-                if self.workers.len() >= cap || mine >= limit {
+                if total >= cap || mine >= limit {
                     break;
                 }
-                if task.status == tasks::TaskStatus::Open && !self.failed.contains(&task.id) {
-                    self.start(stores, &project, task, cx);
+                let startable = task.status == tasks::TaskStatus::Open
+                    && task.ready(board)
+                    && !self.failed.contains(&task.id);
+                if startable {
+                    self.start(stores, project, task.clone(), board, cx);
+                    total += 1;
+                    mine += 1;
                 }
             }
         }
     }
 
-    /// Closes a foreman once it recorded its headcount (its last step) or its session died, so
-    /// the desk is free again.
+    /// Workers of `project` that are working now. A worker parked in review is not: it keeps its
+    /// session but does not take one of the slots.
+    fn working_in(&self, project: &Project, board: &[tasks::Task]) -> usize {
+        self.workers
+            .values()
+            .filter(|w| w.project.id == project.id)
+            .filter(|w| {
+                board
+                    .iter()
+                    .any(|t| t.id == w.task && t.status == tasks::TaskStatus::Claimed)
+            })
+            .count()
+    }
+
+    /// Opens the plan's PR into `dev` once all its tasks are accepted.
+    fn publish_plan(
+        &mut self,
+        project: &Project,
+        plan: &tasks::Plan,
+        board: &[tasks::Task],
+        cx: &mut Context<Self>,
+    ) {
+        let Some(branch) = plan.branch.clone() else {
+            return;
+        };
+        if !tasks::plan_complete(plan, board) || self.publishing.contains(&project.id) {
+            return;
+        }
+        self.publishing.insert(project.id.clone());
+        let done: Vec<tasks::Task> = plan
+            .merged
+            .iter()
+            .filter_map(|id| board.iter().find(|t| t.id == *id).cloned())
+            .collect();
+        let project = project.clone();
+        cx.spawn(async move |this, cx: &mut AsyncApp| {
+            let repo = project.path.clone();
+            let result =
+                runtime::run(async move { plan::publish(&repo, &branch, &done).await }).await;
+            let _ = this.update(cx, |this, cx| match result {
+                Ok(()) => {
+                    let _ = tasks::finish_plan(&project.path);
+                    this.publishing.remove(&project.id);
+                }
+                Err(e) => toast::error(cx, t_args("office.pr.failed", &[("error", &e)])),
+            });
+        })
+        .detach();
+    }
+
+    /// Closes the foremen whose session died, so the desk is free again. A live foreman stays: the
+    /// user talks to it while planning and the office closes it when the plan is approved or
+    /// rejected.
     fn reap_foremen(stores: &Stores, projects: &[Project], cx: &mut Context<Self>) {
         for project in projects {
-            let proposed = tasks::load_plan(&project.path).headcount.is_some();
             let done: Vec<String> = stores
                 .sessions
                 .read(cx)
                 .agents(&project.id)
                 .filter(|s| s.id.starts_with(FOREMAN_PREFIX))
-                .filter(|s| proposed || s.status == SessionStatus::Exited)
+                .filter(|s| s.status == SessionStatus::Exited)
                 .map(|s| s.id.clone())
                 .collect();
             for sid in done {
@@ -146,7 +211,8 @@ impl Dispatcher {
         }
     }
 
-    /// Ends the workers whose task is closed and frees the ones whose session died.
+    /// Ends the workers whose task is accepted and frees the ones whose session died. A worker
+    /// whose task waits for review is left alone: the user may send the task back to it.
     fn reap(&mut self, stores: &Stores, projects: &[Project], cx: &mut Context<Self>) {
         let ids: Vec<String> = self.workers.keys().cloned().collect();
         for sid in ids {
@@ -165,8 +231,9 @@ impl Dispatcher {
                 .read(cx)
                 .get(&sid)
                 .is_some_and(|s| s.status != SessionStatus::Exited);
-            let done = state == Some(tasks::TaskStatus::Done) || state.is_none();
-            if !done && alive {
+            let accepted = state == Some(tasks::TaskStatus::Done);
+            let done = accepted || state.is_none();
+            if state == Some(tasks::TaskStatus::Review) || (!done && alive) {
                 continue;
             }
             let w = self.workers.remove(&sid).expect("checked above");
@@ -178,24 +245,20 @@ impl Dispatcher {
             stores.sessions.update(cx, |s, cx| s.close(&sid, cx));
             if let Some(wt) = w.worktree {
                 let repo = w.project.path.clone();
-                // Only finished work becomes a PR; a failed worker's branch is left as it is.
-                let publish = done.then_some(task).flatten();
-                cx.spawn(async move |_, cx: &mut AsyncApp| {
-                    let outcome = runtime::run(async move {
+                cx.spawn(async move |_, _: &mut AsyncApp| {
+                    runtime::run(async move {
                         if let Err(e) = git::remove_worktree_keep_branch(&repo, &wt).await {
                             tracing::warn!("could not remove the worktree of a closed task: {e}");
                         }
-                        match publish {
-                            Some(task) => Some(publish_pr(&repo, &wt.branch, &task).await),
-                            None => None,
+                        // An accepted task is part of the plan branch; any other branch keeps
+                        // work that was not merged.
+                        if accepted {
+                            if let Err(e) = git::delete_local_branch(&repo, &wt.branch).await {
+                                tracing::warn!("could not delete the branch of a merged task: {e}");
+                            }
                         }
                     })
                     .await;
-                    if let Some(Err(e)) = outcome {
-                        cx.update(|cx| {
-                            toast::error(cx, t_args("office.pr.failed", &[("error", &e)]))
-                        });
-                    }
                 })
                 .detach();
             }
@@ -217,14 +280,26 @@ impl Dispatcher {
         stores: &Stores,
         project: &Project,
         task: tasks::Task,
+        board: &[tasks::Task],
         cx: &mut Context<Self>,
     ) {
+        let write = task.write && project.is_git_repo();
+        let plan_branch = if write {
+            match tasks::ensure_branch(&project.path) {
+                Ok(branch) => Some(branch),
+                Err(e) => {
+                    tracing::error!("could not name the plan branch: {e:?}");
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         let sid = new_id("w");
         match tasks::claim(&project.path, Some(&task.id), &sid) {
             Ok(Some(_)) => {}
             _ => return,
         }
-        let write = task.write && project.is_git_repo();
         self.workers.insert(
             sid.clone(),
             Worker {
@@ -234,7 +309,7 @@ impl Dispatcher {
                 worktree: None,
             },
         );
-        let prompt = worker_prompt(&task);
+        let prompt = worker_prompt(&task, board);
         if !write {
             Self::spawn(stores, project, sid, None, prompt, cx);
             return;
@@ -244,7 +319,13 @@ impl Dispatcher {
         cx.spawn(async move |this, cx: &mut AsyncApp| {
             let (p, s) = (project.clone(), sid.clone());
             let result = runtime::run(async move {
-                let wt = git::add_worktree(&p.path, &p.name, &s).await?;
+                let wt = match &plan_branch {
+                    Some(base) => {
+                        git::ensure_branch(&p.path, base).await?;
+                        git::add_worktree_from(&p.path, &p.name, &s, base).await?
+                    }
+                    None => git::add_worktree(&p.path, &p.name, &s).await?,
+                };
                 if p.path.join("spm.json").exists() {
                     if let Err(e) = spm::install(&wt.path, &[]).await {
                         tracing::warn!("spm install in the worktree failed: {e}");
@@ -307,6 +388,7 @@ mod tests {
     fn foreman_prompt_names_the_input_and_submits() {
         let p = foreman_prompt("C:/tmp/plan.md");
         assert!(p.contains("C:/tmp/plan.md") && p.contains("--draft") && p.contains("headcount"));
+        assert!(p.contains("--depends-on") && p.contains("--accept"));
         assert!(p.ends_with('\r') && !p.contains('\n'));
     }
 
@@ -318,13 +400,34 @@ mod tests {
             write: true,
             ..Default::default()
         };
-        let p = worker_prompt(&task);
+        let p = worker_prompt(&task, &[]);
         assert!(p.contains("t3") && p.contains("Fix it") && p.contains("Commit"));
-        assert!(p.ends_with('\r'));
-        let ro = worker_prompt(&tasks::Task {
-            id: "t4".into(),
-            ..Default::default()
-        });
+        assert!(p.ends_with('\r') && !p.contains('\n'));
+        let ro = worker_prompt(
+            &tasks::Task {
+                id: "t4".into(),
+                ..Default::default()
+            },
+            &[],
+        );
         assert!(ro.contains("read-only"));
+    }
+
+    #[test]
+    fn prompt_carries_the_criteria_and_what_the_dependencies_found() {
+        let dep = tasks::Task {
+            id: "t1".into(),
+            title: "Survey".into(),
+            summary: "three callers".into(),
+            ..Default::default()
+        };
+        let task = tasks::Task {
+            id: "t2".into(),
+            acceptance: "tests pass".into(),
+            depends_on: vec!["t1".into()],
+            ..Default::default()
+        };
+        let p = worker_prompt(&task, &[dep]);
+        assert!(p.contains("tests pass") && p.contains("three callers") && p.contains("t1"));
     }
 }
