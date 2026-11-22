@@ -561,6 +561,8 @@
   "office.board": "Board: {open} open of {total}",
   "office.done": "Done: {count} waiting for review",
   "office.pr.failed": "Could not open a PR for a finished task. Its branch was kept. {error}",
+  "office.skills": "Skills",
+  "office.foreman.badge_review": "Review {count}",
   "office.foreman.title": "Foreman",
   "office.foreman.idle": "Pick an issue or a markdown file and the foreman plans the work as draft tasks.",
   "office.foreman.drafting": "Planning…",
