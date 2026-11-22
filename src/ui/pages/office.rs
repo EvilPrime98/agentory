@@ -22,10 +22,11 @@ use crate::backend::spm::store::parse_skill;
 use crate::backend::tasks::{self, Plan, Task, TaskStatus};
 use crate::backend::transcripts::{ChatItem, Tail};
 use crate::i18n::{t, t_args};
-use crate::model::{SessionStatus, new_id};
+use crate::model::{Project, SessionStatus, new_id};
 use crate::route::{Navigate, Route};
 use crate::runtime;
 use crate::state::dispatch::{FOREMAN_PREFIX, foreman_prompt};
+use crate::state::plan as flow;
 use crate::state::sessions::SessionKind;
 use crate::state::{Stores, sessions};
 use crate::ui::components::button::{ButtonVariant, button};
@@ -42,7 +43,8 @@ const PR_POLL: Duration = Duration::from_secs(30);
 const RECENT_KEPT: usize = 40;
 const RECENT_SHOWN: usize = 14;
 const PANEL_W: f32 = 340.0;
-const BOARD_SHOWN: usize = 6;
+const BOARD_SHOWN: usize = 8;
+const DIFF_LINES: usize = 400;
 const SECTIONS: usize = 3;
 const BOARD: usize = 0;
 const DONE: usize = 1;
@@ -182,18 +184,33 @@ struct Seat {
     cwd: PathBuf,
 }
 
-/// What the right-hand panel shows for the foreman.
-#[derive(Clone, Copy, PartialEq, Eq)]
+fn seat_of(s: &sessions::Session) -> Seat {
+    Seat {
+        id: s.id.clone(),
+        name: s.name.clone(),
+        status: s.status,
+        claude_id: s.claude_id.clone(),
+        cwd: s.cwd.clone(),
+    }
+}
+
+/// What the right-hand panel shows besides a worker's session.
+#[derive(Clone, PartialEq, Eq)]
 enum ForemanPanel {
     /// Choose the issue or document to plan.
     Pick,
-    /// Review the draft tasks, then approve or reject them.
+    /// The live foreman session: the user and the foreman plan together.
+    Planner,
+    /// Review the plan: the draft tasks, their dependencies and the headcount.
     Review,
+    /// Review the result of this task: accept it or send it back with feedback.
+    Task(String),
 }
 
 pub struct OfficePage {
     foreman_bar: Scrollbar,
     foreman: Option<ForemanPanel>,
+    task_diff: Option<(String, String)>,
     plan: Plan,
     /// The user's headcount; the proposal is used until it is changed.
     headcount: Option<u32>,
@@ -210,7 +227,7 @@ pub struct OfficePage {
     input: Entity<TextInput>,
     polling: bool,
     tasks: Vec<Task>,
-    /// Open PRs opened by finished workers, waiting for the user's review.
+    /// Open PRs of finished plans, waiting for the user's review.
     prs: Vec<gh::PrSummary>,
     scene_w: Rc<Cell<f32>>,
     rail_bar: Scrollbar,
@@ -251,6 +268,7 @@ impl OfficePage {
         let mut this = Self {
             foreman_bar: Scrollbar::new(),
             foreman: None,
+            task_diff: None,
             plan: Plan::default(),
             headcount: None,
             issues: None,
@@ -308,7 +326,7 @@ impl OfficePage {
                     .await
                     .unwrap_or_default()
                     .into_iter()
-                    .filter(|p| p.state == "OPEN" && p.head_ref_name.starts_with("agentory/w"))
+                    .filter(|p| p.state == "OPEN" && p.head_ref_name.starts_with("agentory/plan-"))
                     .collect::<Vec<_>>()
             })
             .await;
@@ -370,14 +388,18 @@ impl OfficePage {
             .read(cx)
             .agents(&self.project_id)
             .filter(|s| !s.id.starts_with(FOREMAN_PREFIX))
-            .map(|s| Seat {
-                id: s.id.clone(),
-                name: s.name.clone(),
-                status: s.status,
-                claude_id: s.claude_id.clone(),
-                cwd: s.cwd.clone(),
-            })
+            .map(seat_of)
             .collect()
+    }
+
+    /// The foreman's seat, while its session lives.
+    fn foreman_seat(&self, cx: &Context<Self>) -> Option<Seat> {
+        self.stores
+            .sessions
+            .read(cx)
+            .agents(&self.project_id)
+            .find(|s| s.id.starts_with(FOREMAN_PREFIX))
+            .map(seat_of)
     }
 
     fn tick(&mut self, cx: &mut Context<Self>) {
@@ -385,6 +407,10 @@ impl OfficePage {
         if self.frame % POLL_EVERY == 0 {
             self.poll(cx);
             self.load_tasks(cx);
+        }
+        if self.foreman == Some(ForemanPanel::Planner) && self.foreman_seat(cx).is_none() {
+            self.foreman = None;
+            self.selected = None;
         }
         let animating = self
             .stores
@@ -402,7 +428,8 @@ impl OfficePage {
         if self.polling {
             return;
         }
-        let seats = self.seats(cx);
+        let mut seats = self.seats(cx);
+        seats.extend(self.foreman_seat(cx));
         let alive: HashSet<&str> = seats.iter().map(|s| s.id.as_str()).collect();
         self.workers.retain(|id, _| alive.contains(id.as_str()));
         if self
@@ -477,10 +504,16 @@ impl OfficePage {
     }
 
     fn send(&mut self, cx: &mut Context<Self>) {
+        let text = self.input.read(cx).value().trim().to_string();
+        if let Some(ForemanPanel::Task(task)) = self.foreman.clone() {
+            if !text.is_empty() {
+                self.send_back_task(&task, &text, cx);
+            }
+            return;
+        }
         let Some(id) = self.selected.clone() else {
             return;
         };
-        let text = self.input.read(cx).value().trim().to_string();
         if text.is_empty() {
             return;
         }
@@ -518,6 +551,9 @@ impl OfficePage {
     fn close(&mut self, id: &str, cx: &mut Context<Self>) {
         sessions::request_close(id, cx);
         self.selected = None;
+        if id.starts_with(FOREMAN_PREFIX) {
+            self.foreman = None;
+        }
         cx.notify();
     }
 
@@ -551,12 +587,10 @@ impl OfficePage {
                 runtime::run(async move { (tasks::load(&root), tasks::load_plan(&root)) }).await;
             this.update(cx, |this, cx| {
                 if this.tasks != loaded || this.plan != plan {
+                    let was_proposed = this.proposed();
                     this.tasks = loaded;
                     this.plan = plan;
-                    if this.foreman == Some(ForemanPanel::Review) && this.drafts().next().is_none()
-                    {
-                        this.foreman = None;
-                    }
+                    this.follow_plan(was_proposed, cx);
                     cx.notify();
                 }
             })
@@ -565,19 +599,55 @@ impl OfficePage {
         .detach();
     }
 
-    fn board_body(&self, seats: &[Seat], now: Instant) -> gpui::AnyElement {
-        let shown: Vec<&Task> = self
+    /// Moves the foreman panel along with the plan: the proposal opens the review, a withdrawn
+    /// proposal goes back to the chat, and a task that left review closes its panel.
+    fn follow_plan(&mut self, was_proposed: bool, cx: &mut Context<Self>) {
+        match self.foreman.clone() {
+            Some(ForemanPanel::Planner) if !was_proposed && self.proposed() => {
+                self.foreman = Some(ForemanPanel::Review);
+                self.selected = None;
+            }
+            Some(ForemanPanel::Review) if !self.proposed() => match self.foreman_seat(cx) {
+                Some(seat) => {
+                    self.foreman = Some(ForemanPanel::Planner);
+                    self.selected = Some(seat.id);
+                }
+                None if self.drafts().next().is_none() => self.foreman = None,
+                None => {}
+            },
+            Some(ForemanPanel::Task(id)) => {
+                let waiting = self
+                    .tasks
+                    .iter()
+                    .any(|t| t.id == id && t.status == TaskStatus::Review);
+                if !waiting {
+                    self.foreman = None;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn board_body(&self, seats: &[Seat], now: Instant, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let mut shown: Vec<&Task> = self
             .tasks
             .iter()
             .filter(|t| t.status != TaskStatus::Draft)
+            .rev()
             .collect();
-        let rows = shown.iter().rev().take(BOARD_SHOWN).map(|task| {
+        // Results waiting for the user come first, so they are never pushed off the list.
+        shown.sort_by_key(|t| t.status != TaskStatus::Review);
+        let rows = shown.into_iter().take(BOARD_SHOWN).map(|task| {
             let (mark, color) = match task.status {
                 TaskStatus::Draft => ("◌", theme::text_faint()),
+                TaskStatus::Open if !task.ready(&self.tasks) => ("◌", theme::text_faint()),
                 TaskStatus::Open => ("○", theme::text_muted()),
                 TaskStatus::Claimed => ("●", theme::text()),
+                TaskStatus::Review => ("◐", theme::warning()),
                 TaskStatus::Done => ("✓", theme::text_faint()),
             };
+            let review = task.status == TaskStatus::Review;
+            let id = task.id.clone();
             let who = task.assignee.as_deref().map(|a| {
                 seats
                     .iter()
@@ -585,6 +655,7 @@ impl OfficePage {
                     .map_or_else(|| a.to_string(), |s| s.name.clone())
             });
             div()
+                .id(gpui::SharedString::from(format!("board-{}", task.id)))
                 .flex()
                 .items_center()
                 .gap(px(8.0))
@@ -594,6 +665,11 @@ impl OfficePage {
                 .text_size(px(12.0))
                 .text_color(color)
                 .opacity(self.row_opacity(&format!("task-{}", task.id), now))
+                .when(review, |d| {
+                    d.cursor_pointer()
+                        .hover(|d| d.bg(theme::hover_soft()))
+                        .on_click(cx.listener(move |this, _, _, cx| this.open_task(&id, cx)))
+                })
                 .child(div().flex_none().w(px(12.0)).child(mark))
                 .child(
                     div()
@@ -602,9 +678,7 @@ impl OfficePage {
                         .truncate()
                         .child(task.title.clone()),
                 )
-                .children(
-                    who.map(|w| div().flex_none().text_color(theme::text_faint()).child(w)),
-                )
+                .children(who.map(|w| div().flex_none().text_color(theme::text_faint()).child(w)))
         });
         div()
             .flex()
@@ -646,21 +720,112 @@ impl OfficePage {
         cx.notify();
     }
 
+    /// The foreman proposed a complete plan, waiting for the user.
+    fn proposed(&self) -> bool {
+        self.plan.headcount.is_some() && self.drafts().next().is_some()
+    }
+
     fn click_desk(&mut self, cx: &mut Context<Self>) {
-        if self.foreman_status(cx).is_some() {
-            return;
-        }
         self.selected = None;
         if self.foreman.take().is_some() {
             cx.notify();
             return;
         }
-        if self.drafts().next().is_some() {
-            self.foreman = Some(ForemanPanel::Review);
-        } else {
-            self.foreman = Some(ForemanPanel::Pick);
-            self.open_picker(cx);
+        self.foreman = Some(match self.foreman_seat(cx) {
+            Some(_) if self.proposed() => ForemanPanel::Review,
+            Some(seat) => {
+                self.selected = Some(seat.id);
+                ForemanPanel::Planner
+            }
+            None if self.drafts().next().is_some() => ForemanPanel::Review,
+            None => {
+                self.open_picker(cx);
+                ForemanPanel::Pick
+            }
+        });
+        cx.notify();
+    }
+
+    /// Back to the chat with the foreman, to change the plan.
+    fn discuss(&mut self, cx: &mut Context<Self>) {
+        let Some(seat) = self.foreman_seat(cx) else {
+            return;
+        };
+        self.selected = Some(seat.id);
+        self.foreman = Some(ForemanPanel::Planner);
+        cx.notify();
+    }
+
+    fn drop_draft(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(root) = self.stores.projects.read(cx).path_of(&self.project_id) else {
+            return;
+        };
+        let was_proposed = self.proposed();
+        if let Err(e) = tasks::drop_draft(&root, id) {
+            toast::error(cx, format!("{e:?}"));
+            return;
         }
+        self.tasks = tasks::load(&root);
+        self.plan = tasks::load_plan(&root);
+        self.follow_plan(was_proposed, cx);
+        cx.notify();
+    }
+
+    fn open_task(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(project) = self.stores.projects.read(cx).get(&self.project_id).cloned() else {
+            return;
+        };
+        let Some(task) = self.tasks.iter().find(|t| t.id == id).cloned() else {
+            return;
+        };
+        self.selected = None;
+        self.foreman = Some(ForemanPanel::Task(id.to_string()));
+        self.task_diff = None;
+        self.input.update(cx, |i, cx| i.set_value("", cx));
+        cx.notify();
+        let id = id.to_string();
+        cx.spawn(async move |this, cx| {
+            let text =
+                runtime::run(
+                    async move { flow::diff(&project, &task).await.unwrap_or_else(|e| e) },
+                )
+                .await;
+            this.update(cx, |this, cx| {
+                this.task_diff = Some((id, text));
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn task_under_review(&self, id: &str, cx: &Context<Self>) -> Option<(Project, Task)> {
+        let project = self
+            .stores
+            .projects
+            .read(cx)
+            .get(&self.project_id)
+            .cloned()?;
+        let task = self.tasks.iter().find(|t| t.id == id).cloned()?;
+        Some((project, task))
+    }
+
+    fn accept_task(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some((project, task)) = self.task_under_review(id, cx) else {
+            return;
+        };
+        flow::accept(&self.stores, &project, task, cx);
+        self.foreman = None;
+        cx.notify();
+    }
+
+    fn send_back_task(&mut self, id: &str, feedback: &str, cx: &mut Context<Self>) {
+        let Some((project, task)) = self.task_under_review(id, cx) else {
+            return;
+        };
+        flow::send_back(&self.stores, &project, &task, feedback, cx);
+        self.input.update(cx, |i, cx| i.set_value("", cx));
+        self.foreman = None;
         cx.notify();
     }
 
@@ -707,6 +872,7 @@ impl OfficePage {
         let prefs = self.stores.prefs.read(cx).prefs.clone();
         let prompt = foreman_prompt(&input.to_string_lossy());
         let sid = new_id(FOREMAN_PREFIX);
+        let seat = sid.clone();
         let started = self.stores.sessions.update(cx, |s, cx| {
             s.start(
                 &project,
@@ -720,7 +886,8 @@ impl OfficePage {
         });
         match started {
             Ok(()) => {
-                self.foreman = None;
+                self.foreman = Some(ForemanPanel::Planner);
+                self.selected = Some(seat);
                 self.headcount = None;
             }
             Err(e) => toast::error(cx, t_args("office.foreman.failed", &[("error", &e)])),
@@ -771,7 +938,12 @@ impl OfficePage {
         self.tasks = tasks::load(&root);
         self.plan = tasks::load_plan(&root);
         self.foreman = None;
+        self.selected = None;
         self.headcount = None;
+        // The plan is settled either way, so the foreman's job is over.
+        if let Some(seat) = self.foreman_seat(cx) {
+            sessions::request_close(&seat.id, cx);
+        }
         cx.notify();
     }
 
@@ -819,7 +991,12 @@ impl OfficePage {
                 .text_color(theme::text())
                 .cursor_pointer()
                 .hover(|d| d.bg(theme::hover_soft()))
-                .child(div().flex_none().text_color(theme::text_faint()).child(number))
+                .child(
+                    div()
+                        .flex_none()
+                        .text_color(theme::text_faint())
+                        .child(number),
+                )
                 .child(div().flex_1().min_w_0().truncate().child(name))
         };
         let root = self.stores.projects.read(cx).path_of(&self.project_id);
@@ -889,10 +1066,26 @@ impl OfficePage {
             .p(px(10.0))
             .overflow_y_scroll()
             .children(self.drafts().map(|task| {
+                let id = task.id.clone();
+                let after = (!task.depends_on.is_empty()).then(|| {
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(theme::text_muted())
+                        .child(t_args(
+                            "office.foreman.after",
+                            &[("ids", &task.depends_on.join(", "))],
+                        ))
+                });
+                let criteria = (!task.acceptance.is_empty()).then(|| {
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(theme::text_faint())
+                        .child(task.acceptance.clone())
+                });
                 div()
                     .flex()
-                    .items_start()
-                    .gap(px(8.0))
+                    .flex_col()
+                    .gap(px(2.0))
                     .px(px(8.0))
                     .py(px(6.0))
                     .rounded(px(4.0))
@@ -900,14 +1093,42 @@ impl OfficePage {
                     .border_color(theme::border_subtle())
                     .text_size(px(12.0))
                     .text_color(theme::text())
-                    .child(div().flex_1().min_w_0().child(task.title.clone()))
-                    .child(div().flex_none().text_color(theme::text_faint()).child(t(
-                        if task.write {
-                            "office.foreman.write"
-                        } else {
-                            "office.foreman.read"
-                        },
-                    )))
+                    .child(
+                        div()
+                            .flex()
+                            .items_start()
+                            .gap(px(8.0))
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .text_color(theme::text_faint())
+                                    .child(task.id.clone()),
+                            )
+                            .child(div().flex_1().min_w_0().child(task.title.clone()))
+                            .child(div().flex_none().text_color(theme::text_faint()).child(t(
+                                if task.write {
+                                    "office.foreman.write"
+                                } else {
+                                    "office.foreman.read"
+                                },
+                            )))
+                            .child(
+                                div()
+                                    .id(gpui::SharedString::from(format!("foreman-drop-{id}")))
+                                    .flex_none()
+                                    .px(px(4.0))
+                                    .rounded(px(3.0))
+                                    .text_color(theme::text_faint())
+                                    .cursor_pointer()
+                                    .hover(|d| d.bg(theme::hover_soft()))
+                                    .on_click(
+                                        cx.listener(move |this, _, _, cx| this.drop_draft(&id, cx)),
+                                    )
+                                    .child("×"),
+                            ),
+                    )
+                    .children(after)
+                    .children(criteria)
             }));
         let stepper = div()
             .flex()
@@ -943,6 +1164,7 @@ impl OfficePage {
             ));
         let actions = div()
             .flex()
+            .flex_wrap()
             .gap(px(8.0))
             .child(button(
                 "foreman-approve",
@@ -955,7 +1177,15 @@ impl OfficePage {
                 t("office.foreman.reject"),
                 ButtonVariant::Secondary,
                 cx.listener(|this, _, _, cx| this.resolve_plan(false, cx)),
-            ));
+            ))
+            .when(self.foreman_seat(cx).is_some(), |d| {
+                d.child(button(
+                    "foreman-discuss",
+                    t("office.foreman.discuss"),
+                    ButtonVariant::Secondary,
+                    cx.listener(|this, _, _, cx| this.discuss(cx)),
+                ))
+            });
         Self::foreman_shell()
             .child(
                 div()
@@ -966,6 +1196,123 @@ impl OfficePage {
             .child(self.foreman_bar.overlay(list))
             .child(stepper)
             .child(actions)
+            .into_any_element()
+    }
+
+    fn task_panel(&self, id: &str, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let Some(task) = self.tasks.iter().find(|t| t.id == id) else {
+            return Self::foreman_shell().into_any_element();
+        };
+        let label = |key: &str| {
+            div()
+                .text_size(px(11.0))
+                .text_color(theme::text_muted())
+                .child(t(key))
+        };
+        let text = |s: String| {
+            div()
+                .text_size(px(12.0))
+                .text_color(theme::text_secondary())
+                .child(s)
+        };
+        let changes: Vec<gpui::AnyElement> = match &self.task_diff {
+            _ if !task.write => vec![text(t("office.review.no_changes")).into_any_element()],
+            Some((tid, diff)) if tid == id && diff.trim().is_empty() => {
+                vec![text(t("office.review.empty_diff")).into_any_element()]
+            }
+            Some((tid, diff)) if tid == id => diff
+                .lines()
+                .take(DIFF_LINES)
+                .map(|l| {
+                    let color = if l.starts_with("+++") || l.starts_with("---") {
+                        theme::text_muted()
+                    } else if l.starts_with('+') {
+                        theme::success()
+                    } else if l.starts_with('-') {
+                        theme::error()
+                    } else if l.starts_with("@@") {
+                        theme::text_faint()
+                    } else {
+                        theme::text_secondary()
+                    };
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(color)
+                        .child(if l.is_empty() {
+                            " ".to_string()
+                        } else {
+                            l.to_string()
+                        })
+                        .into_any_element()
+                })
+                .collect(),
+            _ => vec![text(t("office.foreman.loading")).into_any_element()],
+        };
+        let list = div()
+            .id("task-review")
+            .flex()
+            .flex_col()
+            .gap(px(6.0))
+            .p(px(10.0))
+            .overflow_y_scroll()
+            .child(label("office.review.summary"))
+            .child(text(if task.summary.is_empty() {
+                "-".to_string()
+            } else {
+                task.summary.clone()
+            }))
+            .children((!task.acceptance.is_empty()).then(|| {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.0))
+                    .child(label("office.review.criteria"))
+                    .child(text(task.acceptance.clone()))
+            }))
+            .child(label("office.review.changes"))
+            .children(changes);
+        let task_id = task.id.clone();
+        Self::foreman_shell()
+            .child(
+                div()
+                    .text_size(px(14.0))
+                    .text_color(theme::text())
+                    .child(format!("{}  {}", task.id, task.title)),
+            )
+            .child(self.foreman_bar.overlay(list))
+            .child(label("office.review.feedback_hint"))
+            .child(
+                div()
+                    .flex_none()
+                    .h(px(34.0))
+                    .px(px(10.0))
+                    .flex()
+                    .items_center()
+                    .rounded(px(4.0))
+                    .border_1()
+                    .border_color(theme::border_strong())
+                    .child(self.input.clone()),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap(px(8.0))
+                    .child(button(
+                        "task-accept",
+                        t("office.review.accept"),
+                        ButtonVariant::Classic,
+                        cx.listener(move |this, _, _, cx| this.accept_task(&task_id, cx)),
+                    ))
+                    .child(button(
+                        "task-close",
+                        t("common.close"),
+                        ButtonVariant::Secondary,
+                        cx.listener(|this, _, _, cx| {
+                            this.foreman = None;
+                            cx.notify();
+                        }),
+                    )),
+            )
             .into_any_element()
     }
 
@@ -1047,12 +1394,19 @@ impl OfficePage {
         let titles = [
             t_args(
                 "office.board",
-                &[("open", &open_tasks.to_string()), ("total", &total.to_string())],
+                &[
+                    ("open", &open_tasks.to_string()),
+                    ("total", &total.to_string()),
+                ],
             ),
             t_args("office.done", &[("count", &self.prs.len().to_string())]),
             t("office.skills"),
         ];
-        let mut list = div().id("office-rail").flex().flex_col().overflow_y_scroll();
+        let mut list = div()
+            .id("office-rail")
+            .flex()
+            .flex_col()
+            .overflow_y_scroll();
         for (i, title) in titles.into_iter().enumerate() {
             let k = self.section_fx[i].value(now);
             let chevron = if self.open[i] { "▾" } else { "▸" };
@@ -1086,7 +1440,7 @@ impl OfficePage {
                     .text_color(theme::text_faint())
                     .child(t("office.board_empty"))
                     .into_any_element(),
-                BOARD => self.board_body(seats, now),
+                BOARD => self.board_body(seats, now, cx),
                 DONE => self.done_body(now),
                 _ => self.skills_body(cx),
             };
@@ -1160,7 +1514,7 @@ impl OfficePage {
                 }
             }
             let selected = if *key == FOREMAN {
-                self.foreman.is_some()
+                !matches!(self.foreman, None | Some(ForemanPanel::Task(_)))
             } else {
                 self.selected.as_deref() == Some(*key)
             };
@@ -1246,7 +1600,7 @@ impl OfficePage {
         let fstatus = self.foreman_status(cx);
         let busy = fstatus.is_some();
         let drafts = self.drafts().count();
-        let badge = if busy {
+        let badge = if busy && !self.proposed() {
             t("office.foreman.drafting")
         } else if drafts > 0 {
             t_args(
@@ -1276,11 +1630,8 @@ impl OfficePage {
                 .h(px(CELL_H))
                 .border_1()
                 .border_color(fade(theme::accent(), fx(FOREMAN)))
-                .when(busy, |d| d.opacity(0.7))
-                .when(!busy, |d| {
-                    d.cursor_pointer()
-                        .on_click(cx.listener(|this, _, _, cx| this.click_desk(cx)))
-                })
+                .cursor_pointer()
+                .on_click(cx.listener(|this, _, _, cx| this.click_desk(cx)))
                 .child(
                     div()
                         .absolute()
@@ -1581,9 +1932,13 @@ impl Render for OfficePage {
             .selected
             .as_ref()
             .and_then(|id| seats.iter().find(|s| &s.id == id));
-        let panel = match (self.foreman, selected) {
+        let panel = match (self.foreman.clone(), selected) {
             (Some(ForemanPanel::Pick), _) => Some(self.foreman_pick(cx)),
+            (Some(ForemanPanel::Planner), _) => {
+                self.foreman_seat(cx).map(|seat| self.panel(&seat, cx))
+            }
             (Some(ForemanPanel::Review), _) => Some(self.foreman_review(cx)),
+            (Some(ForemanPanel::Task(id)), _) => Some(self.task_panel(&id, cx)),
             (None, Some(s)) => Some(self.panel(s, cx)),
             (None, None) => None,
         };
@@ -1625,26 +1980,23 @@ impl Render for OfficePage {
             .child(measure)
             .child(
                 self.scrollbar.overlay(
-                    div()
-                        .id("office-scroll")
-                        .overflow_y_scroll()
-                        .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .items_center()
-                                .gap(px(16.0))
-                                .p(px(SCENE_PAD))
-                                .child(scene)
-                                .when(seats.is_empty(), |d| {
-                                    d.child(
-                                        div()
-                                            .text_size(px(13.0))
-                                            .text_color(theme::text_muted())
-                                            .child(t("office.empty")),
-                                    )
-                                }),
-                        ),
+                    div().id("office-scroll").overflow_y_scroll().child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .gap(px(16.0))
+                            .p(px(SCENE_PAD))
+                            .child(scene)
+                            .when(seats.is_empty(), |d| {
+                                d.child(
+                                    div()
+                                        .text_size(px(13.0))
+                                        .text_color(theme::text_muted())
+                                        .child(t("office.empty")),
+                                )
+                            }),
+                    ),
                 ),
             );
 

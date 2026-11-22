@@ -565,7 +565,7 @@
   "office.activity_empty": "Aún nada. La actividad aparecerá aquí cuando el agente empiece a trabajar.",
   "office.board": "Tablero: {open} abiertas de {total}",
   "office.done": "Hechas: {count} esperando revisión",
-  "office.pr.failed": "No se pudo abrir un PR de una tarea terminada. Se conservó su rama. {error}",
+  "office.pr.failed": "No se pudo abrir el PR del plan terminado. Se conservó su rama. {error}",
   "office.skills": "Habilidades",
   "office.foreman.badge_review": "Revisar {count}",
   "office.foreman.title": "Capataz",
@@ -583,5 +583,16 @@
   "office.foreman.reject": "Rechazar",
   "office.foreman.write": "escritura",
   "office.foreman.read": "solo lectura",
-  "office.foreman.failed": "No se pudo iniciar el capataz. {error}"
+  "office.foreman.failed": "No se pudo iniciar el capataz. {error}",
+  "office.review.failed": "No se pudo aceptar la tarea. {error}",
+  "office.review.conflict": "La tarea {task} tiene conflictos con la rama del plan. Se pidió a su trabajador que los resuelva.",
+  "office.review.summary": "Resultado",
+  "office.review.criteria": "Criterios de aceptación",
+  "office.review.changes": "Cambios",
+  "office.review.no_changes": "Tarea de solo lectura: no cambió nada.",
+  "office.review.empty_diff": "Sin cambios.",
+  "office.review.feedback_hint": "Comentarios para el trabajador y Enter para devolver la tarea",
+  "office.review.accept": "Aceptar",
+  "office.foreman.after": "después de {ids}",
+  "office.foreman.discuss": "Conversar"
 }
