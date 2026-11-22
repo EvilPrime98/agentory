@@ -1609,40 +1609,43 @@ impl GithubPage {
                 "github-assignee",
             ),
         };
-        let chips = options.iter().enumerate().map(|(i, name)| {
-            let on = selected.contains(&name.as_str());
-            let pick = name.clone();
-            div()
-                .id(SharedString::from(format!("{id}-{i}")))
-                .px(px(8.0))
-                .py(px(2.0))
-                .rounded(px(10.0))
-                .border_1()
-                .border_color(if on {
-                    theme::accent()
-                } else {
-                    theme::border_subtle()
-                })
-                .text_size(px(11.5))
-                .text_color(if on {
-                    theme::accent()
-                } else {
-                    theme::text_secondary()
-                })
-                .cursor_pointer()
-                .hover(|s| s.bg(theme::hover()))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.toggle_pick(picker, pick.clone(), on, cx)
-                }))
-                .child(name.clone())
-        });
+        let chips =
+            options.iter().enumerate().map(|(i, name)| {
+                let on = selected.contains(&name.as_str());
+                let pick = name.clone();
+                div()
+                    .id(SharedString::from(format!("{id}-{i}")))
+                    .px(px(8.0))
+                    .py(px(2.0))
+                    .rounded(px(10.0))
+                    .border_1()
+                    .border_color(if on {
+                        theme::accent()
+                    } else {
+                        theme::border_subtle()
+                    })
+                    .text_size(px(11.5))
+                    .text_color(if on {
+                        theme::accent()
+                    } else {
+                        theme::text_secondary()
+                    })
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme::hover()))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.toggle_pick(picker, pick.clone(), on, cx)
+                    }))
+                    .child(name.clone())
+            });
         Some(
             div()
                 .flex()
                 .flex_wrap()
                 .flex_none()
                 .gap(px(6.0))
-                .when(options.is_empty(), |s| s.child(muted_note(t("github.loading").into())))
+                .when(options.is_empty(), |s| {
+                    s.child(muted_note(t("github.loading").into()))
+                })
                 .children(chips)
                 .into_any_element(),
         )
