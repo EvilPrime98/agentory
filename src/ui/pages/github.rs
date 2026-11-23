@@ -7,8 +7,9 @@ use gpui::{
     Subscription, Window, div, prelude::*, px,
 };
 
+use super::docs::{Doc, confirm_trash, md_row, scan_dir};
 use super::git::{MAX_DIFF_LINES, diff_view, tint};
-use super::skills::{icon_button, muted_note};
+use super::skills::{card, icon_button, muted_note};
 use crate::backend::gh::{
     self, Check, CheckState, Comment, IssueDetail, IssueSummary, PrDetail, PrSummary, Setup,
 };
@@ -55,9 +56,12 @@ struct Failure {
 pub struct GithubPage {
     list_bar: Scrollbar,
     detail_bar: Scrollbar,
+    local_bar: Scrollbar,
     stores: Stores,
     project_id: String,
     setup: Option<Setup>,
+    /// `issues/**/*.md`, shown when the project has no GitHub remote; `None` without the folder.
+    local_issues: Option<Vec<Doc>>,
     tab: Tab,
     prs: Vec<PrSummary>,
     issues: Vec<IssueSummary>,
@@ -159,9 +163,11 @@ impl GithubPage {
         let mut this = Self {
             list_bar: Scrollbar::new(),
             detail_bar: Scrollbar::new(),
+            local_bar: Scrollbar::new(),
             stores,
             project_id,
             setup: None,
+            local_issues: None,
             tab: Tab::Prs,
             prs: Vec::new(),
             issues: Vec::new(),
@@ -210,6 +216,7 @@ impl GithubPage {
     fn check_setup(&mut self, cx: &mut Context<Self>) {
         let Some(dir) = self.dir(cx) else {
             self.setup = Some(Setup::NoRemote);
+            self.local_issues = None;
             cx.notify();
             return;
         };
@@ -219,6 +226,9 @@ impl GithubPage {
             let setup = runtime::run(async move { gh::setup(&dir).await }).await;
             this.update(cx, |this, cx| {
                 let ready = setup == Setup::Ready;
+                if setup == Setup::NoRemote {
+                    this.rescan_local(cx);
+                }
                 this.setup = Some(setup);
                 if ready {
                     this.refresh(cx);
@@ -228,6 +238,102 @@ impl GithubPage {
             .ok();
         })
         .detach();
+    }
+
+    fn rescan_local(&mut self, cx: &Context<Self>) {
+        self.local_issues = self.dir(cx).and_then(|dir| scan_dir(&dir.join("issues")));
+    }
+
+    fn start_local_issue(&self, rel: &str, cx: &mut Context<Self>) {
+        let title = self
+            .local_issues
+            .iter()
+            .flatten()
+            .find(|d| d.rel == rel)
+            .and_then(|d| d.title.clone())
+            .unwrap_or_else(|| rel.to_string());
+        let prefs = &self.stores.prefs.read(cx).prefs;
+        let mut input = prefs.issue_prompt_for(&format!("issues/{rel}"), 0, &title);
+        if prefs.send_issue_prompt {
+            input.push('\u{d}');
+        }
+        sessions::begin_new_input(&self.project_id, Some(input), cx);
+        cx.emit(Navigate(Route::Sessions));
+    }
+
+    fn delete_local_issue(&self, rel: String, cx: &mut Context<Self>) {
+        let Some(dir) = self.dir(cx) else {
+            return;
+        };
+        let options = ConfirmOptions::new(
+            t("issues.delete.title"),
+            t_args("issues.delete.body", &[("rel", &rel)]),
+        )
+        .labels(t("common.delete"), t("common.cancel"));
+        let path = dir.join("issues").join(&rel);
+        let page = cx.entity();
+        confirm_trash(cx, path, rel, options, "issues.delete.failed", move |cx| {
+            page.update(cx, |this, cx| {
+                this.rescan_local(cx);
+                cx.notify();
+            });
+        });
+    }
+
+    fn local_issues_view(&self, cx: &mut Context<Self>) -> AnyElement {
+        let (count, rows): (Option<usize>, Vec<AnyElement>) = match &self.local_issues {
+            None => (
+                None,
+                vec![muted_note(t("issues.no_folder").into()).into_any_element()],
+            ),
+            Some(files) if files.is_empty() => (
+                Some(0),
+                vec![muted_note(t("issues.no_files").into()).into_any_element()],
+            ),
+            Some(files) => (
+                Some(files.len()),
+                files
+                    .iter()
+                    .enumerate()
+                    .map(|(i, f)| {
+                        let (view, work, del) = (f.rel.clone(), f.rel.clone(), f.rel.clone());
+                        md_row(
+                            i,
+                            "issue",
+                            f,
+                            cx.listener(move |this, _, _, cx| {
+                                cx.emit(Navigate(Route::DocPreview(
+                                    this.project_id.clone(),
+                                    format!("issues/{view}"),
+                                )))
+                            }),
+                            cx.listener(move |this, _, _, cx| this.start_local_issue(&work, cx)),
+                            cx.listener(move |this, _, _, cx| {
+                                this.delete_local_issue(del.clone(), cx)
+                            }),
+                        )
+                    })
+                    .collect(),
+            ),
+        };
+        self.local_bar
+            .overlay(
+                div()
+                    .id("local-issues-scroll")
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .child(
+                        div()
+                            .flex()
+                            .child(card(&t("issues.card"), count, None, rows)),
+                    ),
+            )
+            .flex_1()
+            .min_h_0()
+            .into_any_element()
     }
 
     fn refresh(&mut self, cx: &mut Context<Self>) {
@@ -1766,6 +1872,7 @@ impl Render for GithubPage {
                 .child(self.left_pane(cx))
                 .child(self.right_pane(window, cx))
                 .into_any_element(),
+            Some(Setup::NoRemote) => self.local_issues_view(cx),
             Some(other) => self.guide(other),
         };
         div()

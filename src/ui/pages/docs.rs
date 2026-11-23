@@ -17,11 +17,11 @@ use crate::ui::confirm::{self, ConfirmOptions};
 use crate::ui::icons::{Icon, icon};
 use crate::ui::{theme, toast};
 
-struct Doc {
-    /// Path relative to `docs/`, with `/` separators.
-    rel: String,
+pub(super) struct Doc {
+    /// Path relative to the scanned folder, with `/` separators.
+    pub(super) rel: String,
     /// The first `# heading`, when the file has one.
-    title: Option<String>,
+    pub(super) title: Option<String>,
 }
 
 /// What the last scan found.
@@ -96,15 +96,93 @@ fn collect(dir: &Path, base: &Path, out: &mut Vec<Doc>) {
     }
 }
 
-fn scan(root: &Path) -> Scan {
-    let dir = docs_dir(root);
+/// The `*.md` files under `dir`, sorted by path; `None` when `dir` is not a folder.
+pub(super) fn scan_dir(dir: &Path) -> Option<Vec<Doc>> {
     if !dir.is_dir() {
-        return Scan::NoFolder;
+        return None;
     }
     let mut docs = Vec::new();
-    collect(&dir, &dir, &mut docs);
+    collect(dir, dir, &mut docs);
     docs.sort_by(|a, b| a.rel.cmp(&b.rel));
-    Scan::Docs(docs)
+    Some(docs)
+}
+
+fn scan(root: &Path) -> Scan {
+    scan_dir(&docs_dir(root)).map_or(Scan::NoFolder, Scan::Docs)
+}
+
+/// Asks, then moves `path` to the trash and calls `done` either way; a failure toasts `failed_key`.
+pub(super) fn confirm_trash(
+    cx: &mut gpui::App,
+    path: PathBuf,
+    rel: String,
+    options: ConfirmOptions,
+    failed_key: &'static str,
+    done: impl FnOnce(&mut gpui::App) + 'static,
+) {
+    confirm::ask(cx, options, move |answer, _, cx| {
+        if answer != Some(true) {
+            return;
+        }
+        if let Err(e) = trash::delete(&path) {
+            tracing::error!("could not trash {}: {e}", path.display());
+            toast::error(
+                cx,
+                t_args(failed_key, &[("rel", &rel), ("error", &e.to_string())]),
+            );
+        }
+        done(cx);
+    });
+}
+
+pub(super) fn md_row(
+    index: usize,
+    kind: &str,
+    doc: &Doc,
+    view: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
+    work: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
+    delete: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
+) -> AnyElement {
+    row_base(index)
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w_0()
+                .child(
+                    div()
+                        .truncate()
+                        .text_size(px(13.0))
+                        .text_color(theme::text())
+                        .child(doc.rel.clone()),
+                )
+                .when_some(doc.title.clone(), |s, t| {
+                    s.child(
+                        div()
+                            .truncate()
+                            .text_size(px(11.0))
+                            .text_color(theme::text_muted())
+                            .child(t),
+                    )
+                }),
+        )
+        .child(icon_button(
+            SharedString::from(format!("view-{kind}-{}", doc.rel)),
+            Icon::Eye,
+            view,
+        ))
+        .child(icon_button(
+            SharedString::from(format!("work-{kind}-{}", doc.rel)),
+            Icon::Play,
+            work,
+        ))
+        .child(icon_button(
+            SharedString::from(format!("rm-{kind}-{}", doc.rel)),
+            Icon::Trash,
+            delete,
+        ))
+        .into_any_element()
 }
 
 impl DocsPage {
@@ -156,20 +234,7 @@ impl DocsPage {
         )
         .labels(t("common.delete"), t("common.cancel"));
         let page = cx.entity();
-        confirm::ask(cx, options, move |answer, _, cx| {
-            if answer != Some(true) {
-                return;
-            }
-            if let Err(e) = trash::delete(&path) {
-                tracing::error!("could not trash {}: {e}", path.display());
-                toast::error(
-                    cx,
-                    t_args(
-                        "docs.delete.failed",
-                        &[("rel", &rel), ("error", &e.to_string())],
-                    ),
-                );
-            }
+        confirm_trash(cx, path, rel, options, "docs.delete.failed", move |cx| {
             page.update(cx, |this, cx| this.rescan(cx));
         });
     }
@@ -193,55 +258,21 @@ impl Render for DocsPage {
                     .map(|(i, doc)| {
                         let (work_rel, del_rel, view_rel) =
                             (doc.rel.clone(), doc.rel.clone(), doc.rel.clone());
-                        row_base(i)
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .child(
-                                        div()
-                                            .truncate()
-                                            .text_size(px(13.0))
-                                            .text_color(theme::text())
-                                            .child(doc.rel.clone()),
-                                    )
-                                    .when_some(doc.title.clone(), |s, t| {
-                                        s.child(
-                                            div()
-                                                .truncate()
-                                                .text_size(px(11.0))
-                                                .text_color(theme::text_muted())
-                                                .child(t),
-                                        )
-                                    }),
-                            )
-                            .child(icon_button(
-                                SharedString::from(format!("view-doc-{}", doc.rel)),
-                                Icon::Eye,
-                                cx.listener(move |this, _, _, cx| {
-                                    cx.emit(Navigate(Route::DocPreview(
-                                        this.project_id.clone(),
-                                        view_rel.clone(),
-                                    )))
-                                }),
-                            ))
-                            .child(icon_button(
-                                SharedString::from(format!("work-doc-{}", doc.rel)),
-                                Icon::Play,
-                                cx.listener(move |this, _, _, cx| {
-                                    this.start_working(&work_rel, cx)
-                                }),
-                            ))
-                            .child(icon_button(
-                                SharedString::from(format!("rm-doc-{}", doc.rel)),
-                                Icon::Trash,
-                                cx.listener(move |this, _, _, cx| {
-                                    this.confirm_delete(del_rel.clone(), cx)
-                                }),
-                            ))
-                            .into_any_element()
+                        md_row(
+                            i,
+                            "doc",
+                            doc,
+                            cx.listener(move |this, _, _, cx| {
+                                cx.emit(Navigate(Route::DocPreview(
+                                    this.project_id.clone(),
+                                    format!("docs/{view_rel}"),
+                                )))
+                            }),
+                            cx.listener(move |this, _, _, cx| this.start_working(&work_rel, cx)),
+                            cx.listener(move |this, _, _, cx| {
+                                this.confirm_delete(del_rel.clone(), cx)
+                            }),
+                        )
                     })
                     .collect(),
             ),
