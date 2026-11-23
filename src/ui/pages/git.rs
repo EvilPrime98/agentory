@@ -1490,7 +1490,8 @@ impl GitPage {
                     )
                     .child(
                         div()
-                            .flex_none()
+                            .min_w_0()
+                            .truncate()
                             .text_size(px(12.5))
                             .text_color(theme::text())
                             .child(name),
