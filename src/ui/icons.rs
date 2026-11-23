@@ -48,6 +48,7 @@ icons! {
     Plus => "plus",
     Puzzle => "puzzle",
     Rows => "rows",
+    Search => "search",
     Refresh => "refresh",
     Terminal => "terminal",
     Trash => "trash",

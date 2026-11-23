@@ -178,7 +178,14 @@ mod tests {
         // One test mutates the global mode, so both modes are checked in sequence.
         for m in [Mode::Dark, Mode::Light] {
             set_mode(m);
-            for bg in [bg_app(), bg_chrome(), bg_panel(), bg_terminal(), bg_modal()] {
+            for bg in [
+                bg_app(),
+                bg_chrome(),
+                bg_panel(),
+                bg_sidebar(),
+                bg_terminal(),
+                bg_modal(),
+            ] {
                 for (name, fg) in [
                     ("text", text()),
                     ("text_secondary", text_secondary()),
@@ -217,12 +224,42 @@ fn pick(dark: Rgba, light: Rgba) -> Rgba {
 pub fn accent_soft() -> Rgba {
     pick(rgba(0xd9775759), rgba(0xd9775740))
 }
+/// Soft tint behind the active sidebar row, lighter than [`accent_soft`].
+pub fn accent_wash() -> Rgba {
+    pick(rgba(0xd9775729), rgba(0xd9775726))
+}
+/// Colour of a project's avatar badge: the id hashed (FNV-1a) into a fixed palette.
+pub fn avatar(id: &str) -> Rgba {
+    const DARK: [u32; 8] = [
+        0xe0836a, 0x6fb1e8, 0x7bcf9a, 0xc79bea, 0xe8c15a, 0xe27fa6, 0x5ec9c4, 0x9aa7f0,
+    ];
+    const LIGHT: [u32; 8] = [
+        0xb4482b, 0x1f6fb0, 0x23764a, 0x7a3fb0, 0x8a6200, 0xb02a5f, 0x13736f, 0x4350b8,
+    ];
+    let hash = id.bytes().fold(0x811c9dc5_u32, |h, b| {
+        (h ^ u32::from(b)).wrapping_mul(0x0100_0193)
+    });
+    let ix = hash as usize % DARK.len();
+    pick(rgb(DARK[ix]), rgb(LIGHT[ix]))
+}
 /// Text colour on top of a solid accent fill.
 pub fn on_accent() -> Rgba {
     rgb(0x1f120c)
 }
 pub fn bg_app() -> Rgba {
     pick(rgb(0x1e1e22), rgb(0xf6f4f0))
+}
+/// Sidebar surface: a step darker than the page beside it, so the two read as separate.
+pub fn bg_sidebar() -> Rgba {
+    pick(rgb(0x16161a), rgb(0xebe7e0))
+}
+/// Darkest edge of the drop shadow the sidebar casts onto the page.
+pub fn sidebar_shadow() -> Rgba {
+    pick(rgba(0x00000073), rgba(0x00000024))
+}
+/// Hairline on the sidebar's right edge, fainter than [`border_subtle`] now that it casts a shadow.
+pub fn sidebar_border() -> Rgba {
+    pick(rgba(0xffffff08), rgba(0x00000012))
 }
 pub fn bg_chrome() -> Rgba {
     pick(rgb(0x26262b), rgb(0xebe8e2))

@@ -22,6 +22,8 @@ use crate::state::sessions::{self, SessionKind, ShellDir};
 use crate::ui::command_editor;
 use crate::ui::components::checkbox::checkbox;
 use crate::ui::components::context_menu::{MenuItem, context_menu};
+use crate::ui::components::scrollbar::Scrollbar;
+use crate::ui::components::text_input::{TextInput, TextInputEvent};
 use crate::ui::confirm::{self, ConfirmOptions};
 use crate::ui::icons::{Icon, icon};
 use crate::ui::theme;
@@ -35,6 +37,35 @@ const FOLD_DURATION: Duration = Duration::from_millis(180);
 const ROW_H: f32 = 28.0;
 /// Height of the AGENTS / TERMINALS label above their rows.
 const SECTION_HEADER_H: f32 = 24.0;
+
+fn active_row<E: Styled>(row: E) -> E {
+    row.bg(theme::accent_wash())
+        .border_1()
+        .border_color(theme::accent_soft())
+}
+
+fn avatar(project_id: &str, name: &str) -> gpui::Div {
+    let color = theme::avatar(project_id);
+    let mut tint = color;
+    tint.alpha = 0.2;
+    div()
+        .flex_none()
+        .size(px(20.0))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(6.0))
+        .bg(tint)
+        .text_size(px(11.0))
+        .font_weight(gpui::FontWeight::BOLD)
+        .text_color(color)
+        .child(
+            name.chars()
+                .next()
+                .map(|c| c.to_uppercase().to_string())
+                .unwrap_or_default(),
+        )
+}
 
 /// The small caps label above a group of rows in a project's list.
 fn section_header(label: String) -> gpui::Div {
@@ -181,6 +212,8 @@ pub struct Sidebar {
     compact: bool,
     /// The current route: only the Sessions page highlights a session, only Skills its row.
     route: Route,
+    search: gpui::Entity<TextInput>,
+    scrollbar: Scrollbar,
 }
 
 struct ProjectMenu {
@@ -230,7 +263,20 @@ impl Sidebar {
         cx.observe(&stores.git, |_, _, cx| cx.notify()).detach();
         cx.observe(&stores.prefs, |_, _, cx| cx.notify()).detach();
         Self::poll_git_count(&stores, cx);
+        let search = cx.new(|cx| TextInput::new(t("sidebar.search_placeholder"), cx));
+        cx.subscribe(&search, |this, _, ev: &TextInputEvent, cx| {
+            match ev {
+                TextInputEvent::Cancel => {
+                    this.search.update(cx, |input, cx| input.set_value("", cx))
+                }
+                TextInputEvent::Changed | TextInputEvent::Submit => {}
+            }
+            cx.notify();
+        })
+        .detach();
         Self {
+            search,
+            scrollbar: Scrollbar::new(),
             stores,
             drop_hint: None,
             folds: HashMap::new(),
@@ -914,15 +960,31 @@ impl Sidebar {
         (section.into_any_element(), height)
     }
 
-    fn project_block(&self, project: &Project, cx: &mut Context<Self>) -> gpui::AnyElement {
+    /// `query` is the lowercase search text, empty when not searching. `None` when the project
+    /// and everything under it fail the filter.
+    fn project_block(
+        &self,
+        project: &Project,
+        query: &str,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::AnyElement> {
         let projects = self.stores.projects.read(cx);
         let selected = projects.selected.as_deref() == Some(project.id.as_str());
         let fold = self.folds.get(&project.id).copied();
+        let name_matches = query.is_empty()
+            || if project.is_global() {
+                t("sidebar.global").to_lowercase()
+            } else {
+                project.name.to_lowercase()
+            }
+            .contains(query);
+        let keep = |name: &str| name_matches || name.to_lowercase().contains(query);
         let sessions: Vec<_> = self
             .stores
             .sessions
             .read(cx)
             .agents(&project.id)
+            .filter(|s| keep(&s.name))
             .map(|s| (s.id.clone(), s.name.clone(), s.status, s.worktree.is_some()))
             .collect();
         let terminals: Vec<_> = self
@@ -930,9 +992,13 @@ impl Sidebar {
             .sessions
             .read(cx)
             .for_project(&project.id)
-            .filter(|s| s.kind == SessionKind::Shell)
+            .filter(|s| s.kind == SessionKind::Shell && keep(&s.name))
             .map(|s| (s.id.clone(), s.name.clone()))
             .collect();
+        let child_match = !query.is_empty() && (!sessions.is_empty() || !terminals.is_empty());
+        if !name_matches && !child_match {
+            return None;
+        }
         let menu_open = self
             .shell_menu
             .as_ref()
@@ -1005,9 +1071,10 @@ impl Sidebar {
             };
         let animating = fold.filter(|f| f.running());
         let chevron = fold_chevron(14.0, format!("fold-chevron-{}", project.id), fold);
-        let show_list = self.compact || animating.is_some() || fold.is_some_and(|f| f.open());
+        let show_list =
+            self.compact || child_match || animating.is_some() || fold.is_some_and(|f| f.open());
         let agent_count = sessions.len();
-        let animating = animating.filter(|_| !self.compact);
+        let animating = animating.filter(|_| !self.compact && !child_match);
 
         let (drag_id, drag_name) = (project.id.clone(), display_name.clone());
         let (move_id, drop_id) = (project.id.clone(), project.id.clone());
@@ -1143,10 +1210,17 @@ impl Sidebar {
                         cx.emit(Navigate(Route::Sessions));
                         let _ = window;
                     }))
-                    .child(
-                        icon(if is_global { Icon::Globe } else { Icon::Folder }, px(16.0))
-                            .text_color(theme::text_muted()),
-                    )
+                    .child(if is_global {
+                        div()
+                            .flex_none()
+                            .size(px(20.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(icon(Icon::Globe, px(16.0)).text_color(theme::text_muted()))
+                    } else {
+                        avatar(&project.id, &display_name)
+                    })
                     .child(
                         div()
                             .truncate()
@@ -1276,7 +1350,7 @@ impl Sidebar {
                         .px(px(6.0))
                         .rounded(px(6.0))
                         .cursor_pointer()
-                        .when(skills_active, |s| s.bg(theme::accent_soft()))
+                        .when(skills_active, active_row)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.stores
                                 .projects
@@ -1304,7 +1378,7 @@ impl Sidebar {
                         .px(px(6.0))
                         .rounded(px(6.0))
                         .cursor_pointer()
-                        .when(docs_active, |s| s.bg(theme::accent_soft()))
+                        .when(docs_active, active_row)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.stores
                                 .projects
@@ -1332,7 +1406,7 @@ impl Sidebar {
                         .px(px(6.0))
                         .rounded(px(6.0))
                         .cursor_pointer()
-                        .when(git_active, |s| s.bg(theme::accent_soft()))
+                        .when(git_active, active_row)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.stores
                                 .projects
@@ -1372,7 +1446,7 @@ impl Sidebar {
                         .px(px(6.0))
                         .rounded(px(6.0))
                         .cursor_pointer()
-                        .when(github_active, |s| s.bg(theme::accent_soft()))
+                        .when(github_active, active_row)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.stores
                                 .projects
@@ -1400,7 +1474,7 @@ impl Sidebar {
                         .px(px(6.0))
                         .rounded(px(6.0))
                         .cursor_pointer()
-                        .when(history_active, |s| s.bg(theme::accent_soft()))
+                        .when(history_active, active_row)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.stores
                                 .projects
@@ -1431,7 +1505,7 @@ impl Sidebar {
                         .px(px(6.0))
                         .rounded(px(6.0))
                         .cursor_pointer()
-                        .when(workflows_active, |s| s.bg(theme::accent_soft()))
+                        .when(workflows_active, active_row)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.stores
                                 .projects
@@ -1459,7 +1533,7 @@ impl Sidebar {
                         .px(px(6.0))
                         .rounded(px(6.0))
                         .cursor_pointer()
-                        .when(graphify_active, |s| s.bg(theme::accent_soft()))
+                        .when(graphify_active, active_row)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.stores
                                 .projects
@@ -1487,7 +1561,7 @@ impl Sidebar {
                         .px(px(6.0))
                         .rounded(px(6.0))
                         .cursor_pointer()
-                        .when(office_active, |s| s.bg(theme::accent_soft()))
+                        .when(office_active, active_row)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.stores
                                 .projects
@@ -1517,7 +1591,7 @@ impl Sidebar {
                     .ml(px(26.0))
                     .px(px(6.0))
                     .rounded(px(6.0))
-                    .when(is_active, |s| s.bg(theme::accent_soft()))
+                    .when(is_active, active_row)
                     .child(
                         div()
                             .id(gpui::SharedString::from(format!("session-{}", id.clone())))
@@ -1585,7 +1659,7 @@ impl Sidebar {
                     .ml(px(26.0))
                     .px(px(6.0))
                     .rounded(px(6.0))
-                    .when(is_active, |s| s.bg(theme::accent_soft()))
+                    .when(is_active, active_row)
                     .child(
                         div()
                             .id(gpui::SharedString::from(format!("terminal-{id}")))
@@ -1629,27 +1703,29 @@ impl Sidebar {
                     )
             }));
 
-        div()
-            .flex()
-            .flex_col()
-            .when(!compact, |s| s.child(header))
-            .when(show_list, |s| {
-                let clip = div().flex().flex_col().overflow_hidden().child(list);
-                s.child(match animating {
-                    Some(f) => clip
-                        .with_animation(
-                            (
-                                gpui::SharedString::from(format!("fold-{}", project.id)),
-                                f.id,
-                            ),
-                            Animation::new(f.duration).with_easing(ease_out_cubic),
-                            move |el, t| el.h(px(full_h * (f.from + (f.to - f.from) * t))),
-                        )
-                        .into_any_element(),
-                    None => clip.into_any_element(),
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .when(!compact, |s| s.child(header))
+                .when(show_list, |s| {
+                    let clip = div().flex().flex_col().overflow_hidden().child(list);
+                    s.child(match animating {
+                        Some(f) => clip
+                            .with_animation(
+                                (
+                                    gpui::SharedString::from(format!("fold-{}", project.id)),
+                                    f.id,
+                                ),
+                                Animation::new(f.duration).with_easing(ease_out_cubic),
+                                move |el, t| el.h(px(full_h * (f.from + (f.to - f.from) * t))),
+                            )
+                            .into_any_element(),
+                        None => clip.into_any_element(),
+                    })
                 })
-            })
-            .into_any_element()
+                .into_any_element(),
+        )
     }
 }
 
@@ -1749,7 +1825,7 @@ impl Sidebar {
                         .ml(px(26.0))
                         .px(px(6.0))
                         .rounded(px(6.0))
-                        .when(is_active, |s| s.bg(theme::accent_soft()))
+                        .when(is_active, active_row)
                         .child(
                             div()
                                 .id(gpui::SharedString::from(format!("modify-{id}")))
@@ -1822,7 +1898,17 @@ impl Sidebar {
 impl Render for Sidebar {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let projects: Vec<Project> = self.stores.projects.read(cx).items.clone();
-        let modify = self.modify_block(cx);
+        let query = if self.compact {
+            String::new()
+        } else {
+            self.search.read(cx).value().trim().to_lowercase()
+        };
+        let searching = !query.is_empty();
+        let modify = if searching {
+            None
+        } else {
+            self.modify_block(cx)
+        };
         if self
             .focused
             .as_ref()
@@ -1833,9 +1919,10 @@ impl Render for Sidebar {
         let blocks: Vec<_> = projects
             .iter()
             .filter(|p| p.is_global() || self.focused.as_deref().is_none_or(|f| f == p.id.as_str()))
-            .map(|p| self.project_block(p, cx))
+            .filter_map(|p| self.project_block(p, &query, cx))
             .collect();
-        let empty = projects.iter().all(Project::is_global);
+        let empty = projects.iter().all(Project::is_global) && !searching;
+        let no_match = searching && blocks.is_empty();
         let pages_popup = (self.pages_menu && !self.compact).then(|| {
             let hidden = self
                 .stores
@@ -1853,9 +1940,9 @@ impl Render for Sidebar {
             .flex_none()
             .w(theme::sidebar_width())
             .h_full()
-            .bg(theme::bg_panel())
+            .bg(theme::bg_sidebar())
             .border_r_1()
-            .border_color(theme::border_subtle())
+            .border_color(theme::sidebar_border())
             .child(
                 div()
                     .flex()
@@ -1863,12 +1950,12 @@ impl Render for Sidebar {
                     .relative()
                     .items_center()
                     .justify_between()
-                    .h(px(40.0))
-                    .px(px(12.0))
+                    .h(px(44.0))
+                    .px(px(14.0))
                     .child(
                         div()
                             .text_size(px(11.0))
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .font_weight(gpui::FontWeight::BOLD)
                             .text_color(theme::text_muted())
                             .child(t("sidebar.projects")),
                     )
@@ -1932,29 +2019,58 @@ impl Render for Sidebar {
                     )
                     .children(pages_popup),
             )
+            .when(!self.compact, |s| {
+                s.child(
+                    div()
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .gap(px(8.0))
+                        .h(px(30.0))
+                        .mx(px(10.0))
+                        .mb(px(8.0))
+                        .px(px(10.0))
+                        .rounded(px(8.0))
+                        .border_1()
+                        .border_color(theme::border_subtle())
+                        .bg(theme::hover_soft())
+                        .child(icon(Icon::Search, px(13.0)).text_color(theme::text_faint()))
+                        .child(self.search.clone()),
+                )
+            })
             .child(
-                div()
-                    .id("projects-scroll")
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_h_0()
-                    .gap(px(2.0))
-                    .px(px(6.0))
-                    .pb(px(8.0))
-                    .overflow_y_scroll()
-                    .children(modify)
-                    .children(blocks)
-                    .when(empty, |s| {
-                        s.child(
-                            div()
-                                .px(px(8.0))
-                                .py(px(12.0))
-                                .text_size(px(12.5))
-                                .text_color(theme::text_muted())
-                                .child(t("sidebar.empty_hint")),
-                        )
-                    }),
+                self.scrollbar.overlay(
+                    div()
+                        .id("projects-scroll")
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.0))
+                        .px(px(8.0))
+                        .pb(px(8.0))
+                        .overflow_y_scroll()
+                        .children(modify)
+                        .children(blocks)
+                        .when(empty, |s| {
+                            s.child(
+                                div()
+                                    .px(px(8.0))
+                                    .py(px(12.0))
+                                    .text_size(px(12.5))
+                                    .text_color(theme::text_muted())
+                                    .child(t("sidebar.empty_hint")),
+                            )
+                        })
+                        .when(no_match, |s| {
+                            s.child(
+                                div()
+                                    .px(px(8.0))
+                                    .py(px(12.0))
+                                    .text_size(px(12.5))
+                                    .text_color(theme::text_muted())
+                                    .child(t("sidebar.search_empty")),
+                            )
+                        }),
+                ),
             )
             .child(
                 div()

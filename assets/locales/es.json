@@ -30,6 +30,8 @@
   "sidebar.terminals": "TERMINALES",
   "sidebar.projects": "PROYECTOS",
   "sidebar.empty_hint": "Añade una carpeta de proyecto para iniciar una sesión de Claude Code.",
+  "sidebar.search_placeholder": "Buscar proyectos, agentes…",
+  "sidebar.search_empty": "Sin resultados",
   "sidebar.made_with": "Hecho con",
   "sidebar.made_by": "por EvilPrime98",
   "settings.title": "Ajustes",

@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use gpui::{
     Animation, AnimationExt as _, AnyView, App, AppContext as _, Context, Entity, FocusHandle,
     Focusable, InteractiveElement, IntoElement, ParentElement, Render, Styled, Subscription,
-    Window, actions, div, prelude::*, px,
+    Window, actions, deferred, div, linear_color_stop, linear_gradient, prelude::*, px,
 };
 
 use crate::i18n::{t, t_n};
@@ -739,6 +739,27 @@ impl Render for AppRoot {
                     .flex_1()
                     .min_h_0()
                     .children(self.sidebar_panel(!prefs.sidebar_collapsed))
+                    .children(
+                        (!prefs.sidebar_collapsed
+                            || self.sidebar_anim.filter(PanelAnim::running).is_some())
+                        .then(|| {
+                            deferred(
+                                div().relative().flex_none().w(px(0.0)).h_full().child(
+                                    div()
+                                        .absolute()
+                                        .top_0()
+                                        .bottom_0()
+                                        .left_0()
+                                        .w(px(12.0))
+                                        .bg(linear_gradient(
+                                            90.0,
+                                            linear_color_stop(theme::sidebar_shadow(), 0.0),
+                                            linear_color_stop(gpui::transparent_black(), 1.0),
+                                        )),
+                                ),
+                            )
+                        }),
+                    )
                     .child(content),
             )
             .child(self.toasts.clone())
