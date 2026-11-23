@@ -106,7 +106,7 @@ impl GraphifyPage {
     }
 
     fn open_report(&self, cx: &mut Context<Self>) {
-        let rel = "../graphify-out/GRAPH_REPORT.md".to_string();
+        let rel = "graphify-out/GRAPH_REPORT.md".to_string();
         cx.emit(Navigate(Route::DocPreview(self.project_id.clone(), rel)));
     }
 

@@ -26,7 +26,7 @@ impl DocPreviewPage {
             .projects
             .read(cx)
             .get(&project_id)
-            .map(|p| p.path.join("docs").join(&rel));
+            .map(|p| p.path.join(&rel));
         let (text, load_error) = match path.map(std::fs::read_to_string) {
             Some(Ok(text)) => (text, None),
             Some(Err(e)) => (String::new(), Some(e.to_string().into())),
@@ -62,7 +62,7 @@ impl Render for DocPreviewPage {
                             .truncate()
                             .text_size(px(20.0))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .child(format!("docs/{}", self.rel)),
+                            .child(self.rel.clone()),
                     )
                     .child(small_button(
                         "doc-preview-back",
@@ -77,7 +77,7 @@ impl Render for DocPreviewPage {
                         .text_color(theme::error())
                         .child(t_args(
                             "doc_preview.read_failed",
-                            &[("path", &format!("docs/{}", self.rel)), ("error", &e)],
+                            &[("path", &self.rel), ("error", &e)],
                         )),
                 )
             })
