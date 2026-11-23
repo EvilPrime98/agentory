@@ -153,6 +153,16 @@ async fn load(path: PathBuf) -> Result<Loaded, String> {
     Ok(Some((root, status, stashes)))
 }
 
+/// Rows rendered per change group; the group header still shows the true total.
+const MAX_ROWS: usize = 1000;
+
+fn overflow_note(total: usize) -> Option<AnyElement> {
+    (total > MAX_ROWS).then(|| {
+        let n = (total - MAX_ROWS).to_string();
+        muted_note(t_args("git.more_hidden", &[("count", &n)]).into()).into_any_element()
+    })
+}
+
 fn kind_color(kind: ChangeKind) -> Rgba {
     match kind {
         ChangeKind::Modified => theme::warning(),
@@ -1521,9 +1531,10 @@ impl GitPage {
                 status.conflicts.len(),
                 Vec::new(),
             ));
-            for c in &status.conflicts {
+            for c in status.conflicts.iter().take(MAX_ROWS) {
                 groups.push(self.file_row(Group::Conflicts, c, cx));
             }
+            groups.extend(overflow_note(status.conflicts.len()));
         }
         if !status.staged.is_empty() {
             let unstage_all = icon_button(
@@ -1538,9 +1549,10 @@ impl GitPage {
                 status.staged.len(),
                 vec![unstage_all],
             ));
-            for c in &status.staged {
+            for c in status.staged.iter().take(MAX_ROWS) {
                 groups.push(self.file_row(Group::Staged, c, cx));
             }
+            groups.extend(overflow_note(status.staged.len()));
         }
         if !status.unstaged.is_empty() {
             let discard_all = icon_button(
@@ -1561,9 +1573,10 @@ impl GitPage {
                 status.unstaged.len(),
                 vec![discard_all, stage_all],
             ));
-            for c in &status.unstaged {
+            for c in status.unstaged.iter().take(MAX_ROWS) {
                 groups.push(self.file_row(Group::Changes, c, cx));
             }
+            groups.extend(overflow_note(status.unstaged.len()));
         }
         if !self.stashes.is_empty() {
             groups.extend(self.stash_rows(cx));
@@ -1961,9 +1974,25 @@ impl Render for GitPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let body: AnyElement = match &self.repo {
             Repo::Loading => muted_note(t("git.loading").into()).into_any_element(),
-            Repo::Failed(e) => {
-                muted_note(t_args("git.read_failed", &[("error", e)]).into()).into_any_element()
-            }
+            Repo::Failed(e) => div()
+                .flex()
+                .flex_col()
+                .items_start()
+                .gap(px(12.0))
+                .child(muted_note(
+                    t_args("git.read_failed", &[("error", e)]).into(),
+                ))
+                .child(button(
+                    "git-retry",
+                    t("git.retry"),
+                    ButtonVariant::Classic,
+                    cx.listener(|this, _, _, cx| {
+                        this.repo = Repo::Loading;
+                        this.refresh(cx);
+                        cx.notify();
+                    }),
+                ))
+                .into_any_element(),
             Repo::Missing => div()
                 .flex()
                 .flex_col()

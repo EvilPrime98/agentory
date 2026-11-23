@@ -317,6 +317,8 @@
   "git.init": "Initialize repository",
   "git.loading": "Reading repository…",
   "git.read_failed": "Could not read the repository: {error}",
+  "git.more_hidden": "{count} more not shown",
+  "git.retry": "Retry",
   "git.detached": "Detached HEAD",
   "git.sync": "Sync",
   "git.sync_publish": "Publish",

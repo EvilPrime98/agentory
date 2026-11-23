@@ -457,14 +457,17 @@ async fn gitl(root: &Path, args: &[&str]) -> Result<String, String> {
     git(root, &a).await
 }
 
-/// The top level of the repo `dir` is inside, or `None` when it is not in one. Every other
-/// function here takes this root, since status paths are relative to it.
+/// The top level of the repo that `dir` itself holds, or `None` when it has none. A folder that
+/// only sits inside a parent repo is not a repo of its own. A linked worktree holds a `.git`
+/// file, so it counts. Every other function here takes this root, since status paths are
+/// relative to it. Presence of `.git` is checked on disk, so the answer does not depend on
+/// git's (localized) error text; any git failure after that is a real error.
 pub async fn repo_root(dir: &Path) -> Result<Option<PathBuf>, String> {
-    match git(dir, &["rev-parse", "--show-toplevel"]).await {
-        Ok(out) => Ok(Some(PathBuf::from(out.trim()))),
-        Err(e) if e.contains("not a git repository") => Ok(None),
-        Err(e) => Err(e),
+    if !dir.join(".git").exists() {
+        return Ok(None);
     }
+    let out = git(dir, &["rev-parse", "--show-toplevel"]).await?;
+    Ok(Some(PathBuf::from(out.trim())))
 }
 
 pub async fn init(dir: &Path) -> Result<(), String> {
@@ -481,7 +484,7 @@ pub async fn status(root: &Path) -> Result<Status, String> {
             "--porcelain=v2",
             "--branch",
             "-z",
-            "--untracked-files=all",
+            "--untracked-files=normal",
         ],
     )
     .await?;
@@ -509,7 +512,46 @@ pub async fn file_diff(root: &Path, change: &Change, staged: bool) -> Result<Str
     gitl(root, &args).await
 }
 
+/// An untracked directory is one entry in `normal` mode: preview it as the list of its files.
+fn untracked_dir_listing(dir: &Path) -> String {
+    const MAX_LISTED: usize = 200;
+    let mut names = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if let Ok(rel) = p.strip_prefix(dir) {
+                names.push(rel.to_string_lossy().replace('\\', "/"));
+            }
+        }
+        if names.len() > MAX_LISTED {
+            break;
+        }
+    }
+    names.sort();
+    let more = names.len() > MAX_LISTED;
+    names.truncate(MAX_LISTED);
+    let mut out = format!("@@ -0,0 +1,{} @@\n", names.len());
+    for n in &names {
+        out.push('+');
+        out.push_str(n);
+        out.push('\n');
+    }
+    if more {
+        out.push_str("+…\n");
+    }
+    out
+}
+
 fn untracked_diff(path: &Path) -> String {
+    if path.is_dir() {
+        return untracked_dir_listing(path);
+    }
     let too_big = std::fs::metadata(path).is_ok_and(|m| m.len() > MAX_PREVIEW_BYTES);
     if too_big {
         return "Binary files differ\n".to_string();
@@ -652,7 +694,7 @@ pub async fn unstage_everything(root: &Path) -> Result<(), String> {
 /// Throw away the working-tree change of one file: restore a tracked one, delete an untracked one.
 pub async fn discard(root: &Path, change: &Change) -> Result<(), String> {
     if change.kind == ChangeKind::Untracked {
-        gitl(root, &["clean", "-f", "-q", "--", &change.path])
+        gitl(root, &["clean", "-f", "-d", "-q", "--", &change.path])
             .await
             .map(|_| ())
     } else {
@@ -1245,6 +1287,36 @@ mod tests {
 
     fn cleanup(main: &Path) {
         let _ = fs::remove_dir_all(main.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn repo_root_counts_only_the_projects_own_repo() {
+        let (main, wt) = repo("root").await;
+        assert!(repo_root(&main).await.unwrap().is_some());
+        assert!(repo_root(&wt.path).await.unwrap().is_some());
+        let sub = main.join("sub");
+        fs::create_dir_all(&sub).unwrap();
+        assert_eq!(repo_root(&sub).await.unwrap(), None);
+        let bare = main.parent().unwrap().join("plain");
+        fs::create_dir_all(&bare).unwrap();
+        assert_eq!(repo_root(&bare).await.unwrap(), None);
+        cleanup(&main);
+    }
+
+    #[tokio::test]
+    async fn untracked_directory_is_one_entry_and_discards() {
+        let (main, _wt) = repo("dir").await;
+        fs::create_dir_all(main.join("pkg/inner")).unwrap();
+        fs::write(main.join("pkg/inner/a.txt"), "x").unwrap();
+        fs::write(main.join("pkg/b.txt"), "y").unwrap();
+        let st = status(&main).await.unwrap();
+        assert_eq!(st.unstaged.len(), 1);
+        let c = &st.unstaged[0];
+        assert!(c.path.ends_with('/'));
+        assert!(file_diff(&main, c, false).await.unwrap().contains("+inner/a.txt"));
+        discard(&main, c).await.unwrap();
+        assert!(!main.join("pkg").exists());
+        cleanup(&main);
     }
 
     #[tokio::test]
