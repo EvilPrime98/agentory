@@ -13,6 +13,7 @@ use crate::i18n::{t, t_n};
 use crate::platform::pty;
 use crate::route::{GoBack, History, Navigate, Route, window_title};
 use crate::runtime;
+use crate::state::prefs::Prefs;
 use crate::state::{Stores, sessions};
 use crate::ui::app_loader::app_loader;
 use crate::ui::command_editor::{self, CommandEditor};
@@ -50,16 +51,23 @@ actions!(
     ]
 );
 
-pub fn bind_keys(cx: &mut App) {
+/// Replaces every key binding with the ones the prefs ask for, so it also serves a live rebind.
+pub fn bind_keys(cx: &mut App, prefs: &Prefs) {
+    cx.clear_key_bindings();
+    crate::ui::confirm::bind_keys(cx);
+    let combo = |key: &str| {
+        let a = crate::shortcuts::action(key).expect("known shortcut");
+        prefs.effective_shortcut(a)
+    };
     // Only combos a terminal does not need: everything else goes to the PTY.
     cx.bind_keys([
-        gpui::KeyBinding::new("f11", ToggleFullscreen, None),
-        gpui::KeyBinding::new("ctrl-alt-b", ToggleSidebar, None),
-        gpui::KeyBinding::new("ctrl-alt-s", OpenSkills, None),
-        gpui::KeyBinding::new("ctrl-alt-t", OpenTerminal, None),
-        gpui::KeyBinding::new("ctrl-alt-m", ToggleMicrophone, None),
-        gpui::KeyBinding::new("ctrl-tab", NextSession, None),
-        gpui::KeyBinding::new("ctrl-shift-tab", PrevSession, None),
+        gpui::KeyBinding::new(&combo("shortcut-toggle-fullscreen"), ToggleFullscreen, None),
+        gpui::KeyBinding::new(&combo("shortcut-toggle-sidebar"), ToggleSidebar, None),
+        gpui::KeyBinding::new(&combo("shortcut-open-skills"), OpenSkills, None),
+        gpui::KeyBinding::new(&combo("shortcut-open-terminal"), OpenTerminal, None),
+        gpui::KeyBinding::new(&combo("shortcut-toggle-microphone"), ToggleMicrophone, None),
+        gpui::KeyBinding::new(&combo("shortcut-next-session"), NextSession, None),
+        gpui::KeyBinding::new(&combo("shortcut-prev-session"), PrevSession, None),
         #[cfg(target_os = "macos")]
         gpui::KeyBinding::new("ctrl-cmd-f", ToggleFullscreen, None),
     ]);
@@ -165,6 +173,8 @@ pub struct AppRoot {
     page: Page,
     _page_subs: Vec<Subscription>,
     _subs: Vec<Subscription>,
+    /// Combos currently bound, to rebind only when a shortcut pref changed.
+    bound_shortcuts: Vec<String>,
     /// The startup checks are still running: show the AppLoader.
     loading: bool,
     /// Dev aid: `AGENTORY_OPEN=settings` opens a page once startup finishes.
@@ -193,11 +203,20 @@ impl AppRoot {
         let sidebar = cx.new(|cx| Sidebar::new(stores.clone(), cx));
         let usage_pill = cx.new(|cx| UsagePill::new(stores.clone(), cx));
         let sessions_store = stores.sessions.clone();
+        let bound_shortcuts = stores.prefs.read(cx).prefs.effective_shortcuts();
         let subs = vec![
             cx.subscribe_in(&sidebar, window, |this, _, ev: &Navigate, window, cx| {
                 this.navigate(ev.0.clone(), window, cx)
             }),
-            cx.observe(&stores.prefs, |_, _, cx| cx.notify()),
+            cx.observe(&stores.prefs, |this, prefs, cx| {
+                let prefs = prefs.read(cx).prefs.clone();
+                let bound = prefs.effective_shortcuts();
+                if bound != this.bound_shortcuts {
+                    this.bound_shortcuts = bound;
+                    bind_keys(cx, &prefs);
+                }
+                cx.notify()
+            }),
             // With the System theme, an OS light/dark switch flips the palette live.
             window.observe_window_appearance({
                 let prefs = stores.prefs.clone();
@@ -252,6 +271,7 @@ impl AppRoot {
             page: Page::Sessions(cx.new(|cx| SessionsPage::new(cx.global::<Stores>().clone(), cx))),
             _page_subs: Vec::new(),
             _subs: subs,
+            bound_shortcuts,
             loading: true,
             pending_route: dev_route(),
             focus,

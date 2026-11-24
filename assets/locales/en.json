@@ -604,5 +604,20 @@
   "office.review.feedback_hint": "Feedback for the worker, then Enter to send the task back",
   "office.review.accept": "Accept",
   "office.foreman.after": "after {ids}",
-  "office.foreman.discuss": "Discuss"
+  "office.foreman.discuss": "Discuss",
+  "settings.tab.shortcuts": "Shortcuts",
+  "settings.shortcuts.hint": "Click a shortcut, then press the new key combination. Esc cancels.",
+  "settings.shortcuts.press": "Press keys…",
+  "settings.shortcuts.reset": "Reset",
+  "settings.shortcuts.reset_all": "Reset all",
+  "settings.shortcuts.toggle_fullscreen": "Toggle fullscreen",
+  "settings.shortcuts.toggle_sidebar": "Toggle sidebar",
+  "settings.shortcuts.open_skills": "Open skills",
+  "settings.shortcuts.open_terminal": "Open terminal",
+  "settings.shortcuts.toggle_microphone": "Toggle microphone (Sessions page)",
+  "settings.shortcuts.next_session": "Next session",
+  "settings.shortcuts.prev_session": "Previous session",
+  "settings.shortcuts.err_invalid": "`{combo}` is not a valid key combination",
+  "settings.shortcuts.err_modifier": "`{combo}` needs ctrl, alt or cmd; only F-keys can be used alone",
+  "settings.shortcuts.err_duplicate": "`{combo}` is already used by “{other}”"
 }

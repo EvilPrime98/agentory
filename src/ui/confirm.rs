@@ -72,12 +72,16 @@ pub struct ConfirmHost {
 struct ConfirmGlobal(Entity<ConfirmHost>);
 impl Global for ConfirmGlobal {}
 
-pub fn init(cx: &mut App) -> Entity<ConfirmHost> {
+pub fn bind_keys(cx: &mut App) {
     cx.bind_keys([gpui::KeyBinding::new(
         "escape",
         Dismiss,
         Some("ConfirmModal"),
     )]);
+}
+
+pub fn init(cx: &mut App) -> Entity<ConfirmHost> {
+    bind_keys(cx);
     let host = cx.new(|cx| ConfirmHost {
         pending: None,
         focus: cx.focus_handle(),

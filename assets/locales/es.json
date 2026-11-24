@@ -604,5 +604,20 @@
   "office.review.feedback_hint": "Comentarios para el trabajador y Enter para devolver la tarea",
   "office.review.accept": "Aceptar",
   "office.foreman.after": "después de {ids}",
-  "office.foreman.discuss": "Conversar"
+  "office.foreman.discuss": "Conversar",
+  "settings.tab.shortcuts": "Atajos",
+  "settings.shortcuts.hint": "Haz clic en un atajo y pulsa la nueva combinación de teclas. Esc cancela.",
+  "settings.shortcuts.press": "Pulsa teclas…",
+  "settings.shortcuts.reset": "Restablecer",
+  "settings.shortcuts.reset_all": "Restablecer todo",
+  "settings.shortcuts.toggle_fullscreen": "Alternar pantalla completa",
+  "settings.shortcuts.toggle_sidebar": "Alternar barra lateral",
+  "settings.shortcuts.open_skills": "Abrir skills",
+  "settings.shortcuts.open_terminal": "Abrir terminal",
+  "settings.shortcuts.toggle_microphone": "Alternar micrófono (página Sesiones)",
+  "settings.shortcuts.next_session": "Sesión siguiente",
+  "settings.shortcuts.prev_session": "Sesión anterior",
+  "settings.shortcuts.err_invalid": "`{combo}` no es una combinación de teclas válida",
+  "settings.shortcuts.err_modifier": "`{combo}` necesita ctrl, alt o cmd; solo las teclas F pueden usarse solas",
+  "settings.shortcuts.err_duplicate": "`{combo}` ya lo usa «{other}»"
 }

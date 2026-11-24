@@ -76,6 +76,15 @@ impl Pty for PortablePty {
     }
 }
 
+pub fn forwards_fullscreen_modes() -> bool {
+    if !cfg!(windows) {
+        return true;
+    }
+    sysinfo::System::kernel_version()
+        .and_then(|v| v.trim().parse::<u32>().ok())
+        .is_none_or(|build| build >= 22000)
+}
+
 pub fn spawn(spec: SpawnSpec) -> Result<Spawned> {
     let pair = native_pty_system()
         .openpty(PtySize {

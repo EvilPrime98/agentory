@@ -328,7 +328,12 @@ impl SessionsStore {
         })
         .map_err(|e| format!("{e:#}"))?;
         let font_size = prefs.terminal_font_size;
-        let terminal = cx.new(|cx| Terminal::new(spawned, rows, cols, font_size, cx));
+        let wheel_as_pages = prefs.fullscreen_agents && !pty::forwards_fullscreen_modes();
+        let terminal = cx.new(|cx| {
+            let mut t = Terminal::new(spawned, rows, cols, font_size, cx);
+            t.set_wheel_as_pages(wheel_as_pages);
+            t
+        });
 
         let n = self
             .for_project(&project.id)

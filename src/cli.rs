@@ -177,8 +177,8 @@ fn get(key: &str, json: bool) -> Result<String, SettingError> {
 
 fn set(key: &str, raw: &str, json: bool) -> Result<String, SettingError> {
     let s = registry::find(key)?;
-    let value = s.parse(raw)?;
     let mut file = prefs::read_map().map_err(io)?;
+    let value = s.parse_in(raw, &file)?;
     file.insert(s.field.to_string(), value.clone());
     prefs::write_map(&file).map_err(io)?;
     Ok(changed(s.key, &value, json))
@@ -188,6 +188,9 @@ fn reset(key: &str, json: bool) -> Result<String, SettingError> {
     let s = registry::find(key)?;
     let mut file: Map = prefs::read_map().map_err(io)?;
     if file.remove(s.field).is_some() {
+        if let (registry::Kind::Shortcut, Value::String(default)) = (&s.kind, s.default_value()) {
+            s.parse_in(&default, &file)?;
+        }
         prefs::write_map(&file).map_err(io)?;
     }
     Ok(changed(s.key, &s.default_value(), json))

@@ -1,5 +1,6 @@
 use serde_json::Value;
 
+use crate::shortcuts;
 use crate::state::prefs::{MAX_FONT, MIN_FONT, Map, Prefs, to_map};
 
 #[derive(Debug)]
@@ -7,6 +8,8 @@ pub enum Kind {
     Bool,
     Float { min: f32, max: f32 },
     Text,
+    /// A key combo such as `ctrl-alt-m`; see `crate::shortcuts`.
+    Shortcut,
     Choice(&'static [&'static str]),
 }
 
@@ -76,6 +79,48 @@ pub const SETTINGS: &[Setting] = &[
         },
         description: "Terminal font size in points.",
     },
+    Setting {
+        key: "shortcut-toggle-fullscreen",
+        field: "shortcutToggleFullscreen",
+        kind: Kind::Shortcut,
+        description: "Toggle window fullscreen.",
+    },
+    Setting {
+        key: "shortcut-toggle-sidebar",
+        field: "shortcutToggleSidebar",
+        kind: Kind::Shortcut,
+        description: "Show or hide the sidebar.",
+    },
+    Setting {
+        key: "shortcut-open-skills",
+        field: "shortcutOpenSkills",
+        kind: Kind::Shortcut,
+        description: "Open the Skills page of the selected project.",
+    },
+    Setting {
+        key: "shortcut-open-terminal",
+        field: "shortcutOpenTerminal",
+        kind: Kind::Shortcut,
+        description: "Open a terminal in the selected project.",
+    },
+    Setting {
+        key: "shortcut-toggle-microphone",
+        field: "shortcutToggleMicrophone",
+        kind: Kind::Shortcut,
+        description: "Start or stop dictation in the active session (Sessions page only).",
+    },
+    Setting {
+        key: "shortcut-next-session",
+        field: "shortcutNextSession",
+        kind: Kind::Shortcut,
+        description: "Switch to the next session.",
+    },
+    Setting {
+        key: "shortcut-prev-session",
+        field: "shortcutPrevSession",
+        kind: Kind::Shortcut,
+        description: "Switch to the previous session.",
+    },
 ];
 
 #[derive(Debug, PartialEq)]
@@ -102,6 +147,7 @@ impl Kind {
             Kind::Bool => "bool",
             Kind::Float { .. } => "number",
             Kind::Text => "string",
+            Kind::Shortcut => "shortcut",
             Kind::Choice(_) => "choice",
         }
     }
@@ -112,7 +158,7 @@ impl Setting {
         match &self.kind {
             Kind::Bool => vec!["true".into(), "false".into()],
             Kind::Float { min, max } => vec![format!("{min}..={max}")],
-            Kind::Text => Vec::new(),
+            Kind::Text | Kind::Shortcut => Vec::new(),
             Kind::Choice(c) => c.iter().map(|s| s.to_string()).collect(),
         }
     }
@@ -129,11 +175,35 @@ impl Setting {
             .unwrap_or_else(|| self.default_value())
     }
 
+    /// `parse` plus the checks that need the other stored settings (shortcut duplicates).
+    pub fn parse_in(&self, raw: &str, file: &Map) -> Result<Value, SettingError> {
+        let value = self.parse(raw)?;
+        if let (Kind::Shortcut, Value::String(combo)) = (&self.kind, &value) {
+            shortcuts::validate(self.key, combo, |a| {
+                file.get(a.field)
+                    .and_then(Value::as_str)
+                    .and_then(|v| shortcuts::normalize(v).ok())
+                    .unwrap_or_else(|| a.default.to_string())
+            })
+            .map_err(|e| SettingError {
+                code: "invalid_value",
+                message: e.to_string(),
+                allowed: Vec::new(),
+            })?;
+        }
+        Ok(value)
+    }
+
     pub fn parse(&self, raw: &str) -> Result<Value, SettingError> {
         let invalid = |what: &str| SettingError {
             code: "invalid_value",
             message: format!("`{raw}` is not valid for `{}`: {what}", self.key),
             allowed: self.allowed(),
+        };
+        let invalid_with = |message: String| SettingError {
+            code: "invalid_value",
+            message,
+            allowed: Vec::new(),
         };
         match &self.kind {
             Kind::Bool => match raw {
@@ -154,6 +224,9 @@ impl Setting {
                     .ok_or_else(|| invalid("expected a number"))
             }
             Kind::Text => Ok(Value::String(raw.to_string())),
+            Kind::Shortcut => shortcuts::normalize(raw)
+                .map(Value::String)
+                .map_err(|e| invalid_with(e.to_string())),
             Kind::Choice(c) => c
                 .contains(&raw)
                 .then(|| Value::String(raw.to_string()))
@@ -201,6 +274,27 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn every_shortcut_action_is_a_setting() {
+        for a in &crate::shortcuts::ACTIONS {
+            let s = setting(a.key);
+            assert_eq!(s.field, a.field);
+            assert_eq!(s.default_value(), a.default);
+        }
+    }
+
+    #[test]
+    fn shortcut_set_rejects_duplicates_and_bare_keys() {
+        let mut file = Map::new();
+        let s = setting("shortcut-open-skills");
+        assert!(s.parse_in("ctrl-alt-m", &file).is_err());
+        assert!(s.parse_in("x", &file).is_err());
+        assert_eq!(s.parse_in("alt-ctrl-k", &file).unwrap(), "ctrl-alt-k");
+        file.insert("shortcutToggleMicrophone".into(), "ctrl-alt-k".into());
+        assert!(s.parse_in("ctrl-alt-k", &file).is_err());
+        assert!(s.parse_in("ctrl-alt-m", &file).is_ok());
     }
 
     #[test]

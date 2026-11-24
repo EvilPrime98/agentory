@@ -12,6 +12,7 @@ mod registry;
 mod route;
 mod runtime;
 mod selfbuild;
+mod shortcuts;
 mod speech;
 mod state;
 mod ui;
@@ -50,7 +51,7 @@ fn main() {
         .with_assets(Assets)
         .run(move |cx: &mut App| {
             theme::register_fonts(cx);
-            app::bind_keys(cx);
+            app::bind_keys(cx, &state::prefs::Prefs::load());
 
             // Closing the last window quits (dropping the root kills the PTY children).
             cx.on_window_closed(|cx, _| {
