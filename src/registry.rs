@@ -182,8 +182,8 @@ impl Setting {
             shortcuts::validate(self.key, combo, |a| {
                 file.get(a.field)
                     .and_then(Value::as_str)
-                    .unwrap_or(a.default)
-                    .to_string()
+                    .and_then(|v| shortcuts::normalize(v).ok())
+                    .unwrap_or_else(|| a.default.to_string())
             })
             .map_err(|e| SettingError {
                 code: "invalid_value",

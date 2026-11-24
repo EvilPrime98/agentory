@@ -188,10 +188,8 @@ fn reset(key: &str, json: bool) -> Result<String, SettingError> {
     let s = registry::find(key)?;
     let mut file: Map = prefs::read_map().map_err(io)?;
     if file.remove(s.field).is_some() {
-        if let Value::String(default) = s.default_value() {
-            if matches!(s.kind, registry::Kind::Shortcut) {
-                s.parse_in(&default, &file)?;
-            }
+        if let (registry::Kind::Shortcut, Value::String(default)) = (&s.kind, s.default_value()) {
+            s.parse_in(&default, &file)?;
         }
         prefs::write_map(&file).map_err(io)?;
     }

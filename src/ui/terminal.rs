@@ -123,8 +123,7 @@ pub struct Terminal {
     resize_timer: Option<Task<()>>,
     /// The next layout applies at once: before the first one and after a font size change.
     apply_next_size: bool,
-    /// Resizes still to be re-asserted a moment later (see `schedule_resync`).
-    startup_resyncs: u8,
+    resync_pending: bool,
     wheel_as_pages: bool,
     resync_timer: Option<Task<()>>,
     wheel_remainder: f32,
@@ -382,7 +381,7 @@ impl Terminal {
             pending_size: None,
             resize_timer: None,
             apply_next_size: true,
-            startup_resyncs: 1,
+            resync_pending: true,
             wheel_as_pages: false,
             resync_timer: None,
             wheel_remainder: 0.0,
@@ -533,8 +532,8 @@ impl Terminal {
         if let Some(p) = &self.pty {
             p.resize(rows, cols);
         }
-        if self.startup_resyncs > 0 {
-            self.startup_resyncs -= 1;
+        if self.resync_pending {
+            self.resync_pending = false;
             self.schedule_resync(cx);
         }
         cx.notify();
