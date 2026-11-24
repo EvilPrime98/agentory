@@ -99,6 +99,7 @@ pub struct GitPage {
     project_id: String,
     repo: Repo,
     root: Option<PathBuf>,
+    scope: String,
     status: Status,
     pick: Option<Pick>,
     diff: Vec<DiffLine>,
@@ -142,15 +143,15 @@ pub struct GitPage {
 impl EventEmitter<Navigate> for GitPage {}
 impl EventEmitter<GoBack> for GitPage {}
 
-type Loaded = Option<(PathBuf, Status, Vec<Stash>)>;
+type Loaded = Option<(PathBuf, String, Status, Vec<Stash>)>;
 
 async fn load(path: PathBuf) -> Result<Loaded, String> {
-    let Some(root) = git::repo_root(&path).await? else {
+    let Some((root, scope)) = git::repo_root(&path).await? else {
         return Ok(None);
     };
-    let status = git::status(&root).await?;
+    let status = git::status(&root, &scope).await?;
     let stashes = git::stash_list(&root).await.unwrap_or_default();
-    Ok(Some((root, status, stashes)))
+    Ok(Some((root, scope, status, stashes)))
 }
 
 /// Rows rendered per change group; the group header still shows the true total.
@@ -209,6 +210,7 @@ impl GitPage {
             project_id,
             repo: Repo::Loading,
             root: None,
+            scope: String::new(),
             status: Status::default(),
             pick: None,
             diff: Vec::new(),
@@ -291,6 +293,7 @@ impl GitPage {
                 let changed = !matches!(self.repo, Repo::Missing);
                 self.repo = Repo::Missing;
                 self.root = None;
+                self.scope.clear();
                 self.status = Status::default();
                 self.stashes.clear();
                 self.pick = None;
@@ -300,10 +303,11 @@ impl GitPage {
                     cx.notify();
                 }
             }
-            Ok(Some((root, status, stashes))) => {
+            Ok(Some((root, scope, status, stashes))) => {
                 let first = !matches!(self.repo, Repo::Ready);
                 self.repo = Repo::Ready;
                 self.root = Some(root);
+                self.scope = scope;
                 if stashes != self.stashes {
                     self.stashes = stashes;
                     cx.notify();
@@ -659,8 +663,9 @@ impl GitPage {
     }
 
     fn stage_all(&mut self, cx: &mut Context<Self>) {
-        self.op(t("git.stage_all"), false, false, cx, |root| async move {
-            git::stage_everything(&root).await
+        let scope = self.scope.clone();
+        self.op(t("git.stage_all"), false, false, cx, move |root| async move {
+            git::stage_everything(&root, &scope).await
         });
     }
 
@@ -671,8 +676,9 @@ impl GitPage {
     }
 
     fn unstage_all(&mut self, cx: &mut Context<Self>) {
-        self.op(t("git.unstage_all"), false, false, cx, |root| async move {
-            git::unstage_everything(&root).await
+        let scope = self.scope.clone();
+        self.op(t("git.unstage_all"), false, false, cx, move |root| async move {
+            git::unstage_everything(&root, &scope).await
         });
     }
 
@@ -769,8 +775,9 @@ impl GitPage {
         confirm::ask(cx, options, move |answer, _, cx| {
             if answer == Some(true) {
                 page.update(cx, |this, cx| {
-                    this.op(t("git.discard_all"), false, false, cx, |root| async move {
-                        git::discard_everything(&root).await
+                    let scope = this.scope.clone();
+                    this.op(t("git.discard_all"), false, false, cx, move |root| async move {
+                        git::discard_everything(&root, &scope).await
                     });
                 });
             }
@@ -809,9 +816,10 @@ impl GitPage {
     }
 
     fn run_commit(&mut self, message: String, stage_all: bool, cx: &mut Context<Self>) {
+        let scope = self.scope.clone();
         self.op(t("git.commit"), false, true, cx, move |root| async move {
             if stage_all {
-                git::stage_everything(&root).await?;
+                git::stage_everything(&root, &scope).await?;
             }
             git::commit(&root, &message).await
         });
@@ -1395,6 +1403,12 @@ impl GitPage {
         let (dir, name) = match change.path.rsplit_once('/') {
             Some((d, n)) => (d.to_string(), n.to_string()),
             None => (String::new(), change.path.clone()),
+        };
+        let dir = match dir.strip_prefix(self.scope.as_str()) {
+            Some(rest) if !self.scope.is_empty() && (rest.is_empty() || rest.starts_with('/')) => {
+                rest.trim_start_matches('/').to_string()
+            }
+            _ => dir,
         };
         let id =
             |what: &str| SharedString::from(format!("git-{what}-{}-{}", group.key(), change.path));

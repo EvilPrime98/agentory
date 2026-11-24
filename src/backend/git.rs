@@ -457,17 +457,27 @@ async fn gitl(root: &Path, args: &[&str]) -> Result<String, String> {
     git(root, &a).await
 }
 
-/// The top level of the repo that `dir` itself holds, or `None` when it has none. A folder that
-/// only sits inside a parent repo is not a repo of its own. A linked worktree holds a `.git`
-/// file, so it counts. Every other function here takes this root, since status paths are
-/// relative to it. Presence of `.git` is checked on disk, so the answer does not depend on
-/// git's (localized) error text; any git failure after that is a real error.
-pub async fn repo_root(dir: &Path) -> Result<Option<PathBuf>, String> {
-    if !dir.join(".git").exists() {
+/// The repo that holds `dir`, and `dir`'s path inside it (the scope, empty at the repo root).
+/// Walks up the parents for a `.git` entry, directory or file (a linked worktree holds a file),
+/// then asks git for the top level from there. Presence of `.git` is checked on disk, so the
+/// answer does not depend on git's (localized) error text; any git failure after that is a real
+/// error. Every other function here takes the root, since status paths are relative to it.
+pub async fn repo_root(dir: &Path) -> Result<Option<(PathBuf, String)>, String> {
+    let Some(holder) = dir.ancestors().find(|d| d.join(".git").exists()) else {
         return Ok(None);
-    }
-    let out = git(dir, &["rev-parse", "--show-toplevel"]).await?;
-    Ok(Some(PathBuf::from(out.trim())))
+    };
+    let out = git(holder, &["rev-parse", "--show-toplevel"]).await?;
+    let root = PathBuf::from(out.trim());
+    let scope = match (dir.canonicalize(), root.canonicalize()) {
+        (Ok(d), Ok(r)) => d.strip_prefix(&r).map(Path::to_path_buf).unwrap_or_default(),
+        _ => PathBuf::new(),
+    };
+    let scope = scope.to_string_lossy().replace('\\', "/");
+    Ok(Some((root, scope)))
+}
+
+fn spec(scope: &str) -> &str {
+    if scope.is_empty() { "." } else { scope }
 }
 
 pub async fn init(dir: &Path) -> Result<(), String> {
@@ -475,8 +485,8 @@ pub async fn init(dir: &Path) -> Result<(), String> {
 }
 
 /// `--no-optional-locks` keeps a status poll from rewriting the index.
-pub async fn status(root: &Path) -> Result<Status, String> {
-    let out = git(
+pub async fn status(root: &Path, scope: &str) -> Result<Status, String> {
+    let out = gitl(
         root,
         &[
             "--no-optional-locks",
@@ -485,6 +495,8 @@ pub async fn status(root: &Path) -> Result<Status, String> {
             "--branch",
             "-z",
             "--untracked-files=normal",
+            "--",
+            spec(scope),
         ],
     )
     .await?;
@@ -671,8 +683,8 @@ pub async fn stage(root: &Path, paths: &[String]) -> Result<(), String> {
     gitl(root, &args).await.map(|_| ())
 }
 
-pub async fn stage_everything(root: &Path) -> Result<(), String> {
-    stage_all(root).await
+pub async fn stage_everything(root: &Path, scope: &str) -> Result<(), String> {
+    gitl(root, &["add", "-A", "--", spec(scope)]).await.map(|_| ())
 }
 
 pub async fn unstage(root: &Path, paths: &[String]) -> Result<(), String> {
@@ -687,8 +699,8 @@ pub async fn unstage(root: &Path, paths: &[String]) -> Result<(), String> {
     gitl(root, &args).await.map(|_| ())
 }
 
-pub async fn unstage_everything(root: &Path) -> Result<(), String> {
-    unstage(root, &[".".to_string()]).await
+pub async fn unstage_everything(root: &Path, scope: &str) -> Result<(), String> {
+    unstage(root, &[spec(scope).to_string()]).await
 }
 
 /// Throw away the working-tree change of one file: restore a tracked one, delete an untracked one.
@@ -723,9 +735,11 @@ pub async fn ignore(root: &Path, rule: &str) -> Result<(), String> {
 }
 
 /// Throw away every unstaged change, untracked files included.
-pub async fn discard_everything(root: &Path) -> Result<(), String> {
-    gitl(root, &["restore", "--", "."]).await?;
-    gitl(root, &["clean", "-f", "-d", "-q"]).await.map(|_| ())
+pub async fn discard_everything(root: &Path, scope: &str) -> Result<(), String> {
+    gitl(root, &["restore", "--", spec(scope)]).await?;
+    gitl(root, &["clean", "-f", "-d", "-q", "--", spec(scope)])
+        .await
+        .map(|_| ())
 }
 
 /// Commit what is staged. Hooks run. A machine without a git identity still commits.
@@ -1072,13 +1086,13 @@ u UU N... 1 2 3 4 a b c clash.rs\0\
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         init(&dir).await.unwrap();
-        let root = repo_root(&dir).await.unwrap().unwrap();
+        let root = repo_root(&dir).await.unwrap().unwrap().0;
         fs::write(root.join("a.txt"), "one").unwrap();
         stage(&root, &["a.txt".into()]).await.unwrap();
         commit(&root, "first").await.unwrap();
         create_branch(&root, "topic").await.unwrap();
         assert_eq!(
-            status(&root).await.unwrap().branch.as_deref(),
+            status(&root, "").await.unwrap().branch.as_deref(),
             Some("topic")
         );
         let bs = branches(&root).await.unwrap();
@@ -1087,16 +1101,16 @@ u UU N... 1 2 3 4 a b c clash.rs\0\
         fs::write(root.join("a.txt"), "two").unwrap();
         fs::write(root.join("new.txt"), "n").unwrap();
         stash_push(&root, "wip").await.unwrap();
-        assert_eq!(status(&root).await.unwrap().total(), 0);
+        assert_eq!(status(&root, "").await.unwrap().total(), 0);
         let list = stash_list(&root).await.unwrap();
         assert_eq!(list.len(), 1);
         assert!(list[0].message.contains("wip"));
         stash_apply(&root, 0).await.unwrap();
-        assert_eq!(status(&root).await.unwrap().total(), 2);
-        discard_everything(&root).await.unwrap();
+        assert_eq!(status(&root, "").await.unwrap().total(), 2);
+        discard_everything(&root, "").await.unwrap();
         stash_pop(&root, 0).await.unwrap();
         assert!(stash_list(&root).await.unwrap().is_empty());
-        discard_everything(&root).await.unwrap();
+        discard_everything(&root, "").await.unwrap();
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -1162,14 +1176,14 @@ u UU N... 1 2 3 4 a b c clash.rs\0\
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         init(&dir).await.unwrap();
-        let root = repo_root(&dir).await.unwrap().unwrap();
+        let root = repo_root(&dir).await.unwrap().unwrap().0;
         assert!(log(&root, 0).await.unwrap().is_empty());
 
         fs::write(root.join("a.txt"), "one\n").unwrap();
-        stage_everything(&root).await.unwrap();
+        stage_everything(&root, "").await.unwrap();
         commit(&root, "first\n\nbody line").await.unwrap();
         fs::write(root.join("a.txt"), "two\n").unwrap();
-        stage_everything(&root).await.unwrap();
+        stage_everything(&root, "").await.unwrap();
         commit(&root, "second").await.unwrap();
 
         let commits = log(&root, 0).await.unwrap();
@@ -1199,16 +1213,16 @@ u UU N... 1 2 3 4 a b c clash.rs\0\
         fs::create_dir_all(&dir).unwrap();
         assert_eq!(repo_root(&dir).await.unwrap(), None);
         init(&dir).await.unwrap();
-        let root = repo_root(&dir).await.unwrap().expect("repo after init");
+        let root = repo_root(&dir).await.unwrap().expect("repo after init").0;
 
         fs::write(dir.join("a.txt"), "one\n").unwrap();
         fs::write(dir.join("w[1].txt"), "x\n").unwrap();
-        let st = status(&root).await.unwrap();
+        let st = status(&root, "").await.unwrap();
         assert_eq!(st.unstaged.len(), 2);
         assert!(st.unstaged.iter().all(|c| c.kind == ChangeKind::Untracked));
 
         stage(&root, &["a.txt".to_string()]).await.unwrap();
-        let st = status(&root).await.unwrap();
+        let st = status(&root, "").await.unwrap();
         assert_eq!(st.staged.len(), 1);
         assert_eq!(st.unstaged.len(), 1);
         let staged_diff = file_diff(&root, &st.staged[0], true).await.unwrap();
@@ -1219,15 +1233,15 @@ u UU N... 1 2 3 4 a b c clash.rs\0\
         );
 
         unstage(&root, &["a.txt".to_string()]).await.unwrap();
-        assert!(status(&root).await.unwrap().staged.is_empty());
+        assert!(status(&root, "").await.unwrap().staged.is_empty());
 
-        stage_everything(&root).await.unwrap();
+        stage_everything(&root, "").await.unwrap();
         commit(&root, "first").await.unwrap();
-        assert_eq!(status(&root).await.unwrap().total(), 0);
+        assert_eq!(status(&root, "").await.unwrap().total(), 0);
 
         fs::write(dir.join("a.txt"), "two\n").unwrap();
         fs::write(dir.join("fresh.txt"), "new\n").unwrap();
-        let st = status(&root).await.unwrap();
+        let st = status(&root, "").await.unwrap();
         assert_eq!(st.unstaged.len(), 2);
         for c in &st.unstaged {
             discard(&root, c).await.unwrap();
@@ -1238,7 +1252,7 @@ u UU N... 1 2 3 4 a b c clash.rs\0\
             "one"
         );
         assert!(!dir.join("fresh.txt").exists());
-        assert_eq!(status(&root).await.unwrap().total(), 0);
+        assert_eq!(status(&root, "").await.unwrap().total(), 0);
 
         // `sh` fixtures commit with a throwaway identity; make sure the helper still agrees.
         sh(&dir, &["status"]).await;
@@ -1290,16 +1304,42 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn repo_root_counts_only_the_projects_own_repo() {
+    async fn repo_root_finds_the_enclosing_repo() {
         let (main, wt) = repo("root").await;
         assert!(repo_root(&main).await.unwrap().is_some());
         assert!(repo_root(&wt.path).await.unwrap().is_some());
         let sub = main.join("sub");
         fs::create_dir_all(&sub).unwrap();
-        assert_eq!(repo_root(&sub).await.unwrap(), None);
+        let (root, scope) = repo_root(&sub).await.unwrap().unwrap();
+        assert_eq!(scope, "sub");
+        assert_eq!(root.canonicalize().unwrap(), main.canonicalize().unwrap());
+        assert_eq!(repo_root(&main).await.unwrap().unwrap().1, "");
         let bare = main.parent().unwrap().join("plain");
         fs::create_dir_all(&bare).unwrap();
         assert_eq!(repo_root(&bare).await.unwrap(), None);
+        cleanup(&main);
+    }
+
+    #[tokio::test]
+    async fn status_and_bulk_actions_are_scoped_to_the_subfolder() {
+        let (main, _wt) = repo("scope").await;
+        fs::create_dir_all(main.join("sub")).unwrap();
+        fs::write(main.join("sub/in.txt"), "x").unwrap();
+        fs::write(main.join("sub/kept.txt"), "k").unwrap();
+        sh(&main, &["add", "sub/kept.txt"]).await;
+        sh(&main, &["commit", "-m", "kept"]).await;
+        fs::write(main.join("out.txt"), "y").unwrap();
+        let st = status(&main, "sub").await.unwrap();
+        assert_eq!(st.total(), 1);
+        assert_eq!(st.unstaged[0].path, "sub/in.txt");
+        stage_everything(&main, "sub").await.unwrap();
+        let st = status(&main, "").await.unwrap();
+        assert_eq!(st.staged.len(), 1);
+        assert_eq!(st.unstaged.len(), 1);
+        unstage_everything(&main, "sub").await.unwrap();
+        discard_everything(&main, "sub").await.unwrap();
+        assert!(!main.join("sub/in.txt").exists());
+        assert!(main.join("out.txt").exists());
         cleanup(&main);
     }
 
@@ -1309,7 +1349,7 @@ mod tests {
         fs::create_dir_all(main.join("pkg/inner")).unwrap();
         fs::write(main.join("pkg/inner/a.txt"), "x").unwrap();
         fs::write(main.join("pkg/b.txt"), "y").unwrap();
-        let st = status(&main).await.unwrap();
+        let st = status(&main, "").await.unwrap();
         assert_eq!(st.unstaged.len(), 1);
         let c = &st.unstaged[0];
         assert!(c.path.ends_with('/'));

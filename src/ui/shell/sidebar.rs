@@ -307,8 +307,8 @@ impl Sidebar {
                 let Ok(target) = target else { break };
                 if let Some((id, path)) = target {
                     let count = crate::runtime::run(async move {
-                        let root = git::repo_root(&path).await.ok().flatten()?;
-                        git::status(&root).await.ok().map(|s| s.total())
+                        let (root, scope) = git::repo_root(&path).await.ok().flatten()?;
+                        git::status(&root, &scope).await.ok().map(|s| s.total())
                     })
                     .await;
                     let git_store = stores.git.clone();
