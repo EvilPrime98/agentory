@@ -9,6 +9,7 @@ use gpui::{
 use crate::i18n::{LanguagePref, t, t_args};
 use crate::platform::logging;
 use crate::route::{GoBack, Navigate};
+use crate::shortcuts::{self, ShortcutError};
 use crate::state::Stores;
 use crate::state::prefs::{
     AUTO_ENTER_STEP_MS, DEFAULT_DOC_PROMPT, DEFAULT_ISSUE_PROMPT, DEFAULT_WORKFLOW_TOOLS,
@@ -33,16 +34,18 @@ enum SettingsTab {
     Projects,
     Terminal,
     Speech,
+    Shortcuts,
     Data,
 }
 
 impl SettingsTab {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 7] = [
         Self::General,
         Self::Sessions,
         Self::Projects,
         Self::Terminal,
         Self::Speech,
+        Self::Shortcuts,
         Self::Data,
     ];
 
@@ -53,6 +56,7 @@ impl SettingsTab {
             Self::Projects => "settings.tab.projects",
             Self::Terminal => "settings.tab.terminal",
             Self::Speech => "settings.tab.speech",
+            Self::Shortcuts => "settings.tab.shortcuts",
             Self::Data => "settings.tab.data",
         }
     }
@@ -69,7 +73,42 @@ pub struct SettingsPage {
     mic_open: bool,
     lang_open: bool,
     mic_devices: Vec<String>,
+    /// The shortcut row waiting for a key combo.
+    capture: Option<Capture>,
+    shortcut_error: Option<String>,
     _subs: Vec<Subscription>,
+}
+
+struct Capture {
+    key: &'static str,
+    _intercept: Subscription,
+}
+
+fn pretty_combo(combo: &str) -> String {
+    combo
+        .split('-')
+        .map(|part| {
+            let mut c = part.chars();
+            c.next().map_or(String::new(), |f| {
+                f.to_uppercase().chain(c).collect::<String>()
+            })
+        })
+        .collect::<Vec<_>>()
+        .join(" + ")
+}
+
+fn shortcut_error_text(e: &ShortcutError) -> String {
+    match e {
+        ShortcutError::Invalid(c) => t_args("settings.shortcuts.err_invalid", &[("combo", c)]),
+        ShortcutError::NoModifier(c) => t_args("settings.shortcuts.err_modifier", &[("combo", c)]),
+        ShortcutError::Duplicate(c, other) => {
+            let other = shortcuts::action(other).map_or(String::new(), |a| t(a.label_key));
+            t_args(
+                "settings.shortcuts.err_duplicate",
+                &[("combo", c), ("other", &other)],
+            )
+        }
+    }
 }
 
 impl EventEmitter<Navigate> for SettingsPage {}
@@ -313,6 +352,8 @@ impl SettingsPage {
             mic_open: false,
             lang_open: false,
             mic_devices: Vec::new(),
+            capture: None,
+            shortcut_error: None,
             _subs: subs,
         }
     }
@@ -589,6 +630,145 @@ impl SettingsPage {
                 })),
         )])
         .into_any_element()
+    }
+
+    fn start_capture(&mut self, key: &'static str, cx: &mut Context<Self>) {
+        let page = cx.entity().downgrade();
+        let intercept = cx.intercept_keystrokes(move |ev, _, cx| {
+            cx.stop_propagation();
+            let keystroke = ev.keystroke.clone();
+            page.update(cx, |this, cx| this.capture_key(&keystroke, cx))
+                .ok();
+        });
+        self.capture = Some(Capture {
+            key,
+            _intercept: intercept,
+        });
+        self.shortcut_error = None;
+        cx.notify();
+    }
+
+    fn capture_key(&mut self, ks: &gpui::Keystroke, cx: &mut Context<Self>) {
+        let Some(key) = self.capture.as_ref().map(|c| c.key) else {
+            return;
+        };
+        if ks.key == "escape" && ks.modifiers == gpui::Modifiers::default() {
+            self.capture = None;
+            self.shortcut_error = None;
+        } else if self.apply_shortcut(key, &ks.unparse(), cx) {
+            self.capture = None;
+        }
+        cx.notify();
+    }
+
+    /// Stores `combo` for the action if it passes the shared validator, else shows why not.
+    fn apply_shortcut(&mut self, key: &'static str, combo: &str, cx: &mut Context<Self>) -> bool {
+        let prefs = self.stores.prefs.read(cx).prefs.clone();
+        match shortcuts::validate(key, combo, |a| prefs.effective_shortcut(a)) {
+            Ok(combo) => {
+                self.shortcut_error = None;
+                self.stores
+                    .prefs
+                    .update(cx, |p, cx| p.update(cx, |p| p.set_shortcut(key, combo)));
+                true
+            }
+            Err(e) => {
+                self.shortcut_error = Some(shortcut_error_text(&e));
+                false
+            }
+        }
+    }
+
+    fn shortcuts_tab(&self, prefs: &Prefs, cx: &Context<Self>) -> AnyElement {
+        let capturing = self.capture.as_ref().map(|c| c.key);
+        let rows = shortcuts::ACTIONS
+            .iter()
+            .map(|a| {
+                let key = a.key;
+                let default = a.default;
+                let combo = prefs.effective_shortcut(a);
+                let waiting = capturing == Some(key);
+                let changed = combo != default;
+                let field = div()
+                    .id(SharedString::from(format!("shortcut-{key}")))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .h(px(FIELD_H))
+                    .min_w(px(150.0))
+                    .px(px(12.0))
+                    .rounded(px(6.0))
+                    .border_1()
+                    .border_color(if waiting {
+                        theme::accent()
+                    } else {
+                        theme::border_subtle()
+                    })
+                    .text_size(px(12.0))
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, _, cx| this.start_capture(key, cx)))
+                    .child(if waiting {
+                        t("settings.shortcuts.press")
+                    } else {
+                        pretty_combo(&combo)
+                    });
+                let control = div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .child(field)
+                    .when(changed, |d| {
+                        d.child(small_button(
+                            SharedString::from(format!("shortcut-reset-{key}")),
+                            t("settings.shortcuts.reset"),
+                            cx.listener(move |this, _, _, cx| {
+                                this.capture = None;
+                                this.apply_shortcut(key, default, cx);
+                                cx.notify();
+                            }),
+                        ))
+                    });
+                setting_row(t(a.label_key), None, control)
+            })
+            .collect();
+        let reset_all = cx.listener(|this, _, _, cx| {
+            this.capture = None;
+            this.shortcut_error = None;
+            this.stores.prefs.update(cx, |p, cx| {
+                p.update(cx, |p| {
+                    for a in &shortcuts::ACTIONS {
+                        p.set_shortcut(a.key, a.default.into());
+                    }
+                })
+            });
+            cx.notify();
+        });
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(12.0))
+            .child(
+                div()
+                    .text_size(px(12.0))
+                    .text_color(theme::text_muted())
+                    .child(t("settings.shortcuts.hint")),
+            )
+            .child(list(rows))
+            .when_some(self.shortcut_error.clone(), |d, e| {
+                d.child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(theme::warning())
+                        .child(e),
+                )
+            })
+            .child(div().flex().child(button(
+                "shortcuts-reset-all",
+                t("settings.shortcuts.reset_all"),
+                ButtonVariant::Secondary,
+                reset_all,
+            )))
+            .into_any_element()
     }
 
     fn speech_tab(&self, prefs: &crate::state::prefs::Prefs, cx: &Context<Self>) -> AnyElement {
@@ -879,6 +1059,8 @@ impl Render for SettingsPage {
                     .hover(|s| s.text_color(theme::text()))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.tab = item;
+                        this.capture = None;
+                        this.shortcut_error = None;
                         cx.notify();
                     }))
                     .child(t(item.label_key()))
@@ -890,6 +1072,7 @@ impl Render for SettingsPage {
             SettingsTab::Projects => self.projects_tab(cx),
             SettingsTab::Terminal => self.terminal_tab(prefs.terminal_font_size),
             SettingsTab::Speech => self.speech_tab(&prefs, cx),
+            SettingsTab::Shortcuts => self.shortcuts_tab(&prefs, cx),
             SettingsTab::Data => self.data_tab(cx),
         };
 

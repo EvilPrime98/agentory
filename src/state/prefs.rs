@@ -96,6 +96,13 @@ pub struct Prefs {
     pub speech_auto_enter_ms: u32,
     /// Most task-board workers running at once; further open tasks wait on the board.
     pub max_workers: u32,
+    pub shortcut_toggle_fullscreen: String,
+    pub shortcut_toggle_sidebar: String,
+    pub shortcut_open_skills: String,
+    pub shortcut_open_terminal: String,
+    pub shortcut_toggle_microphone: String,
+    pub shortcut_next_session: String,
+    pub shortcut_prev_session: String,
 }
 
 impl Prefs {
@@ -157,6 +164,13 @@ impl Default for Prefs {
             speech_auto_enter: false,
             speech_auto_enter_ms: 1000,
             max_workers: DEFAULT_WORKERS,
+            shortcut_toggle_fullscreen: "f11".into(),
+            shortcut_toggle_sidebar: "ctrl-alt-b".into(),
+            shortcut_open_skills: "ctrl-alt-s".into(),
+            shortcut_open_terminal: "ctrl-alt-t".into(),
+            shortcut_toggle_microphone: "ctrl-alt-m".into(),
+            shortcut_next_session: "ctrl-tab".into(),
+            shortcut_prev_session: "ctrl-shift-tab".into(),
         }
     }
 }
