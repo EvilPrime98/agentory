@@ -31,6 +31,12 @@ use crate::ui::theme;
 const SCROLLBACK_LINES: usize = 5000;
 /// How long the size must stay stable before the grid and the pty are resized.
 const RESIZE_SETTLE: Duration = Duration::from_millis(40);
+const RESYNC_DELAYS: [Duration; 4] = [
+    Duration::from_millis(300),
+    Duration::from_millis(700),
+    Duration::from_millis(1500),
+    Duration::from_millis(3000),
+];
 
 /// Emitted once when the child process is gone.
 pub struct TerminalExited;
@@ -117,6 +123,10 @@ pub struct Terminal {
     resize_timer: Option<Task<()>>,
     /// The next layout applies at once: before the first one and after a font size change.
     apply_next_size: bool,
+    /// Resizes still to be re-asserted a moment later (see `schedule_resync`).
+    startup_resyncs: u8,
+    wheel_as_pages: bool,
+    resync_timer: Option<Task<()>>,
     wheel_remainder: f32,
     /// Top-left of the cell grid in window coordinates, from the last layout.
     origin: Point<Pixels>,
@@ -372,6 +382,9 @@ impl Terminal {
             pending_size: None,
             resize_timer: None,
             apply_next_size: true,
+            startup_resyncs: 1,
+            wheel_as_pages: false,
+            resync_timer: None,
             wheel_remainder: 0.0,
             origin: Point::default(),
             selection: None,
@@ -424,6 +437,10 @@ impl Terminal {
             self.mark_exited(cx);
             cx.notify();
         }
+    }
+
+    pub fn set_wheel_as_pages(&mut self, on: bool) {
+        self.wheel_as_pages = on;
     }
 
     pub fn set_font_size(&mut self, size: f32, cx: &mut Context<Self>) {
@@ -516,7 +533,38 @@ impl Terminal {
         if let Some(p) = &self.pty {
             p.resize(rows, cols);
         }
+        if self.startup_resyncs > 0 {
+            self.startup_resyncs -= 1;
+            self.schedule_resync(cx);
+        }
         cx.notify();
+    }
+
+    fn schedule_resync(&mut self, cx: &mut Context<Self>) {
+        self.resync_timer = Some(cx.spawn(async move |this, cx| {
+            for delay in RESYNC_DELAYS {
+                cx.background_executor().timer(delay).await;
+                let alive = this
+                    .update(cx, |t, _| {
+                        if let Some(p) = &t.pty {
+                            p.resize(t.rows, t.cols.saturating_sub(1).max(10));
+                        }
+                    })
+                    .is_ok();
+                if !alive {
+                    break;
+                }
+                cx.background_executor()
+                    .timer(Duration::from_millis(60))
+                    .await;
+                this.update(cx, |t, _| {
+                    if let Some(p) = &t.pty {
+                        p.resize(t.rows, t.cols);
+                    }
+                })
+                .ok();
+            }
+        }));
     }
 
     fn on_key(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
@@ -610,8 +658,17 @@ impl Terminal {
             }
             return;
         }
+        if self.wheel_as_pages && !ev.modifiers.shift && self.history() == 0 {
+            let key: &[u8] = if lines > 0.0 { b"[5~" } else { b"[6~" };
+            self.send(key);
+            return;
+        }
         self.scroll_view(lines as i64);
         cx.notify();
+    }
+
+    fn history(&self) -> usize {
+        history_len(&mut lock(&self.parser))
     }
 
     /// Move the view `delta` rows into the history (negative: back towards the live screen).
