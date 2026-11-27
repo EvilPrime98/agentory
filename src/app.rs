@@ -10,6 +10,7 @@ use gpui::{
 };
 
 use crate::i18n::{t, t_n};
+use crate::model::GLOBAL_ID;
 use crate::platform::pty;
 use crate::route::{GoBack, History, Navigate, Route, window_title};
 use crate::runtime;
@@ -18,6 +19,7 @@ use crate::state::{Stores, sessions};
 use crate::ui::app_loader::app_loader;
 use crate::ui::command_editor::{self, CommandEditor};
 use crate::ui::confirm::{self, ConfirmHost, ConfirmOptions};
+use crate::ui::pages::claude_settings::ClaudeSettingsPage;
 use crate::ui::pages::doc_preview::DocPreviewPage;
 use crate::ui::pages::docs::DocsPage;
 use crate::ui::pages::git::GitPage;
@@ -77,6 +79,7 @@ pub fn bind_keys(cx: &mut App, prefs: &Prefs) {
 enum Page {
     Sessions(Entity<SessionsPage>),
     Settings(Entity<SettingsPage>),
+    ClaudeSettings(Entity<ClaudeSettingsPage>),
     Skills(Entity<SkillsPage>),
     Docs(Entity<DocsPage>),
     DocPreview(Entity<DocPreviewPage>),
@@ -461,6 +464,12 @@ impl AppRoot {
                 ));
                 Page::Settings(page)
             }
+            Route::ClaudeSettings => {
+                self.stores
+                    .projects
+                    .update(cx, |p, cx| p.select(GLOBAL_ID, cx));
+                Page::ClaudeSettings(cx.new(ClaudeSettingsPage::new))
+            }
             Route::Skills(id) => {
                 self.stores.projects.update(cx, |p, cx| p.select(&id, cx));
                 self.sync_skills_project(cx);
@@ -684,6 +693,7 @@ impl Render for AppRoot {
         let content = match &self.page {
             Page::Sessions(page) => AnyView::from(page.clone()).into_any_element(),
             Page::Settings(page) => AnyView::from(page.clone()).into_any_element(),
+            Page::ClaudeSettings(page) => AnyView::from(page.clone()).into_any_element(),
             Page::Skills(page) => AnyView::from(page.clone()).into_any_element(),
             Page::Docs(page) => AnyView::from(page.clone()).into_any_element(),
             Page::DocPreview(page) => AnyView::from(page.clone()).into_any_element(),
@@ -785,10 +795,10 @@ impl Render for AppRoot {
     }
 }
 
-/// Dev aid: `AGENTORY_OPEN=settings|sessions`.
 fn dev_route() -> Option<Route> {
     match std::env::var("AGENTORY_OPEN").ok()?.as_str() {
         "settings" => Some(Route::Settings),
+        "claude-settings" => Some(Route::ClaudeSettings),
         "sessions" => Some(Route::Sessions),
         _ => None,
     }
