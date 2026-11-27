@@ -1,14 +1,13 @@
-//! Docs page: the project's `docs/**/*.md` files, each deletable or the start of an agent session.
-
 use std::path::{Path, PathBuf};
 
 use gpui::{
     AnyElement, Context, EventEmitter, InteractiveElement, IntoElement, ParentElement, Render,
-    SharedString, StatefulInteractiveElement, Styled, Window, div, prelude::*, px,
+    SharedString, StatefulInteractiveElement, Styled, Subscription, Window, div, prelude::*, px,
 };
 
 use super::skills::{card, icon_button, muted_note, row_base};
 use crate::i18n::{t, t_args};
+use crate::model::Folder;
 use crate::route::{GoBack, Navigate, Route};
 use crate::state::Stores;
 use crate::state::sessions;
@@ -34,15 +33,13 @@ pub struct DocsPage {
     scrollbar: Scrollbar,
     stores: Stores,
     project_id: String,
+    folder: String,
     scan: Scan,
+    _subs: Vec<Subscription>,
 }
 
 impl EventEmitter<Navigate> for DocsPage {}
 impl EventEmitter<GoBack> for DocsPage {}
-
-fn docs_dir(root: &Path) -> PathBuf {
-    root.join("docs")
-}
 
 /// First level-1 heading outside code fences.
 fn first_heading(text: &str) -> Option<String> {
@@ -105,10 +102,6 @@ pub(super) fn scan_dir(dir: &Path) -> Option<Vec<Doc>> {
     collect(dir, dir, &mut docs);
     docs.sort_by(|a, b| a.rel.cmp(&b.rel));
     Some(docs)
-}
-
-fn scan(root: &Path) -> Scan {
-    scan_dir(&docs_dir(root)).map_or(Scan::NoFolder, Scan::Docs)
 }
 
 /// Asks, then moves `path` to the trash and calls `done` either way; a failure toasts `failed_key`.
@@ -187,11 +180,17 @@ pub(super) fn md_row(
 
 impl DocsPage {
     pub fn new(stores: Stores, project_id: String, cx: &mut Context<Self>) -> Self {
+        let subs = vec![
+            cx.observe(&stores.prefs, |this, _, cx| this.follow_folder(cx)),
+            cx.observe(&stores.projects, |this, _, cx| this.follow_folder(cx)),
+        ];
         let mut this = Self {
             scrollbar: Scrollbar::new(),
             stores,
             project_id,
+            folder: String::new(),
             scan: Scan::NoFolder,
+            _subs: subs,
         };
         this.rescan(cx);
         this
@@ -205,16 +204,28 @@ impl DocsPage {
             .map(|p| p.path.clone())
     }
 
+    fn configured_folder(&self, cx: &Context<Self>) -> String {
+        self.stores.folder(&self.project_id, Folder::Docs, cx)
+    }
+
+    fn follow_folder(&mut self, cx: &mut Context<Self>) {
+        if self.configured_folder(cx) != self.folder {
+            self.rescan(cx);
+        }
+    }
+
     fn rescan(&mut self, cx: &mut Context<Self>) {
+        self.folder = self.configured_folder(cx);
         self.scan = self
             .project_root(cx)
-            .map_or(Scan::NoFolder, |root| scan(&root));
+            .and_then(|root| scan_dir(&root.join(&self.folder)))
+            .map_or(Scan::NoFolder, Scan::Docs);
         cx.notify();
     }
 
     fn start_working(&self, rel: &str, cx: &mut Context<Self>) {
         let prefs = &self.stores.prefs.read(cx).prefs;
-        let mut input = prefs.doc_prompt_for(rel);
+        let mut input = prefs.doc_prompt_for(&format!("{}/{rel}", self.folder));
         if prefs.send_doc_prompt {
             // Enter, so the prefilled mention is submitted.
             input.push('\r');
@@ -227,10 +238,10 @@ impl DocsPage {
         let Some(root) = self.project_root(cx) else {
             return;
         };
-        let path = docs_dir(&root).join(&rel);
+        let path = root.join(&self.folder).join(&rel);
         let options = ConfirmOptions::new(
             t("docs.delete.title"),
-            t_args("docs.delete.body", &[("rel", &rel)]),
+            t_args("docs.delete.body", &[("dir", &self.folder), ("rel", &rel)]),
         )
         .labels(t("common.delete"), t("common.cancel"));
         let page = cx.entity();
@@ -245,11 +256,17 @@ impl Render for DocsPage {
         let (count, body): (Option<usize>, Vec<AnyElement>) = match &self.scan {
             Scan::NoFolder => (
                 None,
-                vec![muted_note(t("docs.no_folder").into()).into_any_element()],
+                vec![
+                    muted_note(t_args("docs.no_folder", &[("dir", &self.folder)]).into())
+                        .into_any_element(),
+                ],
             ),
             Scan::Docs(docs) if docs.is_empty() => (
                 Some(0),
-                vec![muted_note(t("docs.no_files").into()).into_any_element()],
+                vec![
+                    muted_note(t_args("docs.no_files", &[("dir", &self.folder)]).into())
+                        .into_any_element(),
+                ],
             ),
             Scan::Docs(docs) => (
                 Some(docs.len()),
@@ -265,7 +282,7 @@ impl Render for DocsPage {
                             cx.listener(move |this, _, _, cx| {
                                 cx.emit(Navigate(Route::DocPreview(
                                     this.project_id.clone(),
-                                    format!("docs/{view_rel}"),
+                                    format!("{}/{view_rel}", this.folder),
                                 )))
                             }),
                             cx.listener(move |this, _, _, cx| this.start_working(&work_rel, cx)),

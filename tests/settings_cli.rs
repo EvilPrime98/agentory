@@ -88,6 +88,98 @@ fn invalid_input_fails_with_structured_error() {
 }
 
 #[test]
+fn folder_settings_have_app_and_project_levels() {
+    let dir = tempdir("folders");
+    let root = tempdir("folders-project");
+    let projects = serde_json::json!([
+        { "id": "p1", "name": "demo", "path": root, "defaultShell": "pwsh" }
+    ]);
+    std::fs::write(dir.join("projects.json"), projects.to_string()).unwrap();
+    let saved = || -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(dir.join("projects.json")).unwrap()).unwrap()
+    };
+    let inside = root.join("src");
+    let inside = inside.to_str().unwrap();
+    let get = |args: &[&str]| json(&agentory(&dir, args))["value"].clone();
+    let for_project = ["get", "docs-dir", "--project", inside];
+
+    assert_eq!(get(&for_project), "docs");
+    assert!(
+        agentory(&dir, &["set", "docs-dir", "documentation/"])
+            .status
+            .success()
+    );
+    assert_eq!(file(&dir)["docsDir"], "documentation");
+    assert_eq!(get(&for_project), "documentation");
+
+    let out = agentory(
+        &dir,
+        &["set", "docs-dir", r"notes\specs", "--project", inside],
+    );
+    assert_eq!(json(&out)["value"], "notes/specs");
+    assert_eq!(saved()[0]["docsDir"], "notes/specs");
+    assert_eq!(saved()[0]["defaultShell"], "pwsh");
+    assert_eq!(get(&["get", "docs-dir"]), "documentation");
+
+    for bad in [".", "../x", "/etc", r"C:\x"] {
+        for args in [
+            vec!["set", "docs-dir", bad],
+            vec!["set", "docs-dir", bad, "--project", inside],
+        ] {
+            let out = agentory(&dir, &args);
+            assert_eq!(out.status.code(), Some(2), "{bad}");
+            let err: serde_json::Value = serde_json::from_slice(&out.stderr).unwrap();
+            assert_eq!(err["error"]["code"], "invalid_value");
+        }
+    }
+    assert_eq!(get(&for_project), "notes/specs");
+
+    assert!(
+        agentory(&dir, &["set", "docs-dir", "", "--project", inside])
+            .status
+            .success()
+    );
+    assert!(saved()[0].get("docsDir").is_none());
+    assert!(
+        agentory(&dir, &["set", "docs-dir", "x", "--project", inside])
+            .status
+            .success()
+    );
+    let out = agentory(&dir, &["reset", "docs-dir", "--project", inside]);
+    assert_eq!(json(&out)["value"], "documentation");
+    assert!(saved()[0].get("docsDir").is_none());
+
+    assert!(agentory(&dir, &["set", "docs-dir", " "]).status.success());
+    assert_eq!(get(&["get", "docs-dir"]), "docs");
+
+    std::fs::write(dir.join("prefs.json"), r#"{"issuesDir":"../out"}"#).unwrap();
+    assert_eq!(get(&["get", "issues-dir"]), "issues");
+}
+
+#[test]
+fn project_flag_is_limited_to_folder_keys_and_added_projects() {
+    let dir = tempdir("project-flag");
+    let path = dir.to_str().unwrap();
+    let code = |args: &[&str]| -> (Option<i32>, serde_json::Value) {
+        let out = agentory(&dir, args);
+        let err: serde_json::Value = serde_json::from_slice(&out.stderr).unwrap();
+        (out.status.code(), err["error"]["code"].clone())
+    };
+    for args in [
+        vec!["get", "theme", "--project", path],
+        vec!["list", "--project", path],
+        vec!["get", "docs-dir", "--project"],
+    ] {
+        assert_eq!(code(&args), (Some(2), "usage".into()), "{args:?}");
+    }
+    assert_eq!(
+        code(&["set", "docs-dir", "x", "--project", path]),
+        (Some(2), "not_registered".into())
+    );
+    assert!(!dir.join("projects.json").exists());
+}
+
+#[test]
 fn set_keeps_unrelated_keys() {
     let dir = tempdir("keep");
     std::fs::write(

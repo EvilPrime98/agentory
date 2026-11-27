@@ -1,5 +1,6 @@
 use serde_json::Value;
 
+use crate::model::{Folder, normalize_folder};
 use crate::shortcuts;
 use crate::state::prefs::{MAX_FONT, MIN_FONT, Map, Prefs, to_map};
 
@@ -14,6 +15,7 @@ pub enum Kind {
     /// A key combo such as `ctrl-alt-m`; see `crate::shortcuts`.
     Shortcut,
     Choice(&'static [&'static str]),
+    Folder(Folder),
 }
 
 #[derive(Debug)]
@@ -59,7 +61,19 @@ pub const SETTINGS: &[Setting] = &[
         key: "doc-prompt",
         field: "docPrompt",
         kind: Kind::Text,
-        description: "Prompt for running a doc from the Docs page. {doc} is the doc path under docs/. Empty restores the default.",
+        description: "Prompt for running a doc from the Docs page. {doc} is the doc path relative to the project. Empty restores the default.",
+    },
+    Setting {
+        key: "docs-dir",
+        field: "docsDir",
+        kind: Kind::Folder(Folder::Docs),
+        description: "Docs folder, relative to the project root. Empty restores the default.",
+    },
+    Setting {
+        key: "issues-dir",
+        field: "issuesDir",
+        kind: Kind::Folder(Folder::Issues),
+        description: "Local issues folder (used without a GitHub remote), relative to the project root. Empty restores the default.",
     },
     Setting {
         key: "notifications",
@@ -152,6 +166,7 @@ impl Kind {
             Kind::Text => "string",
             Kind::Shortcut => "shortcut",
             Kind::Choice(_) => "choice",
+            Kind::Folder(_) => "folder",
         }
     }
 }
@@ -161,7 +176,7 @@ impl Setting {
         match &self.kind {
             Kind::Bool => vec!["true".into(), "false".into()],
             Kind::Float { min, max } => vec![format!("{min}..={max}")],
-            Kind::Text | Kind::Shortcut => Vec::new(),
+            Kind::Text | Kind::Shortcut | Kind::Folder(_) => Vec::new(),
             Kind::Choice(c) => c.iter().map(|s| s.to_string()).collect(),
         }
     }
@@ -173,9 +188,14 @@ impl Setting {
     }
 
     pub fn value_in(&self, file: &Map) -> Value {
-        file.get(self.field)
-            .cloned()
-            .unwrap_or_else(|| self.default_value())
+        let stored = file.get(self.field).cloned();
+        match self.kind {
+            Kind::Folder(_) => stored
+                .and_then(|v| v.as_str().and_then(normalize_folder))
+                .map(Value::String),
+            _ => stored,
+        }
+        .unwrap_or_else(|| self.default_value())
     }
 
     /// `parse` plus the checks that need the other stored settings (shortcut duplicates).
@@ -234,6 +254,12 @@ impl Setting {
                 .contains(&raw)
                 .then(|| Value::String(raw.to_string()))
                 .ok_or_else(|| invalid("not one of the allowed values")),
+            Kind::Folder(_) if raw.trim().is_empty() => Ok(self.default_value()),
+            Kind::Folder(_) => normalize_folder(raw).map(Value::String).ok_or_else(|| {
+                invalid(
+                    "expected a folder inside the project, as a relative path without `..` that is not the project root",
+                )
+            }),
         }
     }
 }

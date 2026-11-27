@@ -14,6 +14,8 @@ pub mod workflows;
 
 use gpui::{App, AppContext as _, Entity, Global};
 
+use crate::model::Folder;
+
 /// Handles to the shared entities. Stored as a gpui `Global` so overlays and background tasks can
 /// reach them without threading them through every constructor.
 #[derive(Clone)]
@@ -33,6 +35,14 @@ pub struct Stores {
 impl Global for Stores {}
 
 impl Stores {
+    pub fn folder(&self, project_id: &str, folder: Folder, cx: &App) -> String {
+        let project = self.projects.read(cx).get(project_id);
+        folder.resolve(
+            project.and_then(|p| p.folder_override(folder)),
+            self.prefs.read(cx).prefs.folder(folder),
+        )
+    }
+
     pub fn new(cx: &mut App) -> Self {
         let prefs = cx.new(|_| prefs::PrefsStore::load());
         prefs.update(cx, |p, cx| p.watch(cx));

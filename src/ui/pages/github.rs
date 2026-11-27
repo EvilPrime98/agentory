@@ -16,6 +16,7 @@ use crate::backend::gh::{
 use crate::backend::git::{DiffLine, LineKind, parse_diff};
 use crate::backend::transcripts;
 use crate::i18n::{t, t_args, t_n};
+use crate::model::Folder;
 use crate::route::{GoBack, Navigate, Route};
 use crate::runtime;
 use crate::state::{Stores, sessions};
@@ -60,8 +61,8 @@ pub struct GithubPage {
     stores: Stores,
     project_id: String,
     setup: Option<Setup>,
-    /// `issues/**/*.md`, shown when the project has no GitHub remote; `None` without the folder.
     local_issues: Option<Vec<Doc>>,
+    issues_dir: String,
     tab: Tab,
     prs: Vec<PrSummary>,
     issues: Vec<IssueSummary>,
@@ -149,6 +150,8 @@ impl GithubPage {
         let edit_body = cx.new(TextArea::new);
         let edit_comment = cx.new(TextArea::new);
         let subs = vec![
+            cx.observe(&stores.prefs, |this, _, cx| this.follow_issues_dir(cx)),
+            cx.observe(&stores.projects, |this, _, cx| this.follow_issues_dir(cx)),
             cx.subscribe(&edit_title, |this, _, ev: &TextInputEvent, cx| match ev {
                 TextInputEvent::Submit => this.save_issue_edit(cx),
                 TextInputEvent::Cancel => this.cancel_issue_edit(cx),
@@ -168,6 +171,7 @@ impl GithubPage {
             project_id,
             setup: None,
             local_issues: None,
+            issues_dir: String::new(),
             tab: Tab::Prs,
             prs: Vec::new(),
             issues: Vec::new(),
@@ -240,8 +244,23 @@ impl GithubPage {
         .detach();
     }
 
+    fn configured_issues_dir(&self, cx: &Context<Self>) -> String {
+        self.stores.folder(&self.project_id, Folder::Issues, cx)
+    }
+
+    fn follow_issues_dir(&mut self, cx: &mut Context<Self>) {
+        if self.setup == Some(Setup::NoRemote) && self.configured_issues_dir(cx) != self.issues_dir
+        {
+            self.rescan_local(cx);
+            cx.notify();
+        }
+    }
+
     fn rescan_local(&mut self, cx: &Context<Self>) {
-        self.local_issues = self.dir(cx).and_then(|dir| scan_dir(&dir.join("issues")));
+        self.issues_dir = self.configured_issues_dir(cx);
+        self.local_issues = self
+            .dir(cx)
+            .and_then(|dir| scan_dir(&dir.join(&self.issues_dir)));
     }
 
     fn start_local_issue(&self, rel: &str, cx: &mut Context<Self>) {
@@ -253,7 +272,8 @@ impl GithubPage {
             .and_then(|d| d.title.clone())
             .unwrap_or_else(|| rel.to_string());
         let prefs = &self.stores.prefs.read(cx).prefs;
-        let mut input = prefs.issue_prompt_for(&format!("issues/{rel}"), 0, &title);
+        let path = format!("{}/{rel}", self.issues_dir);
+        let mut input = prefs.issue_prompt_for(&path, 0, &title);
         if prefs.send_issue_prompt {
             input.push('\u{d}');
         }
@@ -267,10 +287,13 @@ impl GithubPage {
         };
         let options = ConfirmOptions::new(
             t("issues.delete.title"),
-            t_args("issues.delete.body", &[("rel", &rel)]),
+            t_args(
+                "issues.delete.body",
+                &[("dir", &self.issues_dir), ("rel", &rel)],
+            ),
         )
         .labels(t("common.delete"), t("common.cancel"));
-        let path = dir.join("issues").join(&rel);
+        let path = dir.join(&self.issues_dir).join(&rel);
         let page = cx.entity();
         confirm_trash(cx, path, rel, options, "issues.delete.failed", move |cx| {
             page.update(cx, |this, cx| {
@@ -284,11 +307,17 @@ impl GithubPage {
         let (count, rows): (Option<usize>, Vec<AnyElement>) = match &self.local_issues {
             None => (
                 None,
-                vec![muted_note(t("issues.no_folder").into()).into_any_element()],
+                vec![
+                    muted_note(t_args("issues.no_folder", &[("dir", &self.issues_dir)]).into())
+                        .into_any_element(),
+                ],
             ),
             Some(files) if files.is_empty() => (
                 Some(0),
-                vec![muted_note(t("issues.no_files").into()).into_any_element()],
+                vec![
+                    muted_note(t_args("issues.no_files", &[("dir", &self.issues_dir)]).into())
+                        .into_any_element(),
+                ],
             ),
             Some(files) => (
                 Some(files.len()),
@@ -304,7 +333,7 @@ impl GithubPage {
                             cx.listener(move |this, _, _, cx| {
                                 cx.emit(Navigate(Route::DocPreview(
                                     this.project_id.clone(),
-                                    format!("issues/{view}"),
+                                    format!("{}/{view}", this.issues_dir),
                                 )))
                             }),
                             cx.listener(move |this, _, _, cx| this.start_local_issue(&work, cx)),

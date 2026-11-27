@@ -20,7 +20,7 @@ fn usage(message: &str) -> SettingError {
     )
 }
 
-fn io(e: &std::io::Error) -> SettingError {
+pub(super) fn io(e: &std::io::Error) -> SettingError {
     err("io", format!("could not access projects.json: {e}"))
 }
 
@@ -43,7 +43,7 @@ fn same_dir(a: &Path, b: &Path) -> bool {
         )
 }
 
-fn find_project(all: &[Project], explicit: Option<&str>) -> Res<usize> {
+pub(super) fn find_project(all: &[Project], explicit: Option<&str>) -> Res<usize> {
     let start = match explicit {
         Some(p) => std::path::absolute(p).map_err(|e| io(&e))?,
         None => std::env::current_dir().map_err(|e| io(&e))?,
@@ -66,7 +66,7 @@ fn find_project(all: &[Project], explicit: Option<&str>) -> Res<usize> {
         })
 }
 
-fn save(all: &[Project]) -> Res<()> {
+pub(super) fn save(all: &[Project]) -> Res<()> {
     let kept: Vec<&Project> = all.iter().collect();
     projects::write_saved(&kept).map_err(|e| io(&e))
 }

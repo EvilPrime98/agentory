@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::i18n::LanguagePref;
+use crate::model::{Folder, string_or_none};
 use crate::ui::theme::ThemePref;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -71,6 +72,10 @@ pub struct Prefs {
     /// Submit the prompt (not just type it) when running a doc from the Docs page.
     pub send_doc_prompt: bool,
     pub doc_prompt: String,
+    #[serde(deserialize_with = "string_or_empty")]
+    pub docs_dir: String,
+    #[serde(deserialize_with = "string_or_empty")]
+    pub issues_dir: String,
     pub send_issue_prompt: bool,
     pub issue_prompt: String,
     /// Toast (in-app and Windows) when a session needs input or finishes.
@@ -118,10 +123,24 @@ impl Prefs {
         }
     }
 
-    pub fn doc_prompt_for(&self, rel: &str) -> String {
+    pub fn folder(&self, folder: Folder) -> &str {
+        match folder {
+            Folder::Docs => &self.docs_dir,
+            Folder::Issues => &self.issues_dir,
+        }
+    }
+
+    pub fn folder_mut(&mut self, folder: Folder) -> &mut String {
+        match folder {
+            Folder::Docs => &mut self.docs_dir,
+            Folder::Issues => &mut self.issues_dir,
+        }
+    }
+
+    pub fn doc_prompt_for(&self, root_relative_path: &str) -> String {
         let t = self.doc_prompt.trim();
         let t = if t.is_empty() { DEFAULT_DOC_PROMPT } else { t };
-        t.replace("{doc}", rel)
+        without_docs_prefix(t).replace("{doc}", root_relative_path)
     }
 
     pub fn issue_prompt_for(&self, path: &str, number: u64, title: &str) -> String {
@@ -146,6 +165,8 @@ impl Default for Prefs {
             ask_worktree: true,
             send_doc_prompt: false,
             doc_prompt: DEFAULT_DOC_PROMPT.into(),
+            docs_dir: Folder::Docs.builtin().into(),
+            issues_dir: Folder::Issues.builtin().into(),
             send_issue_prompt: false,
             issue_prompt: DEFAULT_ISSUE_PROMPT.into(),
             notifications: true,
@@ -177,7 +198,23 @@ impl Default for Prefs {
 
 pub const DEFAULT_WORKFLOW_TOOLS: &str = "Bash(cargo:*) Bash(git:*) Bash(graphify:*)";
 
-pub const DEFAULT_DOC_PROMPT: &str = "@docs/{doc} -> implement";
+pub const DEFAULT_DOC_PROMPT: &str = "@{doc} -> implement";
+
+fn string_or_empty<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    Ok(string_or_none(d)?.unwrap_or_default())
+}
+
+fn without_docs_prefix(template: &str) -> String {
+    const OLD: &str = "docs/{doc}";
+    let mut parts = template.split(OLD);
+    let mut out = parts.next().unwrap_or_default().to_string();
+    for part in parts {
+        let in_name = out.ends_with(|c: char| c.is_alphanumeric() || c == '-' || c == '_');
+        out.push_str(if in_name { OLD } else { "{doc}" });
+        out.push_str(part);
+    }
+    out
+}
 
 pub const DEFAULT_ISSUE_PROMPT: &str = "Investigate this @{issue}";
 
@@ -387,6 +424,33 @@ mod tests {
         );
         p.issue_prompt = "  ".into();
         assert_eq!(p.issue_prompt_for("x", 1, "t"), "Investigate this @x");
+    }
+
+    #[test]
+    fn doc_prompt_takes_a_project_path_and_reads_old_templates() {
+        let mut p = Prefs::default();
+        assert_eq!(p.doc_prompt_for("notes/a.md"), "@notes/a.md -> implement");
+        for (saved, expected) in [
+            ("@docs/{doc} -> implement", "@notes/a.md -> implement"),
+            ("docs/{doc} and ./docs/{doc}", "notes/a.md and ./notes/a.md"),
+            ("mydocs/{doc}", "mydocs/notes/a.md"),
+            ("  ", "@notes/a.md -> implement"),
+        ] {
+            p.doc_prompt = saved.into();
+            assert_eq!(p.doc_prompt_for("notes/a.md"), expected, "{saved}");
+        }
+    }
+
+    #[test]
+    fn folders_default_and_ignore_values_of_the_wrong_type() {
+        let p: Prefs = serde_json::from_str("{}").unwrap();
+        assert_eq!(
+            (p.docs_dir.as_str(), p.issues_dir.as_str()),
+            ("docs", "issues")
+        );
+        let p: Prefs = serde_json::from_str(r#"{"docsDir":5,"theme":"light"}"#).unwrap();
+        assert_eq!(p.theme, ThemePref::Light);
+        assert_eq!(Folder::Docs.resolve(None, p.folder(Folder::Docs)), "docs");
     }
 
     #[test]

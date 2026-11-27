@@ -2,8 +2,10 @@ use std::io::IsTerminal as _;
 
 use serde_json::{Value, json};
 
-use crate::registry::{self, SETTINGS, SettingError};
+use crate::model::{Folder, Project};
+use crate::registry::{self, Kind, SETTINGS, Setting, SettingError};
 use crate::state::prefs::{self, Map};
+use crate::state::projects;
 
 const EXIT_FAILURE: i32 = 1;
 const EXIT_USAGE: i32 = 2;
@@ -68,7 +70,7 @@ pub fn run(args: &[String]) -> Option<i32> {
         "graphify" => graphify::dispatch(&mut rest, json),
         "commands" => commands::dispatch(&mut rest, json),
         "tasks" => tasks::dispatch(&mut rest, json),
-        _ => dispatch(&rest, json),
+        _ => dispatch(&mut rest, json),
     };
     Some(match result {
         Ok(out) => {
@@ -111,18 +113,83 @@ fn usage(message: &str) -> SettingError {
     )
 }
 
-fn dispatch(args: &[&str], json: bool) -> Result<String, SettingError> {
-    match args {
-        ["list"] => list(json),
-        ["get", key] => get(key, json),
-        ["set", key, value] => set(key, value, json),
-        ["reset", key] => reset(key, json),
-        [cmd @ ("list" | "get" | "set" | "reset"), ..] => {
+fn dispatch(args: &mut Vec<&str>, json: bool) -> Result<String, SettingError> {
+    let project =
+        workflow::take_value(args, "--project").map_err(|_| usage("`--project` needs a value"))?;
+    match (args.as_slice(), project.as_deref()) {
+        (["list"], None) => list(json),
+        (["list"], Some(_)) => Err(usage("`list` does not take --project")),
+        (["get", key], None) => get(key, json),
+        (["get", key], Some(path)) => get_in_project(key, path, json),
+        (["set", key, value], None) => set(key, value, json),
+        (["set", key, value], Some(path)) => set_in_project(key, Some(value), path, json),
+        (["reset", key], None) => reset(key, json),
+        (["reset", key], Some(path)) => set_in_project(key, None, path, json),
+        ([cmd @ ("list" | "get" | "set" | "reset"), ..], _) => {
             Err(usage(&format!("wrong number of arguments for `{cmd}`")))
         }
-        [other, ..] => Err(usage(&format!("unknown command `{other}`"))),
-        [] => Err(usage("missing command")),
+        ([other, ..], _) => Err(usage(&format!("unknown command `{other}`"))),
+        ([], _) => Err(usage("missing command")),
     }
+}
+
+struct ProjectFolder {
+    setting: &'static Setting,
+    folder: Folder,
+    all: Vec<Project>,
+    at: usize,
+}
+
+impl ProjectFolder {
+    fn find(key: &str, path: &str) -> Result<Self, SettingError> {
+        let setting = registry::find(key)?;
+        let Kind::Folder(folder) = setting.kind else {
+            return Err(usage(&format!(
+                "`{key}` is app-wide; only docs-dir and issues-dir take --project"
+            )));
+        };
+        let all = projects::read_saved().map_err(|e| commands::io(&e))?;
+        let at = commands::find_project(&all, Some(path))?;
+        Ok(Self {
+            setting,
+            folder,
+            all,
+            at,
+        })
+    }
+
+    fn effective(&self) -> Result<Value, SettingError> {
+        let app = self.setting.value_in(&prefs::read_map().map_err(io)?);
+        Ok(Value::String(self.folder.resolve(
+            self.all[self.at].folder_override(self.folder),
+            app.as_str().unwrap_or_default(),
+        )))
+    }
+}
+
+fn get_in_project(key: &str, path: &str, json: bool) -> Result<String, SettingError> {
+    let target = ProjectFolder::find(key, path)?;
+    let value = target.effective()?;
+    Ok(got(target.setting.key, &value, json))
+}
+
+fn set_in_project(
+    key: &str,
+    raw: Option<&str>,
+    path: &str,
+    json: bool,
+) -> Result<String, SettingError> {
+    let mut target = ProjectFolder::find(key, path)?;
+    let value = match raw.filter(|r| !r.trim().is_empty()) {
+        Some(raw) => target.setting.parse(raw)?.as_str().map(str::to_string),
+        None => None,
+    };
+    let slot = target.all[target.at].folder_override_mut(target.folder);
+    if *slot != value {
+        *slot = value;
+        commands::save(&target.all)?;
+    }
+    Ok(changed(target.setting.key, &target.effective()?, json))
 }
 
 fn text(v: &Value) -> String {
@@ -168,11 +235,15 @@ fn list(json: bool) -> Result<String, SettingError> {
 fn get(key: &str, json: bool) -> Result<String, SettingError> {
     let s = registry::find(key)?;
     let value = s.value_in(&prefs::read_map().map_err(io)?);
-    Ok(if json {
-        pretty(&json!({ "key": s.key, "value": value }))
+    Ok(got(s.key, &value, json))
+}
+
+fn got(key: &str, value: &Value, json: bool) -> String {
+    if json {
+        pretty(&json!({ "key": key, "value": value }))
     } else {
-        text(&value)
-    })
+        text(value)
+    }
 }
 
 fn set(key: &str, raw: &str, json: bool) -> Result<String, SettingError> {
@@ -225,7 +296,10 @@ fn help_text() -> String {
         "Read and change Agentory settings. Changes apply live in the running app.\n\n\
          USAGE:\n  agentory settings list\n  agentory settings get KEY\n  \
          agentory settings set KEY VALUE\n  agentory settings reset KEY\n\n\
-         FLAGS:\n  --json   JSON output (the default when stdout is not a terminal)\n\n\
+         FLAGS:\n  --json           JSON output (the default when stdout is not a terminal)\n  \
+         --project PATH   docs-dir and issues-dir only, with get, set or reset: act on the \
+         override of the project added in the app that contains PATH. get prints the value in \
+         effect; reset, or an empty value, removes the override.\n\n\
          Errors go to stderr with a non-zero exit code (1 file error, 2 bad usage or value).\n\n\
          SETTINGS:\n",
     );

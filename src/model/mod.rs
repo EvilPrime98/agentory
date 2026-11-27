@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 pub const GLOBAL_ID: &str = "global";
 
@@ -25,6 +25,63 @@ pub struct Project {
     pub commands: Vec<CustomCommand>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hidden_detected: Vec<String>,
+    #[serde(
+        default,
+        deserialize_with = "string_or_none",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub docs_dir: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "string_or_none",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub issues_dir: Option<String>,
+}
+
+pub fn string_or_none<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    Ok(serde_json::Value::deserialize(d)?
+        .as_str()
+        .map(str::to_string))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Folder {
+    Docs,
+    Issues,
+}
+
+impl Folder {
+    pub const ALL: [Self; 2] = [Self::Docs, Self::Issues];
+
+    pub fn builtin(self) -> &'static str {
+        match self {
+            Self::Docs => "docs",
+            Self::Issues => "issues",
+        }
+    }
+
+    pub fn resolve(self, project: Option<&str>, app: &str) -> String {
+        project
+            .and_then(normalize_folder)
+            .or_else(|| normalize_folder(app))
+            .unwrap_or_else(|| self.builtin().to_string())
+    }
+}
+
+pub fn normalize_folder(raw: &str) -> Option<String> {
+    let path = raw.trim().replace('\\', "/");
+    if path.starts_with('/') {
+        return None;
+    }
+    let mut parts = Vec::new();
+    for part in path.split('/').filter(|p| !p.is_empty() && *p != ".") {
+        if part.ends_with(['.', ' ']) || part.contains(':') {
+            return None;
+        }
+        parts.push(part);
+    }
+    (!parts.is_empty()).then(|| parts.join("/"))
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -52,6 +109,22 @@ impl Project {
             default_shell: None,
             commands: Vec::new(),
             hidden_detected: Vec::new(),
+            docs_dir: None,
+            issues_dir: None,
+        }
+    }
+
+    pub fn folder_override(&self, folder: Folder) -> Option<&str> {
+        match folder {
+            Folder::Docs => self.docs_dir.as_deref(),
+            Folder::Issues => self.issues_dir.as_deref(),
+        }
+    }
+
+    pub fn folder_override_mut(&mut self, folder: Folder) -> &mut Option<String> {
+        match folder {
+            Folder::Docs => &mut self.docs_dir,
+            Folder::Issues => &mut self.issues_dir,
         }
     }
 
@@ -65,6 +138,8 @@ impl Project {
             default_shell: None,
             commands: Vec::new(),
             hidden_detected: Vec::new(),
+            docs_dir: None,
+            issues_dir: None,
         }
     }
 
@@ -74,6 +149,59 @@ impl Project {
 
     pub fn is_git_repo(&self) -> bool {
         !self.is_global() && self.path.join(".git").exists()
+    }
+}
+
+#[cfg(test)]
+mod folder_tests {
+    use super::*;
+
+    #[test]
+    fn folder_paths_stay_inside_the_project() {
+        for (raw, expected) in [
+            ("docs", "docs"),
+            (" ./notes//specs/ ", "notes/specs"),
+            (r"notes\specs", "notes/specs"),
+            (".github/docs", ".github/docs"),
+        ] {
+            assert_eq!(normalize_folder(raw).as_deref(), Some(expected), "{raw}");
+        }
+        for raw in [
+            "",
+            ".",
+            "./",
+            "..",
+            "../docs",
+            "docs/../..",
+            ".. /docs",
+            "...",
+            "/docs",
+            r"\\server\share",
+            r"C:\docs",
+            "C:docs",
+        ] {
+            assert_eq!(normalize_folder(raw), None, "{raw}");
+        }
+    }
+
+    #[test]
+    fn override_beats_default_beats_builtin() {
+        let docs = Folder::Docs;
+        assert_eq!(docs.resolve(Some("a"), "b"), "a");
+        assert_eq!(docs.resolve(None, "b"), "b");
+        assert_eq!(docs.resolve(Some("../a"), "b"), "b");
+        assert_eq!(docs.resolve(Some("."), "/b"), "docs");
+        assert_eq!(Folder::Issues.resolve(None, ""), "issues");
+    }
+
+    #[test]
+    fn override_of_the_wrong_type_is_ignored() {
+        let p: Project = serde_json::from_str(
+            r#"{"id":"p","name":"n","path":"/p","docsDir":["x"],"issuesDir":"bugs"}"#,
+        )
+        .unwrap();
+        assert_eq!(p.docs_dir, None);
+        assert_eq!(p.issues_dir.as_deref(), Some("bugs"));
     }
 }
 
