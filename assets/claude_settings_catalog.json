@@ -1,0 +1,3680 @@
+{
+ "topics": [
+  "model",
+  "permissions",
+  "sandbox",
+  "memory",
+  "interface",
+  "git",
+  "hooks",
+  "plugins",
+  "mcp",
+  "agents",
+  "remote",
+  "auth",
+  "updates",
+  "privacy"
+ ],
+ "settings": [
+  {
+   "key": "advisorModel",
+   "topic": "model",
+   "kind": "string",
+   "suggestions": [
+    "fable",
+    "opus",
+    "sonnet"
+   ],
+   "description": "Pick which model answers when Claude asks the advisor tool",
+   "type": "string, one of the aliases \"fable\", \"opus\", or \"sonnet\", which resolve to Claude Code's current default version of that model family, or a full model ID such as \"claude-opus-5-5\"",
+   "default": "unset, so the advisor is off",
+   "example": "opus"
+  },
+  {
+   "key": "agent",
+   "topic": "agents",
+   "kind": "string",
+   "description": "Start sessions as a named subagent with its prompt, tools, and model",
+   "type": "string, the name of a built-in or custom agent",
+   "default": "unset",
+   "example": "code-reviewer"
+  },
+  {
+   "key": "agentPushNotifEnabled",
+   "topic": "remote",
+   "kind": "bool",
+   "description": "Let Claude send a push notification to your phone when it decides to",
+   "type": "Boolean",
+   "default": "unset, so Claude Code uses the value saved to your account, or false if none is saved",
+   "example": true
+  },
+  {
+   "key": "allowedHttpHookUrls",
+   "topic": "hooks",
+   "kind": "list",
+   "description": "Limit which URLs HTTP hooks can target",
+   "type": "array of URL patterns, with * as a wildcard",
+   "default": "unset, so any URL is allowed",
+   "example": [
+    "https://hooks.example.com/*",
+    "http://localhost:*"
+   ]
+  },
+  {
+   "key": "allowedMcpServers",
+   "topic": "mcp",
+   "kind": "json",
+   "shapes": [
+    "array"
+   ],
+   "description": "Allowlist which MCP servers users can add",
+   "type": "array of objects, each with exactly one key. Use serverName, a string limited to letters, numbers, hyphens, and underscores; serverCommand, an array of the command and its arguments matched exactly; or serverUrl, a URL pattern with * wildcards",
+   "default": "unset, so every server is allowed; an empty merged list blocks every server users add",
+   "example": [
+    {
+     "serverCommand": [
+      "npx",
+      "-y",
+      "@modelcontextprotocol/server-filesystem"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "alwaysThinkingEnabled",
+   "topic": "model",
+   "kind": "bool",
+   "description": "Turn extended thinking off for every session",
+   "type": "Boolean",
+   "default": "unset, so thinking is on for models that support it",
+   "example": false
+  },
+  {
+   "key": "apiKeyHelper",
+   "topic": "auth",
+   "kind": "string",
+   "description": "Generate the API credential with your own command",
+   "type": "string, a shell command line",
+   "default": "unset, so Claude Code doesn't run a helper",
+   "example": "/bin/generate_temp_api_key.sh"
+  },
+  {
+   "key": "askUserQuestionTimeout",
+   "topic": "interface",
+   "kind": "enum",
+   "values": [
+    "60s",
+    "5m",
+    "10m",
+    "never"
+   ],
+   "description": "Let an unanswered question auto-continue after idle time",
+   "type": "string, one of \"60s\", \"5m\", \"10m\", or \"never\"",
+   "default": "\"never\"",
+   "example": "5m"
+  },
+  {
+   "key": "appendPlugins",
+   "topic": "plugins",
+   "kind": "list",
+   "description": "Run your organization's mods after every mod a user installs",
+   "type": "array of plugin-name@marketplace-name strings",
+   "default": "unset",
+   "example": [
+    "acme-audit@acme-tools"
+   ]
+  },
+  {
+   "key": "attribution",
+   "topic": "git",
+   "kind": "object",
+   "shapes": [
+    "object",
+    "boolean"
+   ],
+   "description": "Customize the attribution Claude Code adds to commits and pull requests",
+   "type": "object with commit and pr strings and a sessionUrl Boolean, or false to hide all attribution. The false value requires Claude Code v2.1.281 or later; earlier versions reject it and skip the whole user, project, or local settings file that holds it",
+   "default": "unset, so Claude Code uses the standard attribution shown under each sub-key",
+   "example": {
+    "commit": "Generated with AI\n\nCo-Authored-By: AI <ai@example.com>",
+    "pr": "",
+    "sessionUrl": false
+   }
+  },
+  {
+   "key": "attribution.commit",
+   "topic": "git",
+   "kind": "multiline",
+   "description": "Change or hide the trailer Claude Code adds to commits",
+   "type": "string",
+   "default": "unset, so Claude Code adds Co-Authored-By: <name> <noreply@anthropic.com>. The name is the model in use when the commit is made, such as Claude Sonnet 5. When a subagent makes the commit, the trailer names the subagent's model.",
+   "example": "Generated with AI\n\nCo-Authored-By: AI <ai@example.com>"
+  },
+  {
+   "key": "attribution.pr",
+   "topic": "git",
+   "kind": "multiline",
+   "description": "Change or hide the attribution line in pull request descriptions",
+   "type": "string",
+   "default": "unset, so Claude Code adds 🤖 Generated with Claude Code",
+   "example": ""
+  },
+  {
+   "key": "attribution.sessionUrl",
+   "topic": "git",
+   "kind": "bool",
+   "description": "Omit the claude.ai session link from cloud and Remote Control commits",
+   "type": "Boolean",
+   "default": "true",
+   "example": false
+  },
+  {
+   "key": "autoCompactEnabled",
+   "topic": "memory",
+   "kind": "bool",
+   "description": "Turn automatic compaction off or on",
+   "type": "Boolean",
+   "default": "true",
+   "example": false
+  },
+  {
+   "key": "autoCompactWindow",
+   "topic": "memory",
+   "kind": "number",
+   "integer": true,
+   "description": "Set how full the context gets before Claude Code compacts",
+   "type": "number of tokens, at least 100000. Claude Code caps the value at your model's context window; the models overview lists each model's window",
+   "default": "unset, so Claude Code picks a window tuned for your model",
+   "example": 500000
+  },
+  {
+   "key": "autoContinueAtUsageLimit",
+   "topic": "interface",
+   "kind": "bool",
+   "description": "Wait in the open session and continue the task automatically after a claude.ai usage limit resets",
+   "type": "Boolean",
+   "default": "true",
+   "example": false
+  },
+  {
+   "key": "autoMemoryDirectory",
+   "topic": "memory",
+   "kind": "string",
+   "description": "Store auto memory in a directory you choose",
+   "type": "string, an absolute or ~/-prefixed directory path",
+   "default": "unset, so Claude Code uses ~/.claude/projects/<project>/memory/",
+   "example": "~/my-memory-dir"
+  },
+  {
+   "key": "autoMemoryEnabled",
+   "topic": "memory",
+   "kind": "bool",
+   "description": "Turn auto memory off or on",
+   "type": "Boolean",
+   "default": "true",
+   "example": false
+  },
+  {
+   "key": "autoMode",
+   "topic": "permissions",
+   "kind": "json",
+   "shapes": [
+    "object"
+   ],
+   "description": "Add your own allow and deny rules to the auto mode classifier",
+   "type": "object with environment, allow, soft_deny, and hard_deny arrays of prose rules, plus the classifyAllShell Boolean",
+   "default": "unset, so the classifier uses only its built-in rules",
+   "example": {
+    "soft_deny": [
+     "$defaults",
+     "Never run terraform apply"
+    ]
+   }
+  },
+  {
+   "key": "autoMode.classifyAllShell",
+   "topic": "permissions",
+   "kind": "bool",
+   "description": "Send every shell command through the auto mode classifier, even ones a narrow allow rule matches",
+   "type": "Boolean",
+   "default": "false",
+   "example": true
+  },
+  {
+   "key": "autoScrollEnabled",
+   "topic": "interface",
+   "kind": "bool",
+   "description": "Follow new output to the bottom in fullscreen rendering",
+   "type": "Boolean",
+   "default": "true",
+   "example": false
+  },
+  {
+   "key": "autoUpdatesChannel",
+   "topic": "updates",
+   "kind": "enum",
+   "values": [
+    "latest",
+    "stable"
+   ],
+   "description": "Follow the stable release channel instead of latest",
+   "type": "string, one of latest, stable",
+   "default": "unset, so Claude Code follows \"latest\"",
+   "example": "stable"
+  },
+  {
+   "key": "availableModels",
+   "topic": "model",
+   "kind": "list",
+   "description": "Restrict which models people can pick",
+   "type": "array of model aliases or IDs",
+   "default": "unset, so every model is available",
+   "example": [
+    "sonnet",
+    "haiku"
+   ]
+  },
+  {
+   "key": "awaySummaryEnabled",
+   "topic": "remote",
+   "kind": "bool",
+   "description": "Turn off the session recap shown when you come back to the terminal",
+   "type": "Boolean",
+   "default": "unset, so the recap is on",
+   "example": false
+  },
+  {
+   "key": "awsAuthRefresh",
+   "topic": "auth",
+   "kind": "string",
+   "description": "Refresh expired Bedrock credentials in .aws with your own command",
+   "type": "string, a shell command line",
+   "default": "unset, so Claude Code doesn't refresh AWS credentials for you",
+   "example": "aws sso login --profile myprofile"
+  },
+  {
+   "key": "awsCredentialExport",
+   "topic": "auth",
+   "kind": "string",
+   "description": "Supply Bedrock credentials as JSON from your own command",
+   "type": "string, a shell command line",
+   "default": "unset, so Claude Code uses the ambient AWS credential chain",
+   "example": "/bin/generate_aws_grant.sh"
+  },
+  {
+   "key": "axScreenReader",
+   "topic": "interface",
+   "kind": "bool",
+   "description": "Render screen-reader friendly output",
+   "type": "Boolean",
+   "default": "unset, so screen-reader mode is off",
+   "example": true
+  },
+  {
+   "key": "bashEditDiffEnabled",
+   "topic": "interface",
+   "kind": "bool",
+   "description": "Record the files that changed while a Bash command ran in every permission mode",
+   "type": "Boolean",
+   "default": "unset, so Claude Code records changes in auto mode and bypassPermissions mode when it directs Claude to edit files through Bash",
+   "example": true
+  },
+  {
+   "key": "bashOutputMaxChars",
+   "topic": "memory",
+   "kind": "number",
+   "integer": true,
+   "description": "Set how much of a successful command's output Claude receives inline",
+   "type": "number of characters, a positive integer. Claude Code clamps the value into the range 4000 to 128000",
+   "default": "unset, so Claude receives up to 30,000 characters inline",
+   "example": 100000
+  },
+  {
+   "key": "claudeMdExcludes",
+   "topic": "memory",
+   "kind": "list",
+   "description": "Skip specific CLAUDE.md files when memory loads",
+   "type": "array of strings, each a glob pattern or absolute path",
+   "default": "unset, so Claude Code loads every CLAUDE.md it finds",
+   "example": [
+    "**/vendor/**/CLAUDE.md"
+   ]
+  },
+  {
+   "key": "cleanupPeriodDays",
+   "topic": "privacy",
+   "kind": "number",
+   "integer": true,
+   "description": "Choose how many days Claude Code keeps transcripts before deleting them",
+   "type": "number of days, a whole number, minimum 1",
+   "default": "30",
+   "example": 20
+  },
+  {
+   "key": "companyAnnouncements",
+   "topic": "interface",
+   "kind": "list",
+   "description": "Show your organization's announcements at startup",
+   "type": "array of strings",
+   "default": "unset, so no announcement shows",
+   "example": [
+    "Welcome to Acme Corp! Review our code guidelines at docs.example.com"
+   ]
+  },
+  {
+   "key": "crossSessionInbound",
+   "topic": "agents",
+   "kind": "enum",
+   "values": [
+    "accept",
+    "hold",
+    "refuse"
+   ],
+   "description": "Choose whether Claude Code delivers messages from your other sessions, shows a notice without delivering them, or refuses them",
+   "type": "string, one of accept, hold, refuse",
+   "default": "unset, so Claude Code decides per message",
+   "example": "hold"
+  },
+  {
+   "key": "defaultShell",
+   "topic": "interface",
+   "kind": "enum",
+   "values": [
+    "bash",
+    "powershell"
+   ],
+   "description": "Choose whether Bash or PowerShell runs the shell commands you type with the ! prefix",
+   "type": "string, one of bash, powershell",
+   "default": "\"bash\", or \"powershell\" on Windows when Bash isn't available",
+   "example": "powershell"
+  },
+  {
+   "key": "deniedMcpServers",
+   "topic": "mcp",
+   "kind": "json",
+   "shapes": [
+    "array"
+   ],
+   "description": "Block specific MCP servers by URL, command, or name",
+   "type": "array of objects, each with exactly one key: serverName, a string, so a claude.ai connector's display name such as \"claude.ai Slack\" works; serverCommand, an array of the command and its arguments matched exactly; or serverUrl, a URL pattern with * wildcards",
+   "default": "unset, so no server is blocked; an empty array also blocks nothing",
+   "example": [
+    {
+     "serverName": "filesystem"
+    }
+   ]
+  },
+  {
+   "key": "desktopSessionCleanupPeriodDays",
+   "topic": "privacy",
+   "kind": "number",
+   "integer": true,
+   "description": "Set an age limit in days for Claude Desktop and Cowork transcripts",
+   "type": "number of days, a whole number, minimum 0",
+   "default": "0, which sets no age limit",
+   "example": 90
+  },
+  {
+   "key": "dialogExpiry",
+   "topic": "interface",
+   "kind": "enum",
+   "values": [
+    "60s",
+    "5m",
+    "10m",
+    "never"
+   ],
+   "description": "Set how long Claude Code waits for Remote Control or an SDK host to answer a forwarded dialog before it cancels the dialog",
+   "type": "string, one of \"60s\", \"5m\", \"10m\", or \"never\", which disables the deadline",
+   "default": "\"5m\"",
+   "example": "10m"
+  },
+  {
+   "key": "disableAgentView",
+   "topic": "agents",
+   "kind": "bool",
+   "description": "Turn off background agents and agent view",
+   "type": "Boolean",
+   "default": "unset, so agent view is available",
+   "example": true
+  },
+  {
+   "key": "disableAllHooks",
+   "topic": "hooks",
+   "kind": "bool",
+   "description": "Turn off hooks, a custom status line, and a custom @ file suggestion command at once",
+   "type": "Boolean",
+   "default": "unset, so hooks run",
+   "example": true
+  },
+  {
+   "key": "disableArtifact",
+   "topic": "remote",
+   "kind": "bool",
+   "description": "Deprecated; use enableArtifact to turn the Artifact tool off",
+   "type": "Boolean",
+   "default": "unset, so the tool follows your account's availability",
+   "example": true,
+   "deprecated": true
+  },
+  {
+   "key": "disableAutoMode",
+   "topic": "permissions",
+   "kind": "enum",
+   "values": [
+    "disable"
+   ],
+   "description": "Remove auto mode from the permission mode cycle",
+   "type": "the string \"disable\"",
+   "default": "unset",
+   "example": "disable"
+  },
+  {
+   "key": "disableBundledSkills",
+   "topic": "plugins",
+   "kind": "bool",
+   "description": "Turn off the skills and workflows included with Claude Code",
+   "type": "Boolean",
+   "default": "unset, so bundled skills load",
+   "example": true
+  },
+  {
+   "key": "disableClaudeAiConnectors",
+   "topic": "mcp",
+   "kind": "bool",
+   "description": "Turn off claude.ai connectors so Claude Code doesn't fetch them",
+   "type": "Boolean",
+   "default": "false, so Claude Code fetches your connectors",
+   "example": true
+  },
+  {
+   "key": "disableDeepLinkRegistration",
+   "topic": "remote",
+   "kind": "enum",
+   "values": [
+    "disable"
+   ],
+   "description": "Stop Claude Code from registering the claude-cli:// handler",
+   "type": "the string \"disable\"",
+   "default": "unset, so Claude Code registers the handler",
+   "example": "disable"
+  },
+  {
+   "key": "disabledMcpjsonServers",
+   "topic": "mcp",
+   "kind": "list",
+   "description": "Reject specific servers from a project's .mcp.json",
+   "type": "array of strings, the server names as they appear in .mcp.json",
+   "default": "unset",
+   "example": [
+    "filesystem"
+   ]
+  },
+  {
+   "key": "disableRemoteControl",
+   "topic": "remote",
+   "kind": "bool",
+   "description": "Turn off Remote Control everywhere it can start",
+   "type": "Boolean",
+   "default": "false",
+   "example": true
+  },
+  {
+   "key": "disableSkillShellExecution",
+   "topic": "plugins",
+   "kind": "bool",
+   "description": "Stop skills and custom commands from running inline shell",
+   "type": "Boolean",
+   "default": "unset, so inline shell runs",
+   "example": true
+  },
+  {
+   "key": "disableWorkflows",
+   "topic": "hooks",
+   "kind": "bool",
+   "description": "Turn dynamic workflows off for everyone; use enableWorkflows for yourself",
+   "type": "Boolean",
+   "default": "false",
+   "example": true
+  },
+  {
+   "key": "editorMode",
+   "topic": "interface",
+   "kind": "enum",
+   "values": [
+    "normal",
+    "vim"
+   ],
+   "description": "Use vim key bindings in the input prompt",
+   "type": "string, one of normal, vim",
+   "default": "\"normal\"",
+   "example": "vim"
+  },
+  {
+   "key": "effortLevel",
+   "topic": "model",
+   "kind": "enum",
+   "values": [
+    "low",
+    "medium",
+    "high",
+    "xhigh"
+   ],
+   "description": "Set a default effort level for models without a saved level of their own",
+   "type": "string, one of low, medium, high, xhigh",
+   "default": "unset",
+   "example": "xhigh"
+  },
+  {
+   "key": "emojiCompletionEnabled",
+   "topic": "interface",
+   "kind": "bool",
+   "description": "Turn off :shortcode: emoji suggestions and replacement in the prompt input",
+   "type": "Boolean",
+   "default": "true",
+   "example": false
+  },
+  {
+   "key": "enableAllProjectMcpServers",
+   "topic": "mcp",
+   "kind": "bool",
+   "description": "Approve every server in project .mcp.json files without a prompt",
+   "type": "Boolean",
+   "default": "unset, so interactive terminal sessions ask the same way",
+   "example": true
+  },
+  {
+   "key": "enableArtifact",
+   "topic": "remote",
+   "kind": "bool",
+   "description": "Turn the Artifact tool off with a false in any file; no file can turn it back on",
+   "type": "Boolean",
+   "default": "unset, so the tool follows your account's availability",
+   "example": false
+  },
+  {
+   "key": "enabledMcpjsonServers",
+   "topic": "mcp",
+   "kind": "list",
+   "description": "Approve specific servers from a project's .mcp.json",
+   "type": "array of strings, the server names as they appear in .mcp.json",
+   "default": "unset",
+   "example": [
+    "memory",
+    "github"
+   ]
+  },
+  {
+   "key": "enabledPlugins",
+   "topic": "plugins",
+   "kind": "json",
+   "shapes": [
+    "object"
+   ],
+   "description": "Turn individual plugins on or off per scope",
+   "type": "object mapping plugin-name@marketplace-name to a Boolean",
+   "default": "unset, so each plugin follows its defaultEnabled value",
+   "example": {
+    "code-formatter@team-tools": true,
+    "deployment-tools@team-tools": true,
+    "experimental-features@personal": false
+   }
+  },
+  {
+   "key": "enableWorkflows",
+   "topic": "hooks",
+   "kind": "bool",
+   "description": "Turn dynamic workflows on or off against your plan's default",
+   "type": "Boolean",
+   "default": "unset, so workflows are on unless you're on the Pro plan, where they're off",
+   "example": true
+  },
+  {
+   "key": "enforceAvailableModels",
+   "topic": "model",
+   "kind": "bool",
+   "description": "Keep the /model Default choice inside your availableModels allowlist",
+   "type": "Boolean",
+   "default": "false",
+   "example": true
+  },
+  {
+   "key": "env",
+   "topic": "memory",
+   "kind": "env",
+   "shapes": [
+    "object"
+   ],
+   "description": "Set environment variables for every session and its subprocesses",
+   "type": "object mapping variable names to string values",
+   "default": "unset",
+   "example": {
+    "DISABLE_AUTO_COMPACT": "1",
+    "ANTHROPIC_BASE_URL": "https://proxy.example.com"
+   }
+  },
+  {
+   "key": "extraKnownMarketplaces",
+   "topic": "plugins",
+   "kind": "json",
+   "shapes": [
+    "object"
+   ],
+   "description": "Register marketplaces for a repository or an organization",
+   "type": "object mapping a marketplace name to an object with a source object and an optional autoUpdate Boolean",
+   "default": "unset",
+   "example": {
+    "acme-tools": {
+     "source": {
+      "source": "github",
+      "repo": "acme-corp/claude-plugins"
+     }
+    },
+    "security-plugins": {
+     "source": {
+      "source": "git",
+      "url": "https://git.example.com/security/plugins.git"
+     }
+    }
+   }
+  },
+  {
+   "key": "fallbackModel",
+   "topic": "model",
+   "kind": "list",
+   "description": "Name backup models for when the primary is overloaded",
+   "type": "array of model aliases or IDs; \"default\" expands to the default model",
+   "default": "unset, so a failed request isn't retried on another model",
+   "example": [
+    "claude-sonnet-5",
+    "claude-haiku-5-5"
+   ]
+  },
+  {
+   "key": "fastMode",
+   "topic": "model",
+   "kind": "bool",
+   "description": "Turn fast mode on for sessions where it's available",
+   "type": "Boolean",
+   "default": "unset, so fast mode is off",
+   "example": true
+  },
+  {
+   "key": "fastModePerSessionOptIn",
+   "topic": "model",
+   "kind": "bool",
+   "description": "Require people to turn fast mode on each session",
+   "type": "Boolean",
+   "default": "false",
+   "example": true
+  },
+  {
+   "key": "feedbackDrafts",
+   "topic": "privacy",
+   "kind": "enum",
+   "values": [
+    "notify",
+    "quiet",
+    "off"
+   ],
+   "description": "Control whether Claude queues feedback drafts for you to review",
+   "type": "string, one of \"notify\", \"quiet\", or \"off\"",
+   "default": "\"notify\"",
+   "example": "quiet"
+  },
+  {
+   "key": "feedbackSurveyRate",
+   "topic": "privacy",
+   "kind": "number",
+   "integer": false,
+   "description": "Change how often the session quality survey appears",
+   "type": "number between 0 and 1",
+   "default": "unset, so Claude Code uses the rate Anthropic sets remotely, or its built-in rate of 0.005 on Amazon Bedrock, Google Cloud's Agent Platform, and Microsoft Foundry, which don't receive remote configuration",
+   "example": 0.05
+  },
+  {
+   "key": "fileCheckpointingEnabled",
+   "topic": "memory",
+   "kind": "bool",
+   "description": "Turn off or on the file snapshots that /rewind restores",
+   "type": "Boolean",
+   "default": "true",
+   "example": false
+  },
+  {
+   "key": "fileSuggestion",
+   "topic": "interface",
+   "kind": "json",
+   "shapes": [
+    "object"
+   ],
+   "description": "Supply @ file autocomplete from your own command",
+   "type": "object with type, always \"command\", and command, the shell command to run",
+   "default": "unset, so Claude Code uses the built-in file suggestion",
+   "example": {
+    "type": "command",
+    "command": "~/.claude/file-suggestion.sh"
+   }
+  },
+  {
+   "key": "footerLinksRegexes",
+   "topic": "interface",
+   "kind": "json",
+   "shapes": [
+    "array"
+   ],
+   "description": "Make issue or review IDs in output into clickable links below the input box",
+   "type": "array of objects, each with type set to \"regex\", a pattern regex, a url template, and an optional label; {name} placeholders in url and label are filled from named capture groups in pattern",
+   "default": "unset, so no badges render",
+   "example": [
+    {
+     "type": "regex",
+     "pattern": "\\b(?<key>PROJ-\\d+)\\b",
+     "url": "https://issues.example.com/browse/{key}",
+     "label": "{key}"
+    }
+   ]
+  },
+  {
+   "key": "forceLoginGatewayUrl",
+   "topic": "auth",
+   "kind": "string",
+   "description": "Set the gateway URL the login screen connects to",
+   "type": "string, a full URL including the scheme",
+   "default": "unset, so the Cloud gateway screen shows an error telling people to contact their IT administrator",
+   "example": "https://claude-gateway.example.com"
+  },
+  {
+   "key": "forceLoginMethod",
+   "topic": "auth",
+   "kind": "enum",
+   "values": [
+    "claudeai",
+    "console",
+    "gateway"
+   ],
+   "description": "Restrict login to claude.ai, Claude Console, or a cloud gateway",
+   "type": "string, one of claudeai, console, gateway",
+   "default": "unset, so people pick a login method",
+   "example": "claudeai"
+  },
+  {
+   "key": "forceLoginOrgUUID",
+   "topic": "auth",
+   "kind": "json",
+   "shapes": [
+    "string",
+    "array"
+   ],
+   "description": "Pin claude.ai logins to your organization; only managed settings enforce it",
+   "type": "string, one UUID, or array of strings, several UUIDs",
+   "default": "unset, so any organization can log in",
+   "example": [
+    "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy"
+   ]
+  },
+  {
+   "key": "gcpAuthRefresh",
+   "topic": "auth",
+   "kind": "string",
+   "description": "Refresh Google Cloud credentials with your own command",
+   "type": "string, a shell command line",
+   "default": "unset, so Claude Code's credential error tells you to run gcloud auth application-default login yourself",
+   "example": "gcloud auth application-default login"
+  },
+  {
+   "key": "hooks",
+   "topic": "hooks",
+   "kind": "json",
+   "shapes": [
+    "object"
+   ],
+   "description": "Run your own commands as hooks at points in Claude Code's lifecycle",
+   "type": "object keyed by hook event; each value is an array of { \"matcher\", \"hooks\" } groups whose hooks entries have a type of \"command\", \"prompt\", \"agent\", \"http\", or \"mcp_tool\"",
+   "default": "unset, so no hooks run",
+   "example": {
+    "PreToolUse": [
+     {
+      "matcher": "Bash",
+      "hooks": [
+       {
+        "type": "command",
+        "command": "~/.claude/hooks/check-bash.sh"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "key": "httpHookAllowedEnvVars",
+   "topic": "hooks",
+   "kind": "list",
+   "description": "Limit which env vars HTTP hooks can put in headers",
+   "type": "array of environment variable names",
+   "default": "unset, so each hook's own allowedEnvVars list applies",
+   "example": [
+    "MY_TOKEN",
+    "HOOK_SECRET"
+   ]
+  },
+  {
+   "key": "idleCompaction",
+   "topic": "memory",
+   "kind": "bool",
+   "description": "Stop Claude Code from compacting a long conversation that you've stepped away from",
+   "type": "Boolean",
+   "default": "true",
+   "example": false
+  },
+  {
+   "key": "includeCoAuthoredBy",
+   "topic": "git",
+   "kind": "bool",
+   "description": "Deprecated; use attribution to hide or change commit and PR attribution",
+   "type": "Boolean",
+   "default": "true",
+   "example": false,
+   "deprecated": true
+  },
+  {
+   "key": "includeGitInstructions",
+   "topic": "git",
+   "kind": "bool",
+   "description": "Remove the built-in commit and PR instructions from Claude's context",
+   "type": "Boolean",
+   "default": "true",
+   "example": false
+  },
+  {
+   "key": "inputNeededNotifEnabled",
+   "topic": "remote",
+   "kind": "bool",
+   "description": "Get a push notification when Claude is waiting on you",
+   "type": "Boolean",
+   "default": "unset, so Claude Code uses the value saved to your account",
+   "example": true
+  },
+  {
+   "key": "isolatePeerMachines",
+   "topic": "agents",
+   "kind": "bool",
+   "description": "Ask you before Claude messages one of your sessions on another machine",
+   "type": "Boolean",
+   "default": "unset, so cross-machine messages don't prompt",
+   "example": true
+  },
+  {
+   "key": "keybindingFlavor",
+   "topic": "interface",
+   "kind": "enum",
+   "values": [
+    "classic",
+    "readline"
+   ],
+   "description": "Deprecated and has no effect; the word-editing shortcuts always follow readline conventions",
+   "type": "string, \"classic\" or \"readline\"",
+   "default": "unset",
+   "deprecated": true
+  },
+  {
+   "key": "language",
+   "topic": "model",
+   "kind": "string",
+   "description": "Have Claude respond in a language other than English",
+   "type": "string, any language name, such as \"japanese\", \"spanish\", or \"french\"; Claude Code doesn't validate it",
+   "default": "unset; session titles then match the language of your conversation",
+   "example": "japanese"
+  },
+  {
+   "key": "maxEffortLevel",
+   "topic": "model",
+   "kind": "enum",
+   "values": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "description": "Cap the effort level for every model or per model, on every provider",
+   "type": "string, one of \"low\", \"medium\", \"high\", \"xhigh\", or \"max\". A \"max\" value sets no cap",
+   "default": "unset, so no cap applies",
+   "example": "medium"
+  },
+  {
+   "key": "maxProseWidth",
+   "topic": "interface",
+   "kind": "number",
+   "integer": true,
+   "description": "Cap how wide the prose in Claude's responses runs in a wide terminal",
+   "type": "number of terminal columns, a whole number, minimum 40. Claude Code ignores any other value",
+   "default": "unset, so prose wraps at the terminal edge",
+   "example": 80
+  },
+  {
+   "key": "minimumVersion",
+   "topic": "updates",
+   "kind": "string",
+   "description": "Keep auto-updates from installing anything below a version",
+   "type": "string, a version number such as \"2.1.323\"; a value that isn't a valid version is ignored",
+   "default": "unset, so updates can install any version the channel offers",
+   "example": "2.1.323"
+  },
+  {
+   "key": "model",
+   "topic": "model",
+   "kind": "string",
+   "description": "Change the model Claude Code starts with",
+   "type": "string, a model alias or full model ID",
+   "default": "unset, so Claude Code uses your account's default model",
+   "example": "claude-sonnet-5"
+  },
+  {
+   "key": "modelOverrides",
+   "topic": "model",
+   "kind": "json",
+   "shapes": [
+    "object"
+   ],
+   "description": "Map model IDs to your provider's IDs, such as Bedrock ARNs",
+   "type": "object mapping model ID to provider model ID",
+   "default": "unset",
+   "example": {
+    "claude-opus-4-6": "arn:aws:bedrock:us-east-1:123456789012:inference-profile/example"
+   }
+  },
+  {
+   "key": "modelPicker",
+   "topic": "model",
+   "kind": "json",
+   "shapes": [
+    "object"
+   ],
+   "description": "Choose which models the /model picker lists, in your own order and with your own labels",
+   "type": "object with an options array of rows and an optional replaceBuiltInOptions Boolean",
+   "default": "unset, so the picker shows the built-in lineup",
+   "example": {
+    "options": [
+     {
+      "model": "us.anthropic.claude-opus-4-8",
+      "label": "Opus (production)"
+     },
+     {
+      "model": "us.anthropic.claude-sonnet-4-6",
+      "label": "Sonnet (production)",
+      "description": "Day-to-day work"
+     }
+    ]
+   }
+  },
+  {
+   "key": "modelSettings",
+   "topic": "model",
+   "kind": "json",
+   "shapes": [
+    "object"
+   ],
+   "description": "Keep a saved effort level or auto-compact window per model, or cap one model's effort",
+   "type": "object mapping a model name to an object with any of these fields",
+   "default": "unset",
+   "example": {
+    "claude-opus-5-5": {
+     "effortLevel": "high"
+    }
+   }
+  },
+  {
+   "key": "otelHeadersHelper",
+   "topic": "auth",
+   "kind": "string",
+   "description": "Generate rotating OpenTelemetry headers with your own command",
+   "type": "string, an executable path or a shell command line",
+   "default": "unset, so Claude Code adds no helper-generated headers",
+   "example": "/bin/generate_otel_headers.sh"
+  },
+  {
+   "key": "outputStyle",
+   "topic": "model",
+   "kind": "string",
+   "description": "Change Claude's role, tone, and output format with an output style",
+   "type": "string, the name of a built-in or custom output style",
+   "default": "unset, so Claude Code uses the default style",
+   "example": "Explanatory"
+  },
+  {
+   "key": "permissions",
+   "topic": "permissions",
+   "kind": "object",
+   "shapes": [
+    "object"
+   ],
+   "description": "Set allow, ask, and deny rules and the default permission mode",
+   "type": "object with allow, ask, deny, additionalDirectories, blockReadsOutsideWorkingDirectories, blockWritesOutsideWorkingDirectories, defaultMode, denyInsteadOfPrompting, disableBypassPermissionsMode, and disableAutoMode",
+   "default": "unset",
+   "example": {
+    "allow": [
+     "Bash(npm run *)"
+    ],
+    "ask": [
+     "Bash(git push *)"
+    ],
+    "deny": [
+     "Read(./.env)"
+    ],
+    "defaultMode": "acceptEdits"
+   }
+  },
+  {
+   "key": "permissions.additionalDirectories",
+   "topic": "permissions",
+   "kind": "list",
+   "description": "Give Claude file access to directories outside the current one",
+   "type": "array of directory paths",
+   "default": "unset",
+   "example": [
+    "../docs/"
+   ]
+  },
+  {
+   "key": "permissions.allow",
+   "topic": "permissions",
+   "kind": "list",
+   "description": "Approve listed tool uses without a prompt",
+   "type": "array of permission rule strings",
+   "default": "unset",
+   "example": [
+    "Bash(git diff *)",
+    "Read(~/.zshrc)"
+   ]
+  },
+  {
+   "key": "permissions.ask",
+   "topic": "permissions",
+   "kind": "list",
+   "description": "Prompt before listed tool uses",
+   "type": "array of permission rule strings",
+   "default": "unset",
+   "example": [
+    "Bash(git push *)"
+   ]
+  },
+  {
+   "key": "permissions.blockReadsOutsideWorkingDirectories",
+   "topic": "permissions",
+   "kind": "bool",
+   "description": "Make the file tools refuse reads outside the working directories in every permission mode",
+   "type": "Boolean",
+   "default": "unset, so reads outside the working directories follow your permission mode",
+   "example": true
+  },
+  {
+   "key": "permissions.blockWritesOutsideWorkingDirectories",
+   "topic": "permissions",
+   "kind": "bool",
+   "description": "Make the Write, Edit, and NotebookEdit tools refuse paths outside the working directories in every permission mode, apart from some of Claude Code's own files",
+   "type": "Boolean",
+   "default": "unset, so writes outside the working directories follow your permission mode. The block is also on while Claude Code can't read the permissions object in your managed settings.",
+   "example": true
+  },
+  {
+   "key": "permissions.defaultMode",
+   "topic": "permissions",
+   "kind": "enum",
+   "values": [
+    "default",
+    "acceptEdits",
+    "plan",
+    "auto",
+    "dontAsk",
+    "bypassPermissions",
+    "manual"
+   ],
+   "description": "Set the default permission mode for new sessions",
+   "type": "string, one of default, acceptEdits, plan, auto, dontAsk, bypassPermissions, manual",
+   "default": "unset",
+   "example": "acceptEdits"
+  },
+  {
+   "key": "permissions.deny",
+   "topic": "permissions",
+   "kind": "list",
+   "description": "Block listed tool uses, including reads of files that hold secrets",
+   "type": "array of permission rule strings",
+   "default": "unset",
+   "example": [
+    "Read(./.env)",
+    "Read(./.env.*)",
+    "Read(./secrets/**)",
+    "Read(./config/credentials.json)",
+    "Bash(curl *)"
+   ]
+  },
+  {
+   "key": "permissions.denyInsteadOfPrompting",
+   "topic": "permissions",
+   "kind": "bool",
+   "description": "Deny tool calls that would wait on a permission prompt, so a session nobody is watching keeps working",
+   "type": "Boolean",
+   "default": "unset, so a call that needs approval prompts you",
+   "example": true
+  },
+  {
+   "key": "permissions.disableBypassPermissionsMode",
+   "topic": "permissions",
+   "kind": "enum",
+   "values": [
+    "disable"
+   ],
+   "description": "Prevent anyone from entering bypassPermissions mode",
+   "type": "the string \"disable\"",
+   "default": "unset",
+   "example": "disable"
+  },
+  {
+   "key": "plansDirectory",
+   "topic": "memory",
+   "kind": "string",
+   "description": "Choose where plan mode writes plan files",
+   "type": "string, a path relative to the project root",
+   "default": "unset, so Claude Code uses ~/.claude/plans",
+   "example": "./plans"
+  },
+  {
+   "key": "pluginConfigs",
+   "topic": "plugins",
+   "kind": "json",
+   "shapes": [
+    "object"
+   ],
+   "description": "Store the answers you gave a plugin's configuration dialog",
+   "type": "object mapping a plugin ID to an object with an options field, mapping each option name to a string, number, Boolean, or array of strings, and an optional mcpServers field holding per-server user configuration values in the same shape",
+   "default": "unset",
+   "example": {
+    "deployer@acme-tools": {
+     "options": {
+      "api_endpoint": "https://api.example.com"
+     }
+    }
+   }
+  },
+  {
+   "key": "preferredNotifChannel",
+   "topic": "remote",
+   "kind": "enum",
+   "values": [
+    "auto",
+    "terminal_bell",
+    "iterm2",
+    "iterm2_with_bell",
+    "kitty",
+    "ghostty",
+    "notifications_disabled"
+   ],
+   "description": "Choose a terminal bell or desktop notification for task completion",
+   "type": "string, one of auto, terminal_bell, iterm2, iterm2_with_bell, kitty, ghostty, notifications_disabled",
+   "default": "\"auto\"",
+   "example": "terminal_bell"
+  },
+  {
+   "key": "prefersReducedMotion",
+   "topic": "interface",
+   "kind": "bool",
+   "description": "Reduce or turn off spinner, shimmer, and flash animations",
+   "type": "Boolean",
+   "default": "false",
+   "example": true
+  },
+  {
+   "key": "prependPlugins",
+   "topic": "plugins",
+   "kind": "list",
+   "description": "Run your organization's mods before every mod a user installs",
+   "type": "array of plugin-name@marketplace-name strings",
+   "default": "unset",
+   "example": [
+    "acme-guard@acme-tools",
+    "sec-default@builtin"
+   ]
+  },
+  {
+   "key": "processWrapper",
+   "topic": "agents",
+   "kind": "string",
+   "description": "Run Claude Code's background processes through a corporate launcher on macOS and Linux",
+   "type": "string, the launcher command as an argv prefix, such as an absolute path with optional arguments",
+   "default": "unset, so background processes start unwrapped",
+   "example": "/opt/corp/launcher --profile claude"
+  },
+  {
+   "key": "promptCacheTtl",
+   "topic": "model",
+   "kind": "enum",
+   "values": [
+    "5m",
+    "1h"
+   ],
+   "description": "Choose the prompt cache lifetime for the main conversation",
+   "type": "string, one of 5m, 1h",
+   "default": "unset, so each main-conversation request gets its default lifetime",
+   "example": "1h"
+  },
+  {
+   "key": "promptSuggestionEnabled",
+   "topic": "interface",
+   "kind": "bool",
+   "description": "Hide the grayed-out prompt suggestions in the input box",
+   "type": "Boolean",
+   "default": "true",
+   "example": false
+  },
+  {
+   "key": "prUrlTemplate",
+   "topic": "git",
+   "kind": "string",
+   "description": "Point PR links at an internal code-review tool instead of github.com",
+   "type": "string, a URL template using any of the five placeholders",
+   "default": "unset",
+   "example": "https://reviews.example.com/{owner}/{repo}/pull/{number}"
+  },
+  {
+   "key": "remote.defaultEnvironmentId",
+   "topic": "remote",
+   "kind": "string",
+   "description": "Pick the default cloud environment for claude --cloud; a self-hosted ccpool_ ID is read only from user and managed settings and --settings",
+   "type": "string, an environment ID such as env_... or ccpool_...",
+   "default": "unset, so Claude Code uses the Anthropic-hosted environment when your list has one, and otherwise the first environment in your list that isn't a Remote Control bridge environment, or the first environment when every one is a bridge environment",
+   "example": "env_0123abcd"
+  },
+  {
+   "key": "remoteControlAtStartup",
+   "topic": "remote",
+   "kind": "bool",
+   "description": "Connect Remote Control automatically when a session starts",
+   "type": "Boolean",
+   "default": "unset, so the auto-connect default applies",
+   "example": true
+  },
+  {
+   "key": "respectGitignore",
+   "topic": "interface",
+   "kind": "bool",
+   "description": "Keep gitignored files out of the @ file picker",
+   "type": "Boolean",
+   "default": "true",
+   "example": false
+  },
+  {
+   "key": "respondToBashCommands",
+   "topic": "interface",
+   "kind": "bool",
+   "description": "Stop Claude from responding after a ! shell command runs",
+   "type": "Boolean",
+   "default": "true",
+   "example": false
+  },
+  {
+   "key": "sandbox",
+   "topic": "sandbox",
+   "kind": "object",
+   "shapes": [
+    "object"
+   ],
+   "description": "Isolate Bash commands from your filesystem and network on macOS, Linux, and WSL2",
+   "type": "object with enabled, failIfUnavailable, autoAllowBashIfSandboxed, excludedCommands, allowUnsandboxedCommands, enableWeakerNestedSandbox, enableWeakerNetworkIsolation, allowAppleEvents, allowNestedUserNamespaces, bwrapPath, socatPath, ignoreViolations, and ripgrep, plus the filesystem, network, and credentials objects",
+   "default": "unset, so Claude Code runs commands without a sandbox",
+   "example": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "excludedCommands": [
+     "docker *"
+    ],
+    "filesystem": {
+     "allowWrite": [
+      "/tmp/build",
+      "~/.kube"
+     ],
+     "denyRead": [
+      "~/.aws/credentials"
+     ]
+    },
+    "network": {
+     "allowedDomains": [
+      "github.com",
+      "*.npmjs.org"
+     ]
+    }
+   }
+  },
+  {
+   "key": "sandbox.allowAppleEvents",
+   "topic": "sandbox",
+   "kind": "bool",
+   "description": "Let sandboxed commands send Apple Events on macOS",
+   "type": "Boolean",
+   "default": "false",
+   "example": true
+  },
+  {
+   "key": "sandbox.allowNestedUserNamespaces",
+   "topic": "sandbox",
+   "kind": "bool",
+   "description": "Let sandboxed commands create user namespaces on Linux and WSL2",
+   "type": "Boolean",
+   "default": "false",
+   "example": true
+  },
+  {
+   "key": "sandbox.allowUnsandboxedCommands",
+   "topic": "sandbox",
+   "kind": "bool",
+   "description": "Let Claude retry a blocked command outside the sandbox, or forbid it",
+   "type": "Boolean",
+   "default": "true",
+   "example": false
+  },
+  {
+   "key": "sandbox.autoAllowBashIfSandboxed",
+   "topic": "sandbox",
+   "kind": "bool",
+   "description": "Run sandboxed commands without a permission prompt",
+   "type": "Boolean",
+   "default": "false. Before v2.1.324, the default was true",
+   "example": true
+  },
+  {
+   "key": "sandbox.credentials",
+   "topic": "sandbox",
+   "kind": "object",
+   "shapes": [
+    "object"
+   ],
+   "description": "Hide or mask credential files and variables inside the sandbox",
+   "type": "object with files, envVars, allowPlaintextInject, awsPairs, and sigv4",
+   "default": "unset, so no credentials are protected",
+   "example": {
+    "files": [
+     {
+      "path": "~/.aws/credentials",
+      "mode": "deny"
+     }
+    ],
+    "envVars": [
+     {
+      "name": "GITHUB_TOKEN",
+      "mode": "deny"
+     }
+    ]
+   }
+  },
+  {
+   "key": "sandbox.credentials.allowPlaintextInject",
+   "topic": "sandbox",
+   "kind": "bool",
+   "description": "Let masked credentials reach plain HTTP services on trusted test networks",
+   "type": "Boolean",
+   "default": "false",
+   "example": true
+  },
+  {
+   "key": "sandbox.credentials.awsPairs",
+   "topic": "sandbox",
+   "kind": "json",
+   "shapes": [
+    "array"
+   ],
+   "description": "Link custom-named AWS key variables into one credential for re-signing",
+   "type": "array of objects, each with accessKeyIdVar, secretAccessKeyVar, and optionally sessionTokenVar, naming sandbox.credentials.envVars entries",
+   "default": "unset, so only the conventional trio is paired",
+   "example": [
+    {
+     "accessKeyIdVar": "MY_KEY_ID",
+     "secretAccessKeyVar": "MY_SECRET_KEY",
+     "sessionTokenVar": "MY_SESSION_TOKEN"
+    }
+   ]
+  },
+  {
+   "key": "sandbox.credentials.envVars",
+   "topic": "sandbox",
+   "kind": "json",
+   "shapes": [
+    "array"
+   ],
+   "description": "Unset or mask an environment variable inside the sandbox",
+   "type": "array of objects, each with name and a mode of \"deny\" or \"mask\", plus the optional mask fields for environment variables",
+   "default": "unset, so no environment variables are protected",
+   "example": [
+    {
+     "name": "NPM_TOKEN",
+     "mode": "deny"
+    },
+    {
+     "name": "GITHUB_TOKEN",
+     "mode": "mask",
+     "injectHosts": [
+      "api.github.com"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "sandbox.credentials.files",
+   "topic": "sandbox",
+   "kind": "json",
+   "shapes": [
+    "array"
+   ],
+   "description": "Block or mask reads of a credential file inside the sandbox",
+   "type": "array of objects, each with path and a mode of \"deny\" or \"mask\", plus the optional mask fields for files",
+   "default": "unset, so no credential files are protected",
+   "example": [
+    {
+     "path": "~/.aws/credentials",
+     "mode": "deny"
+    },
+    {
+     "path": "~/.config/gh/hosts.yml",
+     "mode": "mask",
+     "injectHosts": [
+      "api.github.com"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "sandbox.credentials.sigv4",
+   "topic": "sandbox",
+   "kind": "json",
+   "shapes": [
+    "object"
+   ],
+   "description": "Choose whether streaming, presigned, or SigV4A AWS requests fail or pass through",
+   "type": "object with streaming, presigned, and sigv4a, each one of deny, passthrough",
+   "default": "unset, so every form is \"deny\"",
+   "example": {
+    "streaming": "passthrough"
+   }
+  },
+  {
+   "key": "sandbox.enabled",
+   "topic": "sandbox",
+   "kind": "bool",
+   "description": "Turn on Bash sandboxing on macOS, Linux, and WSL2",
+   "type": "Boolean",
+   "default": "false",
+   "example": true
+  },
+  {
+   "key": "sandbox.enableWeakerNestedSandbox",
+   "topic": "sandbox",
+   "kind": "bool",
+   "description": "Run the Linux sandbox inside an unprivileged container",
+   "type": "Boolean",
+   "default": "false",
+   "example": true
+  },
+  {
+   "key": "sandbox.enableWeakerNetworkIsolation",
+   "topic": "sandbox",
+   "kind": "bool",
+   "description": "Let gh, gcloud, and terraform verify TLS behind a MITM proxy inside the sandbox on macOS",
+   "type": "Boolean",
+   "default": "false",
+   "example": true
+  },
+  {
+   "key": "sandbox.excludedCommands",
+   "topic": "sandbox",
+   "kind": "list",
+   "description": "Name commands Claude Code can run outside the sandbox",
+   "type": "array of command patterns",
+   "default": "unset, so no command is excluded",
+   "example": [
+    "docker *"
+   ]
+  },
+  {
+   "key": "sandbox.failIfUnavailable",
+   "topic": "sandbox",
+   "kind": "bool",
+   "description": "Refuse to start when the sandbox can't, instead of running unsandboxed, except in an Anthropic-hosted environment",
+   "type": "Boolean",
+   "default": "false",
+   "example": true
+  },
+  {
+   "key": "sandbox.filesystem",
+   "topic": "sandbox",
+   "kind": "object",
+   "shapes": [
+    "object"
+   ],
+   "description": "Control which paths sandboxed commands can read and write",
+   "type": "object with allowWrite, denyWrite, denyRead, and allowRead arrays, plus the allowManagedReadPathsOnly and disabled Booleans",
+   "default": "unset, so the default read and write boundaries apply",
+   "example": {
+    "allowWrite": [
+     "/tmp/build",
+     "~/.kube"
+    ],
+    "denyRead": [
+     "~/.aws/credentials"
+    ]
+   }
+  },
+  {
+   "key": "sandbox.filesystem.allowRead",
+   "topic": "sandbox",
+   "kind": "list",
+   "description": "Re-open reading inside a region denyRead blocks",
+   "type": "array of path strings, using the sandbox path prefixes",
+   "default": "unset",
+   "example": [
+    "."
+   ]
+  },
+  {
+   "key": "sandbox.filesystem.allowWrite",
+   "topic": "sandbox",
+   "kind": "list",
+   "description": "Add paths sandboxed commands can write to",
+   "type": "array of path strings, using the sandbox path prefixes",
+   "default": "unset, so sandboxed commands can write to the working directory, the per-user temp directory, directories you've added with --add-dir or /add-dir, and directories in permissions.additionalDirectories",
+   "example": [
+    "/tmp/build",
+    "~/.kube"
+   ]
+  },
+  {
+   "key": "sandbox.filesystem.denyRead",
+   "topic": "sandbox",
+   "kind": "list",
+   "description": "Block sandboxed commands from reading specific paths",
+   "type": "array of path strings, using the sandbox path prefixes",
+   "default": "unset, so sandboxed commands keep the default read access, which includes credential files such as ~/.aws/credentials",
+   "example": [
+    "~/.aws/credentials"
+   ]
+  },
+  {
+   "key": "sandbox.filesystem.denyWrite",
+   "topic": "sandbox",
+   "kind": "list",
+   "description": "Block sandboxed commands from writing to specific paths",
+   "type": "array of path strings, using the sandbox path prefixes",
+   "default": "unset",
+   "example": [
+    "/etc",
+    "/usr/local/bin"
+   ]
+  },
+  {
+   "key": "sandbox.filesystem.disabled",
+   "topic": "sandbox",
+   "kind": "bool",
+   "description": "Turn off filesystem isolation while keeping network isolation",
+   "type": "Boolean",
+   "default": "false, so filesystem isolation stays on",
+   "example": true
+  },
+  {
+   "key": "sandbox.ignoreViolations",
+   "topic": "sandbox",
+   "kind": "json",
+   "shapes": [
+    "object"
+   ],
+   "description": "Silence violation reports for paths a command is expected to probe",
+   "type": "object mapping a command substring to an array of violation substrings, usually paths",
+   "default": "unset, so every violation is reported",
+   "example": {
+    "*": [
+     "/etc/hosts"
+    ]
+   }
+  },
+  {
+   "key": "sandbox.network",
+   "topic": "sandbox",
+   "kind": "object",
+   "shapes": [
+    "object"
+   ],
+   "description": "Control which hosts, ports, and sockets sandboxed commands reach",
+   "type": "object with the sub-keys below",
+   "default": "unset, so no domains are pre-allowed and your permission mode decides what happens to each new host",
+   "example": {
+    "allowedDomains": [
+     "github.com",
+     "*.npmjs.org"
+    ],
+    "deniedDomains": [
+     "uploads.github.com"
+    ],
+    "allowLocalBinding": true
+   }
+  },
+  {
+   "key": "sandbox.network.allowAllUnixSockets",
+   "topic": "sandbox",
+   "kind": "bool",
+   "description": "Let sandboxed commands connect to every Unix socket",
+   "type": "Boolean",
+   "default": "false",
+   "example": true
+  },
+  {
+   "key": "sandbox.network.allowedDomains",
+   "topic": "sandbox",
+   "kind": "list",
+   "description": "Pre-allow domains so sandboxed commands don't prompt for them",
+   "type": "array of strings, each a domain, wildcard pattern, or IP literal, with an optional :port suffix",
+   "default": "unset, so your permission mode decides what happens to each new host",
+   "example": [
+    "github.com",
+    "*.npmjs.org",
+    "api.example.com:443"
+   ]
+  },
+  {
+   "key": "sandbox.network.allowLocalBinding",
+   "topic": "sandbox",
+   "kind": "bool",
+   "description": "Let sandboxed commands listen on network ports and connect to localhost on macOS",
+   "type": "Boolean",
+   "default": "false",
+   "example": true
+  },
+  {
+   "key": "sandbox.network.allowMachLookup",
+   "topic": "sandbox",
+   "kind": "list",
+   "description": "Let macOS sandboxed tools like the iOS Simulator or Playwright reach their XPC services",
+   "type": "array of strings, each a service name; a single trailing * matches a prefix, and \"*\" alone matches every service",
+   "default": "unset",
+   "example": [
+    "com.apple.CoreSimulator.*"
+   ]
+  },
+  {
+   "key": "sandbox.network.allowUnixSockets",
+   "topic": "sandbox",
+   "kind": "list",
+   "description": "List Unix socket paths sandboxed commands can use on macOS",
+   "type": "array of strings, each a socket path",
+   "default": "unset, so the macOS sandbox blocks every Unix socket",
+   "example": [
+    "~/.ssh/agent-socket"
+   ]
+  },
+  {
+   "key": "sandbox.network.deniedDomains",
+   "topic": "sandbox",
+   "kind": "list",
+   "description": "Block domains for sandboxed commands, even inside an allowed wildcard",
+   "type": "array of strings, each a domain, wildcard pattern, or IP literal, with an optional :port suffix",
+   "default": "unset",
+   "example": [
+    "sensitive.cloud.example.com"
+   ]
+  },
+  {
+   "key": "sandbox.network.httpProxyPort",
+   "topic": "sandbox",
+   "kind": "number",
+   "integer": true,
+   "description": "Route sandbox HTTP traffic through your own proxy",
+   "type": "number, a local TCP port",
+   "default": "unset, so Claude Code runs its own proxy",
+   "example": 8080
+  },
+  {
+   "key": "sandbox.network.socksProxyPort",
+   "topic": "sandbox",
+   "kind": "number",
+   "integer": true,
+   "description": "Route sandbox SOCKS traffic through your own proxy",
+   "type": "number, a local TCP port",
+   "default": "unset, so Claude Code runs its own proxy",
+   "example": 8081
+  },
+  {
+   "key": "sandbox.network.strictAllowlist",
+   "topic": "sandbox",
+   "kind": "bool",
+   "description": "Deny hosts outside the allowlist instead of prompting",
+   "type": "Boolean",
+   "default": "false",
+   "example": true
+  },
+  {
+   "key": "sandbox.network.tlsTerminate",
+   "topic": "sandbox",
+   "kind": "json",
+   "shapes": [
+    "object"
+   ],
+   "description": "Have the sandbox proxy terminate TLS so it can read HTTPS requests",
+   "type": "object with optional caCertPath and caKeyPath strings, each a file path",
+   "default": "unset, so the proxy doesn't terminate or inspect TLS",
+   "example": {}
+  },
+  {
+   "key": "sandbox.ripgrep",
+   "topic": "sandbox",
+   "kind": "json",
+   "shapes": [
+    "object"
+   ],
+   "description": "Use your own ripgrep binary inside the sandbox",
+   "type": "object with command, the path to the ripgrep binary, and optional args, an array of arguments to prepend",
+   "default": "unset, so the sandbox uses the same ripgrep binary as Claude Code. That is the bundled binary unless you set USE_BUILTIN_RIPGREP to 0",
+   "example": {
+    "command": "/usr/local/bin/rg"
+   }
+  },
+  {
+   "key": "showClearContextOnPlanAccept",
+   "topic": "interface",
+   "kind": "bool",
+   "description": "Show a \"clear context\" option on the plan accept screen",
+   "type": "Boolean",
+   "default": "false",
+   "example": true
+  },
+  {
+   "key": "showThinkingSummaries",
+   "topic": "model",
+   "kind": "bool",
+   "description": "See summaries of Claude's thinking instead of a collapsed stub",
+   "type": "Boolean",
+   "default": "false",
+   "example": true
+  },
+  {
+   "key": "showTurnDuration",
+   "topic": "interface",
+   "kind": "bool",
+   "description": "Hide the \"Cooked for\" duration after each response",
+   "type": "Boolean",
+   "default": "true",
+   "example": false
+  },
+  {
+   "key": "skillListingBudgetFraction",
+   "topic": "memory",
+   "kind": "number",
+   "integer": false,
+   "description": "Reserve more or less context for the skill listing",
+   "type": "number, a fraction greater than 0 and at most 1",
+   "default": "0.01, which reserves 1% of the context window",
+   "example": 0.02
+  },
+  {
+   "key": "skillListingMaxDescChars",
+   "topic": "memory",
+   "kind": "number",
+   "integer": true,
+   "description": "Cap each skill's description length in the skill listing",
+   "type": "number of characters, a positive integer",
+   "default": "1536",
+   "example": 2048
+  },
+  {
+   "key": "skillOverrides",
+   "topic": "plugins",
+   "kind": "json",
+   "shapes": [
+    "object"
+   ],
+   "description": "Hide or collapse a skill without editing its SKILL.md",
+   "type": "object mapping skill name to one of on, name-only, user-invocable-only, off",
+   "default": "unset, so every skill is \"on\"",
+   "example": {
+    "legacy-context": "name-only",
+    "deploy": "off"
+   }
+  },
+  {
+   "key": "skipAutoPermissionPrompt",
+   "topic": "permissions",
+   "kind": "bool",
+   "description": "Skip the one-time notice Claude Code shows when you first enter auto mode yourself rather than through the built-in default",
+   "type": "Boolean",
+   "default": "unset, so the notice appears once",
+   "example": true
+  },
+  {
+   "key": "skipDangerousModePermissionPrompt",
+   "topic": "permissions",
+   "kind": "bool",
+   "description": "Skip the confirmation dialog before bypassPermissions mode",
+   "type": "Boolean",
+   "default": "unset, so the dialog appears",
+   "example": true
+  },
+  {
+   "key": "skipWebFetchPreflight",
+   "topic": "privacy",
+   "kind": "bool",
+   "description": "Skip the WebFetch hostname check when Anthropic is unreachable",
+   "type": "Boolean",
+   "default": "unset, so the check runs before the first fetch to each hostname in a session",
+   "example": true
+  },
+  {
+   "key": "spellcheck",
+   "topic": "interface",
+   "kind": "json",
+   "shapes": [
+    "object"
+   ],
+   "description": "Underline misspelled words in the prompt input with a spell checker you install",
+   "type": "object with enabled (Boolean), checker (\"aspell\", \"hunspell\", \"ispell\", or \"auto\"), language (string, passed to the checker as its dictionary name), and color (string, a terminal color name, #rrggbb, rgb(r,g,b), ansi256(n), or ansi:<name>)",
+   "default": "unset, so spell checking is off; checker defaults to \"auto\", the first of the three found on PATH; language defaults to the checker's own dictionary; color defaults to the theme's error color",
+   "example": {
+    "enabled": true,
+    "language": "en_GB"
+   }
+  },
+  {
+   "key": "spinnerTipsEnabled",
+   "topic": "interface",
+   "kind": "bool",
+   "description": "Hide tips in the spinner while Claude works",
+   "type": "Boolean",
+   "default": "true",
+   "example": false
+  },
+  {
+   "key": "spinnerTipsOverride",
+   "topic": "interface",
+   "kind": "json",
+   "shapes": [
+    "object"
+   ],
+   "description": "Add your own tips to the spinner rotation, or replace the built-in tips",
+   "type": "object with tips, tipsFile, label, and excludeDefault fields, each optional",
+   "default": "unset, so Claude Code shows only the built-in tips",
+   "example": {
+    "label": "Acme tip",
+    "tips": [
+     "Run /review before opening a PR",
+     {
+      "id": "gateway-errors",
+      "text": "Seeing 5xx errors? Check the gateway status page first",
+      "cooldownSessions": 5,
+      "priority": 2
+     }
+    ]
+   }
+  },
+  {
+   "key": "spinnerVerbs",
+   "topic": "interface",
+   "kind": "json",
+   "shapes": [
+    "object"
+   ],
+   "description": "Add or replace the verbs shown while a turn runs",
+   "type": "object with a verbs array of strings and mode, one of append, replace",
+   "default": "unset, so Claude Code uses the built-in verbs",
+   "example": {
+    "mode": "append",
+    "verbs": [
+     "Pondering",
+     "Crafting"
+    ]
+   }
+  },
+  {
+   "key": "sshConfigs",
+   "topic": "remote",
+   "kind": "json",
+   "shapes": [
+    "array"
+   ],
+   "description": "Add SSH connections to the Desktop environment selector",
+   "type": "array of objects, each with required id, name, and sshHost and optional sshPort and sshIdentityFile",
+   "default": "unset",
+   "example": [
+    {
+     "id": "dev-vm",
+     "name": "Dev VM",
+     "sshHost": "user@dev.example.com"
+    }
+   ]
+  },
+  {
+   "key": "sshHostCommands",
+   "topic": "remote",
+   "kind": "json",
+   "shapes": [
+    "array"
+   ],
+   "description": "Add SSH connections whose host comes from a command to the Desktop environment selector",
+   "type": "array of objects, each with required id, name, and command and optional sshIdentityFile and startDirectory. Desktop doesn't read command as shell syntax, so pipes and variables don't work: write it as a program and its arguments.",
+   "default": "unset",
+   "example": [
+    {
+     "id": "devbox",
+     "name": "Dev box",
+     "command": "acme-dev create"
+    }
+   ]
+  },
+  {
+   "key": "statusLine",
+   "topic": "interface",
+   "kind": "json",
+   "shapes": [
+    "object"
+   ],
+   "description": "Run your own command to render a status line below the prompt",
+   "type": "object with type set to \"command\" and a command string, plus optional padding as a number of characters, refreshInterval as a number of seconds, minimum 1, and hideVimModeIndicator as a Boolean",
+   "default": "unset, so no status line",
+   "example": {
+    "type": "command",
+    "command": "jq -r '\"[\\(.model.display_name)] \\(.context_window.used_percentage // 0)% context\"'",
+    "padding": 2
+   }
+  },
+  {
+   "key": "subagentPromptCacheTtl",
+   "topic": "model",
+   "kind": "enum",
+   "values": [
+    "5m",
+    "1h"
+   ],
+   "description": "Choose the prompt cache lifetime for subagents and other requests outside the main conversation",
+   "type": "string, one of 5m, 1h",
+   "default": "unset, so each of these requests gets its default lifetime",
+   "example": "1h"
+  },
+  {
+   "key": "switchModelsOnFlag",
+   "topic": "model",
+   "kind": "bool",
+   "description": "Switch models automatically or pause when a safety classifier flags a request",
+   "type": "Boolean",
+   "default": "unset. Claude Code switches automatically, though it may ask first in an interactive session",
+   "example": false
+  },
+  {
+   "key": "syncClaudeAiPlugins",
+   "topic": "plugins",
+   "kind": "bool",
+   "description": "Stop loading the plugins enabled on your claude.ai account and stop downloading new ones",
+   "type": "Boolean",
+   "default": "unset, so sessions signed in with your claude.ai account sync your plugins",
+   "example": false
+  },
+  {
+   "key": "syncClaudeAiSkills",
+   "topic": "plugins",
+   "kind": "bool",
+   "description": "Stop loading the skills enabled on your claude.ai account and stop downloading new ones",
+   "type": "Boolean",
+   "default": "unset, so sessions signed in with your claude.ai account sync your skills",
+   "example": false
+  },
+  {
+   "key": "syntaxHighlightingDisabled",
+   "topic": "interface",
+   "kind": "bool",
+   "description": "Turn off syntax highlighting in diffs and code blocks",
+   "type": "Boolean",
+   "default": "false",
+   "example": true
+  },
+  {
+   "key": "taskOutputMaxChars",
+   "topic": "memory",
+   "kind": "json",
+   "description": "Removed in v2.1.277, together with the TaskOutput tool it sized",
+   "deprecated": true
+  },
+  {
+   "key": "teammateMode",
+   "topic": "agents",
+   "kind": "enum",
+   "values": [
+    "in-process",
+    "auto",
+    "tmux",
+    "iterm2"
+   ],
+   "description": "Choose how agent team teammates display",
+   "type": "string, one of in-process, auto, tmux, iterm2",
+   "default": "\"in-process\"",
+   "example": "auto"
+  },
+  {
+   "key": "terminalProgressBarEnabled",
+   "topic": "interface",
+   "kind": "bool",
+   "description": "Hide the terminal progress bar in terminals that support it",
+   "type": "Boolean",
+   "default": "true",
+   "example": false
+  },
+  {
+   "key": "terminalTitleFromRename",
+   "topic": "interface",
+   "kind": "bool",
+   "description": "Stop /rename and --name from changing the terminal tab title",
+   "type": "Boolean",
+   "default": "true",
+   "example": false
+  },
+  {
+   "key": "theme",
+   "topic": "interface",
+   "kind": "string",
+   "suggestions": [
+    "auto",
+    "dark",
+    "light",
+    "dark-daltonized",
+    "light-daltonized",
+    "dark-ansi",
+    "light-ansi"
+   ],
+   "description": "Pick the interface color theme, built-in or custom",
+   "type": "string, one of auto, dark, light, dark-daltonized, light-daltonized, dark-ansi, light-ansi, custom:<slug>",
+   "default": "\"dark\"",
+   "example": "light-daltonized"
+  },
+  {
+   "key": "timeFormat",
+   "topic": "interface",
+   "kind": "string",
+   "suggestions": [
+    "auto",
+    "12-hour",
+    "24-hour",
+    "24-hour-utc"
+   ],
+   "description": "Show the times in the interface on a 12-hour or 24-hour clock, in UTC, or with a strftime pattern",
+   "type": "string, one of auto, 12-hour, 24-hour, 24-hour-utc",
+   "default": "\"auto\"",
+   "example": "24-hour"
+  },
+  {
+   "key": "timeZone",
+   "topic": "interface",
+   "kind": "string",
+   "description": "Show the times in the interface in a time zone other than your system's",
+   "type": "string, an IANA time zone name. When Claude Code doesn't recognize the name, it uses your system time zone",
+   "default": "unset, so times show in your system time zone",
+   "example": "Europe/Dublin"
+  },
+  {
+   "key": "tui",
+   "topic": "interface",
+   "kind": "enum",
+   "values": [
+    "default",
+    "fullscreen"
+   ],
+   "description": "Choose the fullscreen or classic terminal renderer",
+   "type": "string, one of default, fullscreen",
+   "default": "unset, so Claude Code picks the renderer for you",
+   "example": "fullscreen"
+  },
+  {
+   "key": "ultracode",
+   "topic": "model",
+   "kind": "bool",
+   "description": "Have Claude plan a workflow for each substantive task without being asked",
+   "type": "Boolean",
+   "default": "unset, so ultracode is off",
+   "example": true
+  },
+  {
+   "key": "useAutoModeDuringPlan",
+   "topic": "permissions",
+   "kind": "bool",
+   "description": "Let the auto mode classifier review shell commands in plan mode; set false to get prompts instead",
+   "type": "Boolean",
+   "default": "true",
+   "example": false
+  },
+  {
+   "key": "verbose",
+   "topic": "interface",
+   "kind": "bool",
+   "description": "Show full tool output instead of truncated summaries; viewMode takes precedence when both are set",
+   "type": "Boolean",
+   "default": "false",
+   "example": true
+  },
+  {
+   "key": "viewMode",
+   "topic": "interface",
+   "kind": "enum",
+   "values": [
+    "default",
+    "verbose",
+    "focus"
+   ],
+   "description": "Start every session in default, verbose, or focus view",
+   "type": "string, one of default, verbose, focus",
+   "default": "unset, so the verbose setting and your last /focus choice apply",
+   "example": "focus"
+  },
+  {
+   "key": "vimInsertModeRemaps",
+   "topic": "interface",
+   "kind": "json",
+   "shapes": [
+    "object"
+   ],
+   "description": "Map a two-key INSERT-mode sequence such as jj to Escape",
+   "type": "object mapping a two-character sequence to \"<Esc>\"",
+   "default": "unset",
+   "example": {
+    "jj": "<Esc>"
+   }
+  },
+  {
+   "key": "voice",
+   "topic": "interface",
+   "kind": "json",
+   "shapes": [
+    "object"
+   ],
+   "description": "Turn on voice dictation and pick hold or tap mode",
+   "type": "object with enabled as a Boolean, autoSubmit as a Boolean that applies in hold mode only, and mode, one of hold, tap",
+   "default": "unset, so dictation is off; when enabled is true and mode is unset, Claude Code uses \"hold\"",
+   "example": {
+    "enabled": true,
+    "mode": "tap"
+   }
+  },
+  {
+   "key": "voiceEnabled",
+   "topic": "interface",
+   "kind": "bool",
+   "description": "Turn on voice dictation with the older single-key form",
+   "type": "Boolean",
+   "default": "unset",
+   "example": true
+  },
+  {
+   "key": "wheelScrollAccelerationEnabled",
+   "topic": "interface",
+   "kind": "bool",
+   "description": "Turn off mouse-wheel acceleration in fullscreen rendering",
+   "type": "Boolean",
+   "default": "true",
+   "example": false
+  },
+  {
+   "key": "workflowKeywordTriggerEnabled",
+   "topic": "hooks",
+   "kind": "bool",
+   "description": "Let the word ultracode in a prompt start a workflow; set false to type it without starting one",
+   "type": "Boolean",
+   "default": "true",
+   "example": false
+  },
+  {
+   "key": "workflowSizeGuideline",
+   "topic": "hooks",
+   "kind": "enum",
+   "values": [
+    "unrestricted",
+    "small",
+    "medium",
+    "large"
+   ],
+   "description": "Set the agent count Claude aims for in dynamic workflows",
+   "type": "string, one of unrestricted, small, medium, large",
+   "default": "\"medium\", or \"small\" when you're signed in on a Pro plan with Claude Code v2.1.271 or later",
+   "example": "small"
+  },
+  {
+   "key": "worktree",
+   "topic": "agents",
+   "kind": "object",
+   "shapes": [
+    "object"
+   ],
+   "description": "Configure how Claude Code creates git worktrees",
+   "type": "object with baseRef, symlinkDirectories, sparsePaths, and bgIsolation",
+   "default": "unset",
+   "example": {
+    "baseRef": "head",
+    "symlinkDirectories": [
+     "node_modules"
+    ]
+   }
+  },
+  {
+   "key": "worktree.baseRef",
+   "topic": "agents",
+   "kind": "enum",
+   "values": [
+    "fresh",
+    "head"
+   ],
+   "description": "Branch new worktrees from the remote default branch or your local HEAD",
+   "type": "string, one of fresh, head",
+   "default": "\"fresh\"",
+   "example": "head"
+  },
+  {
+   "key": "worktree.bgIsolation",
+   "topic": "agents",
+   "kind": "enum",
+   "values": [
+    "worktree",
+    "none"
+   ],
+   "description": "Let background sessions edit the working copy without a worktree",
+   "type": "string, one of worktree, none",
+   "default": "\"worktree\"",
+   "example": "none"
+  },
+  {
+   "key": "worktree.location",
+   "topic": "agents",
+   "kind": "string",
+   "description": "Choose where Desktop SSH sessions create their worktrees on a remote machine",
+   "type": "string, an absolute path or one that starts with ~/",
+   "default": "unset, so worktrees go inside the project",
+   "example": "~/worktrees"
+  },
+  {
+   "key": "worktree.sparsePaths",
+   "topic": "agents",
+   "kind": "list",
+   "description": "Check out only the directories you need in each worktree",
+   "type": "array of strings, directory paths relative to the repository root",
+   "default": "unset, so each worktree checks out the whole tree",
+   "example": [
+    ".claude",
+    "packages/my-app",
+    "shared/utils"
+   ]
+  },
+  {
+   "key": "worktree.symlinkDirectories",
+   "topic": "agents",
+   "kind": "list",
+   "description": "Symlink large directories into each worktree instead of duplicating them",
+   "type": "array of strings, directory paths relative to the repository root",
+   "default": "unset, so Claude Code symlinks no directories",
+   "example": [
+    "node_modules",
+    ".cache"
+   ]
+  }
+ ],
+ "env": [
+  {
+   "name": "ANTHROPIC_API_KEY",
+   "description": "API key for Anthropic API authentication"
+  },
+  {
+   "name": "ANTHROPIC_AUTH_TOKEN",
+   "description": "Custom Authorization header bearer token for API requests"
+  },
+  {
+   "name": "ANTHROPIC_AWS_API_KEY",
+   "description": "Workspace API key for Claude Platform on AWS; takes precedence over SigV4 authentication. See https://code.claude.com/docs/en/claude-platform-on-aws#1-configure-aws-credentials"
+  },
+  {
+   "name": "ANTHROPIC_AWS_BASE_URL",
+   "description": "Override the Claude Platform on AWS endpoint URL. Default is https://aws-external-anthropic.{region}.api.aws. See https://code.claude.com/docs/en/claude-platform-on-aws#route-through-a-corporate-proxy"
+  },
+  {
+   "name": "ANTHROPIC_AWS_WORKSPACE_ID",
+   "description": "Required workspace ID for Claude Platform on AWS; sent as the anthropic-workspace-id header on every request. See https://code.claude.com/docs/en/claude-platform-on-aws#2-configure-claude-code"
+  },
+  {
+   "name": "ANTHROPIC_BASE_URL",
+   "description": "Override API endpoint URL for proxy or gateway routing"
+  },
+  {
+   "name": "ANTHROPIC_BEDROCK_BASE_URL",
+   "description": "Override Amazon Bedrock endpoint URL"
+  },
+  {
+   "name": "ANTHROPIC_BEDROCK_MANTLE_BASE_URL",
+   "description": "Override Bedrock Mantle endpoint URL"
+  },
+  {
+   "name": "ANTHROPIC_BEDROCK_SERVICE_TIER",
+   "description": "Select Bedrock service tier; sent as X-Amzn-Bedrock-Service-Tier header. See https://code.claude.com/docs/en/amazon-bedrock#service-tiers"
+  },
+  {
+   "name": "ANTHROPIC_BETAS",
+   "description": "Comma-separated beta header values to include in API requests"
+  },
+  {
+   "name": "ANTHROPIC_CUSTOM_HEADERS",
+   "description": "Custom HTTP headers for API requests (newline-separated 'Name: Value' pairs)"
+  },
+  {
+   "name": "ANTHROPIC_CUSTOM_MODEL_OPTION",
+   "description": "Custom model ID to add as an entry in the model picker"
+  },
+  {
+   "name": "ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION",
+   "description": "Display description for the custom model in the model picker"
+  },
+  {
+   "name": "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME",
+   "description": "Display name for the custom model in the model picker"
+  },
+  {
+   "name": "ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES",
+   "description": "JSON object specifying capability flags for the custom model"
+  },
+  {
+   "name": "ANTHROPIC_DEFAULT_FABLE_MODEL",
+   "description": "Override the default Fable-class model ID. See https://code.claude.com/docs/en/model-config#environment-variables"
+  },
+  {
+   "name": "ANTHROPIC_DEFAULT_FABLE_MODEL_DESCRIPTION",
+   "description": "Display description shown for the Fable model in the model picker. See https://code.claude.com/docs/en/model-config#customize-pinned-model-display-and-capabilities"
+  },
+  {
+   "name": "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME",
+   "description": "Display name shown for the Fable model in the model picker. See https://code.claude.com/docs/en/model-config#customize-pinned-model-display-and-capabilities"
+  },
+  {
+   "name": "ANTHROPIC_DEFAULT_FABLE_MODEL_SUPPORTED_CAPABILITIES",
+   "description": "Comma-separated list of capabilities the pinned Fable model supports. See https://code.claude.com/docs/en/model-config#customize-pinned-model-display-and-capabilities"
+  },
+  {
+   "name": "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+   "description": "Override default Haiku model ID"
+  },
+  {
+   "name": "ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION",
+   "description": "Display description shown for the Haiku model in the model picker. See https://code.claude.com/docs/en/model-config#customize-pinned-model-display-and-capabilities"
+  },
+  {
+   "name": "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME",
+   "description": "Display name shown for the Haiku model in the model picker. See https://code.claude.com/docs/en/model-config#customize-pinned-model-display-and-capabilities"
+  },
+  {
+   "name": "ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES",
+   "description": "Comma-separated list of capabilities the pinned Haiku model supports. See https://code.claude.com/docs/en/model-config#customize-pinned-model-display-and-capabilities"
+  },
+  {
+   "name": "ANTHROPIC_DEFAULT_OPUS_MODEL",
+   "description": "Override default Opus model ID"
+  },
+  {
+   "name": "ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION",
+   "description": "Display description shown for the Opus model in the model picker. See https://code.claude.com/docs/en/model-config#customize-pinned-model-display-and-capabilities"
+  },
+  {
+   "name": "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME",
+   "description": "Display name shown for the Opus model in the model picker. See https://code.claude.com/docs/en/model-config#customize-pinned-model-display-and-capabilities"
+  },
+  {
+   "name": "ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES",
+   "description": "Comma-separated list of capabilities the pinned Opus model supports. See https://code.claude.com/docs/en/model-config#customize-pinned-model-display-and-capabilities"
+  },
+  {
+   "name": "ANTHROPIC_DEFAULT_SONNET_MODEL",
+   "description": "Override default Sonnet model ID"
+  },
+  {
+   "name": "ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION",
+   "description": "Display description shown for the Sonnet model in the model picker. See https://code.claude.com/docs/en/model-config#customize-pinned-model-display-and-capabilities"
+  },
+  {
+   "name": "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME",
+   "description": "Display name shown for the Sonnet model in the model picker. See https://code.claude.com/docs/en/model-config#customize-pinned-model-display-and-capabilities"
+  },
+  {
+   "name": "ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES",
+   "description": "Comma-separated list of capabilities the pinned Sonnet model supports. See https://code.claude.com/docs/en/model-config#customize-pinned-model-display-and-capabilities"
+  },
+  {
+   "name": "ANTHROPIC_FOUNDRY_API_KEY",
+   "description": "Microsoft Foundry authentication key"
+  },
+  {
+   "name": "ANTHROPIC_FOUNDRY_AUTH_TOKEN",
+   "description": "Bearer token for Microsoft Foundry authentication, such as a Microsoft Entra access token. Claude Code sends it as the Authorization: Bearer header. Takes precedence over ANTHROPIC_FOUNDRY_API_KEY and over the Azure default credential chain. Requires Claude Code v2.1.203 or later. See https://code.claude.com/docs/en/microsoft-foundry"
+  },
+  {
+   "name": "ANTHROPIC_FOUNDRY_BASE_URL",
+   "description": "Microsoft Foundry resource URL"
+  },
+  {
+   "name": "ANTHROPIC_FOUNDRY_RESOURCE",
+   "description": "Microsoft Foundry resource name"
+  },
+  {
+   "name": "ANTHROPIC_MODEL",
+   "description": "Model to use (e.g., 'claude-opus-4-1', 'claude-sonnet-4-5-20250514', 'opus', 'sonnet', 'haiku')"
+  },
+  {
+   "name": "ANTHROPIC_SMALL_FAST_MODEL",
+   "description": "DEPRECATED (prefer ANTHROPIC_DEFAULT_HAIKU_MODEL). Haiku-class model to use for background and low-complexity tasks (e.g., 'claude-3-5-haiku-latest')"
+  },
+  {
+   "name": "ANTHROPIC_SMALL_FAST_MODEL_AWS_REGION",
+   "description": "Override the AWS region for the Haiku-class model on Bedrock and Bedrock Mantle. Has no effect without ANTHROPIC_DEFAULT_HAIKU_MODEL (or the deprecated ANTHROPIC_SMALL_FAST_MODEL) set on Bedrock. See https://code.claude.com/docs/en/amazon-bedrock#3-configure-claude-code"
+  },
+  {
+   "name": "ANTHROPIC_VERTEX_BASE_URL",
+   "description": "Override Google Cloud's Agent Platform (formerly Vertex AI) endpoint URL. Use for custom endpoints or when routing through an LLM gateway"
+  },
+  {
+   "name": "ANTHROPIC_VERTEX_PROJECT_ID",
+   "description": "GCP project ID for Google Cloud's Agent Platform (formerly Vertex AI) requests. Overridden by GCLOUD_PROJECT, GOOGLE_CLOUD_PROJECT, or the project in your GOOGLE_APPLICATION_CREDENTIALS credential file"
+  },
+  {
+   "name": "ANTHROPIC_WORKSPACE_ID",
+   "description": "Workspace ID for workload identity federation. Scopes the minted token to a specific workspace when the federation rule covers more than one. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "API_FORCE_IDLE_TIMEOUT",
+   "description": "Override the 5-minute idle timeout for streaming responses (0 disables it). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "API_TIMEOUT_MS",
+   "description": "Timeout for API requests in milliseconds (default: 600000, or 10 minutes; maximum: 2147483647). Increase this when requests time out on slow networks or when routing through a proxy. Values above the maximum overflow the underlying timer and cause requests to fail immediately."
+  },
+  {
+   "name": "AWS_BEARER_TOKEN_BEDROCK",
+   "description": "Bearer token for Bedrock API authentication"
+  },
+  {
+   "name": "AWS_REGION",
+   "description": "AWS region for Amazon Bedrock and Claude Platform on AWS requests (e.g. us-east-1). See https://code.claude.com/docs/en/amazon-bedrock#3-configure-claude-code"
+  },
+  {
+   "name": "BASH_DEFAULT_TIMEOUT_MS",
+   "description": "Default bash command timeout in milliseconds (default: 120000)"
+  },
+  {
+   "name": "BASH_MAX_OUTPUT_LENGTH",
+   "description": "Maximum bash output characters before truncation"
+  },
+  {
+   "name": "BASH_MAX_TIMEOUT_MS",
+   "description": "Maximum bash command timeout in milliseconds (default: 600000)"
+  },
+  {
+   "name": "BETA_TRACING_ENDPOINT",
+   "description": "Endpoint that, together with ENABLE_BETA_TRACING_DETAILED=1, activates detailed beta tracing spans (e.g. claude_code.hook). See https://code.claude.com/docs/en/monitoring-usage#traces-beta"
+  },
+  {
+   "name": "CCR_FORCE_BUNDLE",
+   "description": "Force local repo bundling for --remote invocations"
+  },
+  {
+   "name": "CLAUDECODE",
+   "description": "Set to 1 in subprocesses Claude Code spawns (Bash and PowerShell tools, tmux sessions, hook commands, status line commands, stdio MCP server subprocesses). IDE extensions also set this in their integrated terminals. To distinguish a direct tool/hook subprocess from a stdio MCP server subprocess, use CLAUDE_CODE_CHILD_SESSION instead. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_AFK_COUNTDOWN_MS",
+   "description": "How many milliseconds before auto-continue the on-screen countdown appears on an unanswered AskUserQuestion dialog. Default 20000 (20 seconds). See CLAUDE_AFK_TIMEOUT_MS. Requires Claude Code v2.1.198 or later. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_AFK_TIMEOUT_MS",
+   "description": "How many milliseconds of idle time before an unanswered AskUserQuestion dialog auto-continues without you. Default 60000 (60 seconds). Requires Claude Code v2.1.198 or later. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS",
+   "description": "Disable built-in subagent types in Agent SDK"
+  },
+  {
+   "name": "CLAUDE_AGENT_SDK_MCP_NO_PREFIX",
+   "description": "Skip 'mcp__<server>__' prefix on MCP tool names in Agent SDK"
+  },
+  {
+   "name": "CLAUDE_ASYNC_AGENT_STALL_TIMEOUT_MS",
+   "description": "Stall timeout for background subagents in milliseconds (default 600000). The timer resets on each streaming progress event; if no progress arrives within the window the subagent is aborted and the task is marked failed, surfacing any partial result to the parent. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
+   "description": "Context capacity percentage threshold for auto-compaction (1-100)"
+  },
+  {
+   "name": "CLAUDE_AUTO_BACKGROUND_TASKS",
+   "description": "Force-enable automatic backgrounding of tasks"
+  },
+  {
+   "name": "CLAUDE_AX_SCREEN_READER",
+   "description": "Set to 1 to render screen-reader friendly output: flat text without decorative borders or animations. Set to 0 to force screen-reader mode off even when axScreenReader is true. The --ax-screen-reader flag takes precedence. Requires Claude Code v2.1.181 or later. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR",
+   "description": "Return to original project directory after each bash command"
+  },
+  {
+   "name": "CLAUDE_CLIENT_PRESENCE_FILE",
+   "description": "Path to a file whose existence marks the user as present; while it exists, mobile push notifications are skipped (v2.1.181+). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_ACCESSIBILITY",
+   "description": "Keep native cursor visible for screen magnifiers and assistive tools"
+  },
+  {
+   "name": "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD",
+   "description": "Load CLAUDE.md memory files from additional directories"
+  },
+  {
+   "name": "CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT",
+   "description": "Force a full-screen repaint on every frame in fullscreen mode. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_ALWAYS_ENABLE_EFFORT",
+   "description": "Send the effort parameter for all models, not just those with effort enabled by default. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_API_KEY_HELPER_TTL_MS",
+   "description": "Credential helper refresh interval in milliseconds"
+  },
+  {
+   "name": "CLAUDE_CODE_ARTIFACT_AUTO_OPEN",
+   "description": "Set to 0 to stop auto-opening the browser when a new artifact is created. See https://code.claude.com/docs/en/artifacts#create-an-artifact"
+  },
+  {
+   "name": "CLAUDE_CODE_ATTRIBUTION_HEADER",
+   "description": "Include attribution block in the system prompt"
+  },
+  {
+   "name": "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+   "description": "Context capacity for compaction calculations in tokens"
+  },
+  {
+   "name": "CLAUDE_CODE_AUTO_CONNECT_IDE",
+   "description": "Override automatic IDE connection behavior"
+  },
+  {
+   "name": "CLAUDE_CODE_AWS_CHAIN_RESOLVE_TIMEOUT_MS",
+   "description": "Time in milliseconds Claude Code waits for the AWS default credential provider chain to produce credentials before the request fails with \"AWS default-chain credential resolve timed out\" (default: 60000). Raise it when a step in your chain legitimately needs longer, such as a browser-based SSO sign-in with MFA through a wrapper like aws-vault. Applies wherever Claude Code signs with the default chain. Requires Claude Code v2.1.207 or later. See https://code.claude.com/docs/en/amazon-bedrock#credential-caching-and-resolution-timeout"
+  },
+  {
+   "name": "CLAUDE_CODE_BRIDGE_SESSION_ID",
+   "description": "Set automatically in Bash tool and hook command subprocesses while the session has an active Remote Control connection, and removed when the connection ends. The value is the session's ID in session_ form, the same identifier that appears in the session's claude.ai/code URL, so a script can link back to the session that ran it. Requires Claude Code v2.1.199 or later. See https://code.claude.com/docs/en/remote-control"
+  },
+  {
+   "name": "CLAUDE_CODE_CERT_STORE",
+   "description": "CA certificate sources (comma-separated: 'bundled', 'system')"
+  },
+  {
+   "name": "CLAUDE_CODE_CHILD_SESSION",
+   "description": "Set by Claude Code to 1 in nested subprocesses (Bash, PowerShell, Monitor, hook commands, status-line commands) to distinguish nested sessions from a top-level claude launched in IDE terminals (v2.1.172+). A nested interactive claude TUI started this way is excluded from --resume, --continue, up-arrow history, and the claude agents list; non-interactive claude -p sessions still persist (override with CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_CLIENT_CERT",
+   "description": "Client certificate file path for mutual TLS"
+  },
+  {
+   "name": "CLAUDE_CODE_CLIENT_KEY",
+   "description": "Client private key file path for mutual TLS"
+  },
+  {
+   "name": "CLAUDE_CODE_CLIENT_KEY_PASSPHRASE",
+   "description": "Passphrase for encrypted client private key"
+  },
+  {
+   "name": "CLAUDE_CODE_DEBUG_LOGS_DIR",
+   "description": "Override the debug log file path. Despite the name, this is a file path, not a directory."
+  },
+  {
+   "name": "CLAUDE_CODE_DEBUG_LOG_LEVEL",
+   "description": "Debug log verbosity level"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_1M_CONTEXT",
+   "description": "Disable 1M context window models"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING",
+   "description": "Disable adaptive reasoning"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_ADVISOR_TOOL",
+   "description": "Disable the server-side advisor tool. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_AGENT_VIEW",
+   "description": "Turn off background agents and agent view (claude agents, --bg, /background, and the on-demand supervisor). Equivalent to the disableAgentView setting. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN",
+   "description": "Disable alternate screen buffer rendering. When set to 1, keeps conversation in native scrollback instead of fullscreen renderer"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_ARTIFACT",
+   "description": "Disable the Artifact tool. Equivalent to setting disableArtifact. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_ATTACHMENTS",
+   "description": "Disable attachment processing"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+   "description": "Disable automatic memory feature"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS",
+   "description": "Disable all background task functionality"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_BEDROCK_CONTENT_TYPE_GUARD",
+   "description": "Set to 1 to skip the check that an Amazon Bedrock streaming response carries the application/vnd.amazon.eventstream content-type. Without this variable, a response with a different content-type fails with an error naming that content-type, which means a gateway or proxy is transforming the response. Set it only when the gateway rewrites the Content-Type header but passes the binary event-stream body through unmodified; if the body itself was transformed, requests fail with \"Truncated event message received\" instead. Requires Claude Code v2.1.208 or later. See https://code.claude.com/docs/en/amazon-bedrock#streaming-errors-behind-a-gateway-or-proxy"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_BG_EXIT_HANDOFF",
+   "description": "Set to 1 to stop a background session's running background shell commands, dynamic workflows, and (as of v2.1.198) background subagents when the supervisor stops, restarts, or updates that session's process, instead of handing them off to the session's next process. Affects only that handoff; CLAUDE_DISABLE_ADOPT turns off both. Requires Claude Code v2.1.196 or later. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP",
+   "description": "Disable automatic memory-pressure reaping of idle background shell commands (added v2.1.193)."
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_BUNDLED_SKILLS",
+   "description": "Disable the skills and workflows bundled with Claude Code (plugins and project .claude/skills are unaffected). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_CLAUDE_MDS",
+   "description": "Prevent loading CLAUDE.md memory files"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_CRON",
+   "description": "Disable scheduled/cron tasks"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS",
+   "description": "Strip anthropic-beta headers from API requests. See https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md#21123"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS",
+   "description": "Set to 1 to disable the built-in Explore and Plan subagents. Requires Claude Code v2.1.198 or later. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_FAST_MODE",
+   "description": "Disable fast mode toggle"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY",
+   "description": "Disable session quality feedback surveys"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING",
+   "description": "Disable file checkpointing for /rewind"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS",
+   "description": "Remove git commit and PR workflow instructions from the system prompt"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_LEGACY_MODEL_REMAP",
+   "description": "Prevent automatic remapping of legacy model names"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_MOUSE",
+   "description": "Disable mouse tracking in fullscreen mode. See https://code.claude.com/docs/en/fullscreen#keep-native-text-selection"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_MOUSE_CLICKS",
+   "description": "Disable mouse click/drag/hover in fullscreen mode while keeping wheel scroll (requires v2.1.195+). CLAUDE_CODE_DISABLE_MOUSE takes precedence when both variables are set. See https://code.claude.com/docs/en/fullscreen#keep-native-text-selection"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+   "description": "Disable auto-update checks, telemetry, and feedback in one setting"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK",
+   "description": "Disable fallback to non-streaming API mode"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_NOTIFICATION_PRESENCE_CHECK",
+   "description": "Set to 1 to send desktop notifications from the PushNotification tool even while focused on the terminal. Requires Claude Code v2.1.193 or later. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL",
+   "description": "Skip automatic installation of official marketplace plugins. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_POLICY_SKILLS",
+   "description": "Skip loading system-wide policy skills. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_TERMINAL_TITLE",
+   "description": "Disable terminal title updates"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_THINKING",
+   "description": "Force-disable extended thinking"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL",
+   "description": "Disable virtual scrolling in fullscreen mode"
+  },
+  {
+   "name": "CLAUDE_CODE_DISABLE_WORKFLOWS",
+   "description": "Set to 1 to disable workflows. Equivalent to the disableWorkflows setting. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_EFFORT_LEVEL",
+   "description": "Reasoning effort level"
+  },
+  {
+   "name": "CLAUDE_CODE_ENABLE_APPEND_SUBAGENT_PROMPT",
+   "description": "Set to 1 to enable appending extra text to the end of every subagent's system prompt. The --append-subagent-system-prompt flag supplies the appended text and sets this variable automatically, so you do not need to set it yourself. Requires Claude Code v2.1.205 or later. See https://code.claude.com/docs/en/sub-agents"
+  },
+  {
+   "name": "CLAUDE_CODE_ENABLE_AUTO_MODE",
+   "description": "Set to 1 to make auto mode available on Amazon Bedrock, Google Cloud Vertex AI, and Microsoft Foundry (requires v2.1.158+; no effect on the Anthropic API where auto mode is available by default). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_ENABLE_AWAY_SUMMARY",
+   "description": "Override session recap/away summary availability"
+  },
+  {
+   "name": "CLAUDE_CODE_ENABLE_BACKGROUND_PLUGIN_REFRESH",
+   "description": "Refresh plugins at turn boundaries. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_ENABLE_FEEDBACK_SURVEY_FOR_OTEL",
+   "description": "Enable feedback survey collection via OpenTelemetry for enterprises"
+  },
+  {
+   "name": "CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING",
+   "description": "Force fine-grained tool output streaming"
+  },
+  {
+   "name": "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
+   "description": "Enable model discovery from LLM gateway /v1/models endpoint when ANTHROPIC_BASE_URL points at an Anthropic-compatible gateway"
+  },
+  {
+   "name": "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION",
+   "description": "Enable prompt suggestions"
+  },
+  {
+   "name": "CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING",
+   "description": "Enable file checkpointing for a non-interactive CLI run, so claude -p --resume <session-id> --rewind-files <checkpoint-uuid> can rewind files. The Agent SDK sets this internally when enable_file_checkpointing (Python) or enableFileCheckpointing (TypeScript) is enabled; the bare CLI never sets it. Without it, a non-interactive rewind fails with \"File rewinding is not enabled\". See https://code.claude.com/docs/en/agent-sdk/file-checkpointing"
+  },
+  {
+   "name": "CLAUDE_CODE_ENABLE_TASKS",
+   "description": "Enable task tracking in non-interactive mode"
+  },
+  {
+   "name": "CLAUDE_CODE_ENABLE_TELEMETRY",
+   "description": "Set to 1 to enable telemetry collection. Required for all OpenTelemetry integration. See https://code.claude.com/docs/en/monitoring-usage#common-configuration-variables"
+  },
+  {
+   "name": "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA",
+   "description": "Enable the enhanced telemetry (tracing) beta. ENABLE_ENHANCED_TELEMETRY_BETA is also accepted. See https://code.claude.com/docs/en/monitoring-usage#traces-beta"
+  },
+  {
+   "name": "CLAUDE_CODE_EXIT_AFTER_STOP_DELAY",
+   "description": "Wait time in milliseconds before auto-exit after stop"
+  },
+  {
+   "name": "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
+   "description": "Enable experimental agent teams feature"
+  },
+  {
+   "name": "CLAUDE_CODE_EXTRA_BODY",
+   "description": "JSON object to merge into every API request body"
+  },
+  {
+   "name": "CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS",
+   "description": "Token limit for file read operations"
+  },
+  {
+   "name": "CLAUDE_CODE_FORCE_SESSION_PERSISTENCE",
+   "description": "Set to 1 to override the automatic exclusion of nested interactive claude TUI sessions from --resume, --continue, up-arrow history, and the claude agents list (requires v2.1.172+). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_FORCE_STRIKETHROUGH",
+   "description": "Set to 1 to force strikethrough rendering for ~~text~~ in Claude's responses when the terminal supports it but is not auto-detected, such as over SSH without TERM_PROGRAM forwarded. Without this, undetected terminals show the literal ~~ markers. Requires Claude Code v2.1.186 or later. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_FORCE_SYNC_OUTPUT",
+   "description": "Force synchronous output flushing. When set to 1, forces synchronized output on terminals that auto-detection misses (e.g., Emacs eat)"
+  },
+  {
+   "name": "CLAUDE_CODE_FORK_SUBAGENT",
+   "description": "Fork subagent processes in non-interactive sessions. See https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md#21120"
+  },
+  {
+   "name": "CLAUDE_CODE_FORWARD_SUBAGENT_TEXT",
+   "description": "Set to 1 to emit subagent text and thinking blocks in claude -p --output-format stream-json output, the same behavior as the --forward-subagent-text flag. Use the variable when a harness invokes claude and cannot pass the flag itself. Unlike the flag, which exits with an error outside non-interactive mode with stream-json output, the variable is ignored there so that nested invocations keep working when it is set process-wide. Requires Claude Code v2.1.211 or later. See https://code.claude.com/docs/en/sub-agents"
+  },
+  {
+   "name": "CLAUDE_CODE_GIT_BASH_PATH",
+   "description": "Path to Git Bash executable (Windows only)"
+  },
+  {
+   "name": "CLAUDE_CODE_GLOB_HIDDEN",
+   "description": "Include dotfiles/hidden files in Glob results"
+  },
+  {
+   "name": "CLAUDE_CODE_GLOB_NO_IGNORE",
+   "description": "Don't respect .gitignore rules in Glob results"
+  },
+  {
+   "name": "CLAUDE_CODE_GLOB_TIMEOUT_SECONDS",
+   "description": "Glob tool timeout in seconds (default: 20-60)"
+  },
+  {
+   "name": "CLAUDE_CODE_HIDE_CWD",
+   "description": "Hide the working directory in the startup logo. See https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md#21126"
+  },
+  {
+   "name": "CLAUDE_CODE_IDE_HOST_OVERRIDE",
+   "description": "Override IDE connection address"
+  },
+  {
+   "name": "CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL",
+   "description": "Skip automatic IDE extension installation"
+  },
+  {
+   "name": "CLAUDE_CODE_IDE_SKIP_VALID_CHECK",
+   "description": "Skip IDE lockfile validation"
+  },
+  {
+   "name": "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
+   "description": "How many subagents can be running in one session before the Agent tool refuses to spawn another (default: 20). Accepts a positive whole number in plain digits; anything else is ignored, so the variable can adjust the cap but cannot disable it. Requires Claude Code v2.1.217 or later. See https://code.claude.com/docs/en/sub-agents#concurrent-subagent-limit"
+  },
+  {
+   "name": "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
+   "description": "Override context window size in tokens"
+  },
+  {
+   "name": "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+   "description": "Maximum output tokens per API request"
+  },
+  {
+   "name": "CLAUDE_CODE_MAX_RETRIES",
+   "description": "Maximum API request retry attempts (default: 10)"
+  },
+  {
+   "name": "CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION",
+   "description": "Cap on the number of subagents one session can spawn with the Agent tool (default: 200). When Claude reaches the cap, spawning another subagent fails with an error telling Claude to finish the remaining work directly. Accepts a positive whole number in plain digits with no upper bound; this variable does not take the scientific notation or digit-separator spellings. Anything else is ignored and the default applies, so the cap can be raised but not turned off. Requires Claude Code v2.1.212 or later. See https://code.claude.com/docs/en/sub-agents#session-subagent-limit"
+  },
+  {
+   "name": "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
+   "description": "Number of subagent layers allowed below the main conversation (default: 1). At the default, subagents cannot spawn their own subagents; set 2 or higher to allow it. Accepts a positive whole number in plain digits; anything else is ignored, so the limit can be raised but not turned off. Requires Claude Code v2.1.217 or later. See https://code.claude.com/docs/en/sub-agents#let-subagents-spawn-their-own-subagents"
+  },
+  {
+   "name": "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY",
+   "description": "Maximum parallel tool executions (default: 10)"
+  },
+  {
+   "name": "CLAUDE_CODE_MAX_TURNS",
+   "description": "Cap the number of agentic turns when no explicit limit is passed. Equivalent to --max-turns, which takes precedence. A non-positive integer is rejected at startup. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION",
+   "description": "Cap on the total number of WebSearch calls one session can make (default: 200). When Claude reaches the cap, further WebSearch calls return a notice telling it to continue with the information it already gathered. Accepts a positive whole number with no upper bound. Anything else is ignored and the default applies, so the cap can be raised but not turned off. Requires Claude Code v2.1.212 or later. See https://code.claude.com/docs/en/tools-reference#websearch-tool-behavior"
+  },
+  {
+   "name": "CLAUDE_CODE_MCP_ALLOWLIST_ENV",
+   "description": "Isolate MCP server environments to allowlisted variables"
+  },
+  {
+   "name": "CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS",
+   "description": "Elapsed time in milliseconds before a still-running MCP tool call moves to a background task (default: 120000, or 2 minutes). Set to 0 to turn automatic backgrounding off. Requires Claude Code v2.1.212 or later. See https://code.claude.com/docs/en/mcp#automatic-backgrounding-of-long-tool-calls"
+  },
+  {
+   "name": "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT",
+   "description": "Idle timeout in milliseconds for MCP tool calls. When a stdio, HTTP, SSE, WebSocket, or claude.ai connector MCP server sends no response and no progress notification for this long, the tool call aborts with an error instead of waiting for the overall MCP_TOOL_TIMEOUT. Overrides the per-transport defaults of 300000 (5 minutes) for network servers and 1800000 (30 minutes) for stdio servers. Set to 0 to disable the idle check. Values below 1000 are raised to one second, and the value is capped at the effective MCP_TOOL_TIMEOUT. A per-server timeout in .mcp.json of at least 1000 raises that server's idle window to at least the timeout value. Does not apply to IDE servers or SDK in-process servers. Requires Claude Code v2.1.187 or later. Before v2.1.203, stdio servers were exempt from the idle timeout. See https://code.claude.com/docs/en/mcp"
+  },
+  {
+   "name": "CLAUDE_CODE_NATIVE_CURSOR",
+   "description": "Set to 1 to show the terminal's own cursor at the input caret instead of a drawn block. The cursor respects the terminal's blink, shape, and focus settings. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_NEW_INIT",
+   "description": "Use the interactive /init setup flow"
+  },
+  {
+   "name": "CLAUDE_CODE_NO_FLICKER",
+   "description": "Enable fullscreen rendering mode to reduce flicker"
+  },
+  {
+   "name": "CLAUDE_CODE_OAUTH_REFRESH_TOKEN",
+   "description": "OAuth refresh token"
+  },
+  {
+   "name": "CLAUDE_CODE_OAUTH_SCOPES",
+   "description": "OAuth scopes (space-separated)"
+  },
+  {
+   "name": "CLAUDE_CODE_OAUTH_TOKEN",
+   "description": "OAuth access token"
+  },
+  {
+   "name": "CLAUDE_CODE_OTEL_CONTENT_MAX_LENGTH",
+   "description": "Maximum length of content-bearing OpenTelemetry attributes (model responses, tool content, system prompts, raw API bodies), truncation marker included, in UTF-16 code units (default: 61440, i.e. 60 KB). Raise it only if your telemetry backend accepts attribute values larger than 64 KB, or lower it to cut telemetry volume. Requires Claude Code v2.1.214 or later. See https://code.claude.com/docs/en/monitoring-usage#common-configuration-variables"
+  },
+  {
+   "name": "CLAUDE_CODE_OTEL_DIAG_STDERR",
+   "description": "Set to 1 to write OpenTelemetry exporter diagnostic errors to stderr (otherwise shown only with --debug). Requires v2.1.179+. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_OTEL_FLUSH_TIMEOUT_MS",
+   "description": "OpenTelemetry span flush timeout in milliseconds (default: 5000)"
+  },
+  {
+   "name": "CLAUDE_CODE_OTEL_HEADERS_HELPER_DEBOUNCE_MS",
+   "description": "OpenTelemetry header helper refresh interval in milliseconds"
+  },
+  {
+   "name": "CLAUDE_CODE_OTEL_SHUTDOWN_TIMEOUT_MS",
+   "description": "OpenTelemetry shutdown timeout in milliseconds (default: 2000)"
+  },
+  {
+   "name": "CLAUDE_CODE_PACKAGE_MANAGER_AUTO_UPDATE",
+   "description": "Enable automatic package manager updates. When set, Claude Code runs the upgrade command in background on Homebrew/WinGet and prompts to restart"
+  },
+  {
+   "name": "CLAUDE_CODE_PERFORCE_MODE",
+   "description": "Enable Perforce write protection mode"
+  },
+  {
+   "name": "CLAUDE_CODE_PLUGIN_CACHE_DIR",
+   "description": "Override the plugins root directory. Despite the name, this sets the parent directory, not the cache itself: marketplaces and the plugin cache live in subdirectories under this path. Defaults to ~/.claude/plugins. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_PLUGIN_GIT_TIMEOUT_MS",
+   "description": "Plugin marketplace git operations timeout in milliseconds (default: 120000). See https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md#2151"
+  },
+  {
+   "name": "CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE",
+   "description": "Keep plugin cache on update failure"
+  },
+  {
+   "name": "CLAUDE_CODE_PLUGIN_PREFER_HTTPS",
+   "description": "Set to 1 to clone GitHub owner/repo plugin sources over HTTPS instead of SSH. Useful in CI runners, containers, or environments without a configured SSH key for github.com. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_PLUGIN_SEED_DIR",
+   "description": "Path(s) to pre-populated plugin directories. See https://code.claude.com/docs/en/plugin-marketplaces#pre-populate-plugins-for-containers"
+  },
+  {
+   "name": "CLAUDE_CODE_POWERSHELL_RESPECT_EXECUTION_POLICY",
+   "description": "Set to 1 to stop Claude Code from passing -ExecutionPolicy Bypass when spawning PowerShell for tool calls, hooks, and status line commands. By default Claude Code bypasses execution policy so .ps1 scripts work on default-Restricted Windows installs. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS",
+   "description": "Cap, in milliseconds, on how long claude -p waits for background subagents at exit (default 10 minutes; set to 0 to wait without limit, added v2.1.182). See https://code.claude.com/docs/en/headless#background-tasks-at-exit"
+  },
+  {
+   "name": "CLAUDE_CODE_PROCESS_WRAPPER",
+   "description": "Launch the processes Claude Code starts from its own binary, such as the background service that hosts agent view sessions, through a corporate launcher given as an argv prefix like /opt/corp/launcher. Set it in the env block of user or managed settings, not as a shell export, so the detached background service inherits it; project and local settings cannot set it. Equivalent to the processWrapper setting, which requires Claude Code v2.1.210 or later; this variable takes precedence when both are set. The VS Code extension configures its own launcher separately through its claudeProcessWrapper setting. Ignored on Windows. Requires Claude Code v2.1.208 or later. See https://code.claude.com/docs/en/corporate-launcher"
+  },
+  {
+   "name": "CLAUDE_CODE_PROPAGATE_TRACEPARENT",
+   "description": "Propagate the W3C traceparent header on API requests when using a custom ANTHROPIC_BASE_URL. See https://code.claude.com/docs/en/monitoring-usage#traces-beta"
+  },
+  {
+   "name": "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST",
+   "description": "Indicate that the host application manages provider routing"
+  },
+  {
+   "name": "CLAUDE_CODE_PROXY_RESOLVES_HOSTS",
+   "description": "Allow proxy to handle DNS resolution"
+  },
+  {
+   "name": "CLAUDE_CODE_REMOTE",
+   "description": "Indicates a remote web environment session"
+  },
+  {
+   "name": "CLAUDE_CODE_REMOTE_SESSION_ID",
+   "description": "Cloud session identifier for remote sessions"
+  },
+  {
+   "name": "CLAUDE_CODE_RESUME_INTERRUPTED_TURN",
+   "description": "Automatically resume from a mid-turn interruption"
+  },
+  {
+   "name": "CLAUDE_CODE_RESUME_INTERRUPTED_TURN_MAX_AGE_MS",
+   "description": "Maximum age in milliseconds of the last transcript message for a session that ended mid-turn to continue automatically on resume. When the last message is older than this bound, Claude Code skips both the CLAUDE_CODE_RESUME_INTERRUPTED_TURN automatic resume and the injected CLAUDE_CODE_RESUME_PROMPT continuation message, and the session starts idle so you continue explicitly. Unset or 0 means no bound; a negative or non-numeric value applies a one-hour bound. Spawn scripts for long-running agents can set this so a restart against an old transcript does not re-run a stale prompt. Claude Code sets a one-hour bound itself when it restarts a crashed agent view session that inherited its conversation from an interactive session. Requires Claude Code v2.1.211 or later. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_RESUME_PROMPT",
+   "description": "Override the continuation message injected when resuming a session that ended mid-turn (default \"Continue from where you left off.\"). An empty string uses the default. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_RETRY_WATCHDOG",
+   "description": "Set to 1 for unattended sessions (eval harnesses, CI, remote workers) to retry 429/529 capacity errors indefinitely, backing off up to 5 minutes, instead of failing after CLAUDE_CODE_MAX_RETRIES. Requires v2.1.186+. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_SAFE_MODE",
+   "description": "Set to 1 to start in safe mode: CLAUDE.md, skills, plugins, hooks, MCP servers, custom commands and agents, output styles, workflows, custom themes, custom keybindings, status line and file-suggestion commands, LSP servers, and auto-memory do not load, for troubleshooting a broken configuration. Managed settings policy still applies. Equivalent to passing --safe-mode; directly spawned child processes inherit the variable. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_SCRIPT_CAPS",
+   "description": "Script invocation limits (JSON object)"
+  },
+  {
+   "name": "CLAUDE_CODE_SCROLL_SPEED",
+   "description": "Set the mouse wheel scroll multiplier in fullscreen rendering. Accepts any positive value up to 20, including fractional values below 1 such as 0.5 to slow accelerated trackpad and wheel scrolling in terminals that already amplify wheel events. Set to 3 to match vim if your terminal sends one wheel event per notch without amplification. See https://code.claude.com/docs/en/fullscreen#mouse-wheel-scrolling"
+  },
+  {
+   "name": "CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS",
+   "description": "Override the time budget in milliseconds for SessionEnd hooks (default 1500, raised up to 60000 by the highest configured per-hook timeout). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_SESSION_ID",
+   "description": "Set automatically to the current session ID in Bash/PowerShell tool subprocesses, hook command subprocesses, and stdio MCP server subprocesses. Read-only. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_SHELL",
+   "description": "Override automatic shell detection (e.g., '/bin/zsh', '/bin/bash')"
+  },
+  {
+   "name": "CLAUDE_CODE_SHELL_PREFIX",
+   "description": "Command prefix wrapper for shell commands"
+  },
+  {
+   "name": "CLAUDE_CODE_SIMPLE",
+   "description": "Minimal mode with core tools only"
+  },
+  {
+   "name": "CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT",
+   "description": "Use a shortened system prompt"
+  },
+  {
+   "name": "CLAUDE_CODE_SKIP_ANTHROPIC_AWS_AUTH",
+   "description": "Skip client-side SigV4 authentication for Claude Platform on AWS; use when a proxy or gateway adds authentication before forwarding. See https://code.claude.com/docs/en/claude-platform-on-aws#route-through-a-corporate-proxy"
+  },
+  {
+   "name": "CLAUDE_CODE_SKIP_AWS_CRED_CACHE",
+   "description": "Set to 1 to turn off the in-process cache of credentials resolved from the AWS default credential provider chain, so Claude Code resolves the chain on every API request. With the cache off, an SSO-backed profile requests credentials from IAM Identity Center on every request. Requires Claude Code v2.1.207 or later. See https://code.claude.com/docs/en/amazon-bedrock#credential-caching-and-resolution-timeout"
+  },
+  {
+   "name": "CLAUDE_CODE_SKIP_BEDROCK_AUTH",
+   "description": "Skip AWS authentication for Bedrock"
+  },
+  {
+   "name": "CLAUDE_CODE_SKIP_FAST_MODE_NETWORK_ERRORS",
+   "description": "Set to 1 to treat a failed fast mode availability check as available, for networks that block the check's direct request to api.anthropic.com. Claude Code still honors a \"disabled by your organization\" response. See https://code.claude.com/docs/en/fast-mode#use-fast-mode-behind-proxies-and-llm-gateways"
+  },
+  {
+   "name": "CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK",
+   "description": "Set to 1 to skip the client-side fast mode availability check, for proxies that intercept the check's request rather than refuse it. The API still rejects fast mode requests when your organization has fast mode disabled. See https://code.claude.com/docs/en/fast-mode#use-fast-mode-behind-proxies-and-llm-gateways"
+  },
+  {
+   "name": "CLAUDE_CODE_SKIP_FOUNDRY_AUTH",
+   "description": "Skip Azure authentication for Foundry"
+  },
+  {
+   "name": "CLAUDE_CODE_SKIP_MANTLE_AUTH",
+   "description": "Skip AWS authentication for Bedrock Mantle (for example, when using an LLM gateway). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_SKIP_PROMPT_HISTORY",
+   "description": "Disable transcript writes entirely. See https://code.claude.com/docs/en/settings#environment-variables"
+  },
+  {
+   "name": "CLAUDE_CODE_SKIP_VERTEX_AUTH",
+   "description": "Skip Google authentication for Google Cloud's Agent Platform"
+  },
+  {
+   "name": "CLAUDE_CODE_STOP_HOOK_BLOCK_CAP",
+   "description": "Override the default maximum consecutive Stop hook blocks (default: 8) before the turn ends with a warning. Raise this when a stop hook legitimately needs more than 8 iterations to converge. See https://code.claude.com/docs/en/hooks-guide"
+  },
+  {
+   "name": "CLAUDE_CODE_SUBAGENT_MODEL",
+   "description": "Override model used by subagents"
+  },
+  {
+   "name": "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
+   "description": "Strip credentials from subprocess environments"
+  },
+  {
+   "name": "CLAUDE_CODE_SYNC_PLUGIN_INSTALL",
+   "description": "Wait synchronously for plugin installation"
+  },
+  {
+   "name": "CLAUDE_CODE_SYNC_PLUGIN_INSTALL_TIMEOUT_MS",
+   "description": "Timeout in milliseconds for synchronous plugin installation"
+  },
+  {
+   "name": "CLAUDE_CODE_SYNC_SKILLS",
+   "description": "Set to 1 to download enabled claude.ai skills into ~/.claude/skills/ before the first query and resync every 10 minutes (non-interactive -p mode only; requires claude.ai auth). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_SYNC_SKILLS_INSTALL_TIMEOUT_MS",
+   "description": "Timeout in milliseconds for a mid-session skills resync when CLAUDE_CODE_SYNC_SKILLS is set (default 30000). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_SYNC_SKILLS_WAIT_TIMEOUT_MS",
+   "description": "Timeout in milliseconds for the first query to wait on the initial skills sync when CLAUDE_CODE_SYNC_SKILLS is set (default 5000). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_SYNTAX_HIGHLIGHT",
+   "description": "Enable syntax highlighting in diffs"
+  },
+  {
+   "name": "CLAUDE_CODE_TASK_LIST_ID",
+   "description": "Shared task list identifier for team collaboration"
+  },
+  {
+   "name": "CLAUDE_CODE_TEAM_NAME",
+   "description": "Agent team membership name"
+  },
+  {
+   "name": "CLAUDE_CODE_TEAM_TEARDOWN_PARK_TIMEOUT_MS",
+   "description": "Override, in milliseconds, how long a non-interactive session waits at exit for its agent team to finish tearing down. Accepts 1000 to 60000; an out-of-range value is ignored and the default of 10000 applies. Requires Claude Code v2.1.206 or later. See https://code.claude.com/docs/en/agent-teams"
+  },
+  {
+   "name": "CLAUDE_CODE_TMPDIR",
+   "description": "Override temp directory path"
+  },
+  {
+   "name": "CLAUDE_CODE_TMUX_TRUECOLOR",
+   "description": "Allow 24-bit truecolor rendering in tmux"
+  },
+  {
+   "name": "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+   "description": "Enable Claude Platform on AWS as the API provider. Bedrock and Foundry take precedence if also set. See https://code.claude.com/docs/en/claude-platform-on-aws#2-configure-claude-code"
+  },
+  {
+   "name": "CLAUDE_CODE_USE_BEDROCK",
+   "description": "Enable Amazon Bedrock as the API provider. See https://code.claude.com/docs/en/amazon-bedrock#3-configure-claude-code"
+  },
+  {
+   "name": "CLAUDE_CODE_USE_FOUNDRY",
+   "description": "Enable Microsoft Foundry as the API provider. See https://code.claude.com/docs/en/microsoft-foundry#3-configure-claude-code"
+  },
+  {
+   "name": "CLAUDE_CODE_USE_MANTLE",
+   "description": "Enable the Mantle endpoint (native Anthropic API shape on Bedrock). See https://code.claude.com/docs/en/amazon-bedrock#enable-mantle"
+  },
+  {
+   "name": "CLAUDE_CODE_USE_NATIVE_FILE_SEARCH",
+   "description": "Set to 1 to discover custom commands, subagents, and output styles using Node.js file APIs instead of ripgrep (for environments where the bundled ripgrep is unavailable). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_CODE_USE_POWERSHELL_TOOL",
+   "description": "Enable PowerShell as default shell for interactive commands (Windows)"
+  },
+  {
+   "name": "CLAUDE_CODE_USE_VERTEX",
+   "description": "Enable Google Cloud's Agent Platform as the API provider. See https://code.claude.com/docs/en/google-vertex-ai#4-configure-claude-code"
+  },
+  {
+   "name": "CLAUDE_CONFIG_DIR",
+   "description": "Override the configuration directory (default ~/.claude) where settings, credentials, session history, and plugins are stored. Useful for running multiple accounts side by side. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_DISABLE_ADOPT",
+   "description": "Set to 1 to stop in-flight background work instead of carrying it over when you background a session by pressing ← or with /background. Claude Code asks you to confirm before backgrounding, then stops the tasks that would otherwise carry over. Requires Claude Code v2.1.195 or later. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_EFFORT",
+   "description": "Set automatically in Bash tool subprocesses and hook commands to the active effort level for the turn (low, medium, high, xhigh, or max; ultracode reports as xhigh). Read-only. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_ENABLE_BYTE_WATCHDOG",
+   "description": "Set to 1 to force-enable, or 0 to force-disable, the byte-level streaming idle watchdog that aborts a connection when no bytes arrive within the configured timeout. Enabled by default on direct Anthropic API and Claude Platform on AWS connections. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_ENABLE_BYTE_WATCHDOG_BEDROCK",
+   "description": "Set to 1 to enable the byte-level streaming idle watchdog on Amazon Bedrock eventstream responses (off by default). Configure the timeout with CLAUDE_STREAM_IDLE_TIMEOUT_MS. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_ENABLE_STREAM_WATCHDOG",
+   "description": "Set to 1 to force-enable, or 0 to force-disable, the event-level streaming idle watchdog. When unset, the watchdog is on by default for all providers (as of v2.1.196; before that the unset default was server-controlled on the direct Anthropic API and off on other providers). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLAUDE_ENV_FILE",
+   "description": "File path for persisting environment variables across Bash commands"
+  },
+  {
+   "name": "CLAUDE_PID",
+   "description": "Claude Code sets this to its own process ID in the subprocesses it spawns: Bash and PowerShell tool commands and hook commands. On Linux, the Bash tool's shell integration uses it to refuse a pkill pattern that would match the Claude Code process itself. Read it from your own scripts to identify or signal the parent Claude Code process deliberately. Requires Claude Code v2.1.214 or later. See https://code.claude.com/docs/en/errors#pkill-pattern-matches-the-claude-code-process"
+  },
+  {
+   "name": "CLAUDE_PROJECT_DIR",
+   "description": "Project root directory path (also provided to hooks)"
+  },
+  {
+   "name": "CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX",
+   "description": "Prefix for auto-generated Remote Control session names when no explicit name is set. Defaults to the machine hostname, producing names like myhost-graceful-unicorn. See https://code.claude.com/docs/en/remote-control#start-a-remote-control-session"
+  },
+  {
+   "name": "CLAUDE_STREAM_IDLE_TIMEOUT_MS",
+   "description": "Timeout in milliseconds before the streaming idle watchdog closes a stalled connection. When set explicitly the minimum is 300000 (5 minutes); lower values are clamped. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "CLOUD_ML_REGION",
+   "description": "Google Cloud's Agent Platform region: global, a multi-region location (eu, us), or a specific region (e.g. us-east5). See https://code.claude.com/docs/en/google-vertex-ai#region-configuration"
+  },
+  {
+   "name": "DEBUG",
+   "description": "Set to a truthy value (1, true, yes, or on) to enable debug mode, equivalent to --debug. Logs are written to ~/.claude/debug/<session-id>.txt. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "DISABLE_AUTOUPDATER",
+   "description": "Set to 1 to disable automatic background updates. Manual claude update still works; use DISABLE_UPDATES to block both. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "DISABLE_AUTO_COMPACT",
+   "description": "Set to 1 to disable automatic compaction when approaching the context limit. The manual /compact command remains available. Equivalent to autoCompactEnabled: false. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "DISABLE_COMPACT",
+   "description": "Set to 1 to disable all compaction: both automatic compaction and the manual /compact command. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "DISABLE_COST_WARNINGS",
+   "description": "Set to 1 to disable cost warning messages. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "DISABLE_DOCTOR_COMMAND",
+   "description": "Set to 1 to hide the /doctor command (useful for managed deployments). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "DISABLE_ERROR_REPORTING",
+   "description": "Disable Sentry error reporting"
+  },
+  {
+   "name": "DISABLE_EXTRA_USAGE_COMMAND",
+   "description": "Set to 1 to hide the /usage-credits command for purchasing additional usage beyond rate limits. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "DISABLE_FEEDBACK_COMMAND",
+   "description": "Set to 1 to disable the /feedback command. The older name DISABLE_BUG_COMMAND is also accepted. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "DISABLE_GROWTHBOOK",
+   "description": "Set to 1 to disable GrowthBook feature-flag fetching and use code defaults for every flag. Telemetry stays on unless DISABLE_TELEMETRY is also set. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "DISABLE_INSTALLATION_CHECKS",
+   "description": "Set to 1 to disable installation warnings (use only when manually managing the installation location). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "DISABLE_INSTALL_GITHUB_APP_COMMAND",
+   "description": "Set to 1 to hide the /install-github-app command (already hidden on Bedrock, Vertex, or Foundry). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "DISABLE_INTERLEAVED_THINKING",
+   "description": "Set to 1 to prevent sending the interleaved-thinking beta header (useful when a gateway or provider does not support interleaved thinking). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "DISABLE_LOGIN_COMMAND",
+   "description": "Set to 1 to hide the /login command (useful when authentication is handled externally via API keys or apiKeyHelper). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "DISABLE_LOGOUT_COMMAND",
+   "description": "Set to 1 to hide the /logout command. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "DISABLE_PROMPT_CACHING",
+   "description": "Disable prompt caching for all models. See https://code.claude.com/docs/en/prompt-caching#disable-prompt-caching"
+  },
+  {
+   "name": "DISABLE_PROMPT_CACHING_FABLE",
+   "description": "Disable prompt caching for Fable models only. See https://code.claude.com/docs/en/prompt-caching#disable-prompt-caching"
+  },
+  {
+   "name": "DISABLE_PROMPT_CACHING_HAIKU",
+   "description": "Disable prompt caching for Haiku models only. See https://code.claude.com/docs/en/prompt-caching#disable-prompt-caching"
+  },
+  {
+   "name": "DISABLE_PROMPT_CACHING_OPUS",
+   "description": "Disable prompt caching for Opus models only. See https://code.claude.com/docs/en/prompt-caching#disable-prompt-caching"
+  },
+  {
+   "name": "DISABLE_PROMPT_CACHING_SONNET",
+   "description": "Disable prompt caching for Sonnet models only. See https://code.claude.com/docs/en/prompt-caching#disable-prompt-caching"
+  },
+  {
+   "name": "DISABLE_TELEMETRY",
+   "description": "Set to 1 to opt out of telemetry. Also disables feature-flag fetching (same effect as DISABLE_GROWTHBOOK). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "DISABLE_UPDATES",
+   "description": "Block all update paths including manual updates"
+  },
+  {
+   "name": "DISABLE_UPGRADE_COMMAND",
+   "description": "Set to 1 to hide the /upgrade command. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "DO_NOT_TRACK",
+   "description": "Set to 1 to opt out of telemetry (cross-tool convention; equivalent to DISABLE_TELEMETRY). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "ENABLE_BETA_TRACING_DETAILED",
+   "description": "Emit detailed spans including hook execution when the tracing beta is enabled. See https://code.claude.com/docs/en/monitoring-usage#traces-beta"
+  },
+  {
+   "name": "ENABLE_CLAUDEAI_MCP_SERVERS",
+   "description": "Opt in/out of claude.ai MCP servers. See https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md#2163"
+  },
+  {
+   "name": "ENABLE_PROMPT_CACHING_1H",
+   "description": "Request a 1-hour prompt cache TTL instead of the 5-minute default (billed at a higher rate). See https://code.claude.com/docs/en/prompt-caching#cache-lifetime"
+  },
+  {
+   "name": "ENABLE_TOOL_SEARCH",
+   "description": "Control MCP tool search: \"true\" always defers and sends the beta header (requests fail on Google Cloud's Agent Platform models earlier than Sonnet 4.5/Opus 4.5 or on proxies that do not support tool_reference); \"auto\" loads tools upfront if they fit within 10% of context; \"auto:N\" sets a custom threshold percentage (e.g. auto:5); \"false\" loads all tools upfront. Also applies when ANTHROPIC_BASE_URL points to a non-first-party host. See https://code.claude.com/docs/en/google-vertex-ai#4-configure-claude-code"
+  },
+  {
+   "name": "FALLBACK_FOR_ALL_PRIMARY_MODELS",
+   "description": "Set to any non-empty value to make all models (not only Opus) stop retrying with a repeated-overload error when no fallback model is configured. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "FORCE_AUTOUPDATE_PLUGINS",
+   "description": "Keep plugin auto-updates enabled even when DISABLE_AUTOUPDATER=1 is set. See https://code.claude.com/docs/en/discover-plugins#configure-auto-updates"
+  },
+  {
+   "name": "FORCE_HYPERLINK",
+   "description": "Set to 1 to enable clickable OSC 8 hyperlinks when your terminal supports them but is not auto-detected, or 0 to disable them"
+  },
+  {
+   "name": "FORCE_PROMPT_CACHING_5M",
+   "description": "Force a 5-minute cache TTL regardless of authentication method; overrides ENABLE_PROMPT_CACHING_1H or a managed-settings TTL. See https://code.claude.com/docs/en/prompt-caching#override-the-ttl"
+  },
+  {
+   "name": "GOOGLE_APPLICATION_CREDENTIALS",
+   "description": "Path to a GCP credential configuration file (service account key or workload identity federation config) used for Google Cloud's Agent Platform authentication. See https://code.claude.com/docs/en/google-vertex-ai#3-configure-gcp-credentials"
+  },
+  {
+   "name": "HTTPS_PROXY",
+   "description": "HTTPS proxy URL (recommended over HTTP_PROXY)"
+  },
+  {
+   "name": "HTTP_PROXY",
+   "description": "HTTP proxy URL"
+  },
+  {
+   "name": "IS_DEMO",
+   "description": "Set to 1 to enable demo mode: hides email and organization name from the header and /status output and skips onboarding. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "MAX_MCP_OUTPUT_TOKENS",
+   "description": "Maximum number of tokens allowed in MCP tool output before truncation (default: 25000). Claude Code displays a warning above 10000 tokens. For tools that declare anthropic/maxResultSizeChars, that character limit replaces this token limit for text content, but image content from those tools is still subject to this limit. See https://code.claude.com/docs/en/mcp"
+  },
+  {
+   "name": "MAX_STRUCTURED_OUTPUT_RETRIES",
+   "description": "Number of times to retry when the model's response fails validation against --json-schema in non-interactive (-p) mode (default 5). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "MAX_THINKING_TOKENS",
+   "description": "Override the extended thinking token budget; set to 0 to disable thinking on the Anthropic API. On adaptive reasoning models (Opus 4.7+, Opus 4.8, Fable 5) a nonzero budget is ignored unless CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING is set. See https://code.claude.com/docs/en/model-config#extended-thinking"
+  },
+  {
+   "name": "MCP_CLIENT_SECRET",
+   "description": "OAuth client secret for MCP servers that require pre-configured credentials (avoids the interactive prompt when adding a server with --client-secret). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "MCP_CONNECTION_NONBLOCKING",
+   "description": "Controls whether startup waits for MCP servers to connect before the first query. Non-blocking by default since v2.1.142; set to 0 to restore the blocking 5-second connection wait. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "MCP_CONNECT_TIMEOUT_MS",
+   "description": "How long blocking MCP startup waits in milliseconds for the connection batch before snapshotting the tool list (default 5000). Applies when MCP_CONNECTION_NONBLOCKING=0 or for alwaysLoad servers. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "MCP_OAUTH_CALLBACK_PORT",
+   "description": "Fixed port for the OAuth redirect callback, as an alternative to --callback-port when adding an MCP server with pre-configured credentials. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "MCP_REMOTE_SERVER_CONNECTION_BATCH_SIZE",
+   "description": "Maximum number of remote MCP servers (HTTP/SSE) to connect in parallel during startup (default 20). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "MCP_SERVER_CONNECTION_BATCH_SIZE",
+   "description": "Maximum number of local MCP servers (stdio) to connect in parallel during startup (default 3). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "MCP_TIMEOUT",
+   "description": "Timeout in milliseconds for MCP server startup (default 30000). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "MCP_TOOL_TIMEOUT",
+   "description": "Timeout in milliseconds for MCP tool execution (default: 100000000, about 28 hours). A per-server timeout field in .mcp.json overrides this for that server. Values below 1000 are floored to one second. See https://code.claude.com/docs/en/mcp"
+  },
+  {
+   "name": "NODE_EXTRA_CA_CERTS",
+   "description": "Path to custom CA certificate file"
+  },
+  {
+   "name": "NO_PROXY",
+   "description": "Domains to bypass proxy (space or comma-separated, or '*' for all)"
+  },
+  {
+   "name": "OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT",
+   "description": "Standard OpenTelemetry SDK limit on attribute value length. Claude Code caps content-bearing telemetry attributes at the smaller of this and CLAUDE_CODE_OTEL_CONTENT_MAX_LENGTH, so the truncation marker stays within the SDK limit. Claude Code reads the OTEL_LOGRECORD_ATTRIBUTE_VALUE_LENGTH_LIMIT and OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT variants the same way, and the smallest set value applies to all signals. Requires Claude Code v2.1.214 or later. See https://code.claude.com/docs/en/monitoring-usage#common-configuration-variables"
+  },
+  {
+   "name": "OTEL_EXPORTER_OTLP_CERTIFICATE",
+   "description": "Path to the CA certificate for gRPC OTLP mTLS. See https://code.claude.com/docs/en/monitoring-usage#mtls-authentication"
+  },
+  {
+   "name": "OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE",
+   "description": "Path to the client certificate for gRPC OTLP mTLS. See https://code.claude.com/docs/en/monitoring-usage#mtls-authentication"
+  },
+  {
+   "name": "OTEL_EXPORTER_OTLP_CLIENT_KEY",
+   "description": "Path to the client private key for gRPC OTLP mTLS. See https://code.claude.com/docs/en/monitoring-usage#mtls-authentication"
+  },
+  {
+   "name": "OTEL_EXPORTER_OTLP_ENDPOINT",
+   "description": "OTLP exporter endpoint for all signals (e.g. http://localhost:4317). See https://code.claude.com/docs/en/monitoring-usage#common-configuration-variables"
+  },
+  {
+   "name": "OTEL_EXPORTER_OTLP_HEADERS",
+   "description": "Headers sent with OTLP exporter requests (e.g. Authorization=Bearer token). See https://code.claude.com/docs/en/monitoring-usage#common-configuration-variables"
+  },
+  {
+   "name": "OTEL_EXPORTER_OTLP_LOGS_CLIENT_CERTIFICATE",
+   "description": "Path to the client certificate for gRPC OTLP mTLS, overriding OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE for logs only. See https://code.claude.com/docs/en/monitoring-usage#mtls-authentication"
+  },
+  {
+   "name": "OTEL_EXPORTER_OTLP_LOGS_CLIENT_KEY",
+   "description": "Path to the client private key for gRPC OTLP mTLS, overriding OTEL_EXPORTER_OTLP_CLIENT_KEY for logs only. See https://code.claude.com/docs/en/monitoring-usage#mtls-authentication"
+  },
+  {
+   "name": "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+   "description": "OTLP exporter endpoint override for logs. See https://code.claude.com/docs/en/monitoring-usage#common-configuration-variables"
+  },
+  {
+   "name": "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
+   "description": "OTLP protocol override for logs: grpc, http/json, or http/protobuf. See https://code.claude.com/docs/en/monitoring-usage#common-configuration-variables"
+  },
+  {
+   "name": "OTEL_EXPORTER_OTLP_METRICS_CLIENT_CERTIFICATE",
+   "description": "Path to the client certificate for gRPC OTLP mTLS, overriding OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE for metrics only. See https://code.claude.com/docs/en/monitoring-usage#mtls-authentication"
+  },
+  {
+   "name": "OTEL_EXPORTER_OTLP_METRICS_CLIENT_KEY",
+   "description": "Path to the client private key for gRPC OTLP mTLS, overriding OTEL_EXPORTER_OTLP_CLIENT_KEY for metrics only. See https://code.claude.com/docs/en/monitoring-usage#mtls-authentication"
+  },
+  {
+   "name": "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+   "description": "OTLP exporter endpoint override for metrics. See https://code.claude.com/docs/en/monitoring-usage#common-configuration-variables"
+  },
+  {
+   "name": "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
+   "description": "OTLP protocol override for metrics: grpc, http/json, or http/protobuf. See https://code.claude.com/docs/en/monitoring-usage#common-configuration-variables"
+  },
+  {
+   "name": "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
+   "description": "Metrics temporality preference: delta (default) or cumulative. See https://code.claude.com/docs/en/monitoring-usage#common-configuration-variables"
+  },
+  {
+   "name": "OTEL_EXPORTER_OTLP_PROTOCOL",
+   "description": "OTLP exporter protocol for all signals: grpc, http/json, or http/protobuf. See https://code.claude.com/docs/en/monitoring-usage#common-configuration-variables"
+  },
+  {
+   "name": "OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE",
+   "description": "Path to the client certificate for gRPC OTLP mTLS, overriding OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE for traces only. See https://code.claude.com/docs/en/monitoring-usage#mtls-authentication"
+  },
+  {
+   "name": "OTEL_EXPORTER_OTLP_TRACES_CLIENT_KEY",
+   "description": "Path to the client private key for gRPC OTLP mTLS, overriding OTEL_EXPORTER_OTLP_CLIENT_KEY for traces only. See https://code.claude.com/docs/en/monitoring-usage#mtls-authentication"
+  },
+  {
+   "name": "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+   "description": "OTLP exporter endpoint override for traces. See https://code.claude.com/docs/en/monitoring-usage#traces-beta"
+  },
+  {
+   "name": "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+   "description": "OTLP protocol override for traces: grpc, http/json, or http/protobuf. See https://code.claude.com/docs/en/monitoring-usage#traces-beta"
+  },
+  {
+   "name": "OTEL_LOGS_EXPORTER",
+   "description": "OpenTelemetry logs exporter(s) as a comma-separated list. Valid values: otlp, console, none. See https://code.claude.com/docs/en/monitoring-usage#common-configuration-variables"
+  },
+  {
+   "name": "OTEL_LOGS_EXPORT_INTERVAL",
+   "description": "Logs export interval in milliseconds (default 5000). See https://code.claude.com/docs/en/monitoring-usage#common-configuration-variables"
+  },
+  {
+   "name": "OTEL_LOG_ASSISTANT_RESPONSES",
+   "description": "Include assistant response text in the claude_code.assistant_response OpenTelemetry log event (added v2.1.193). When unset, follows OTEL_LOG_USER_PROMPTS; set to 0 to keep prompts-only."
+  },
+  {
+   "name": "OTEL_LOG_RAW_API_BODIES",
+   "description": "Log raw API request/response bodies. Set to 1, or to file:<dir> to write them to a directory. See https://code.claude.com/docs/en/monitoring-usage#common-configuration-variables"
+  },
+  {
+   "name": "OTEL_LOG_TOOL_CONTENT",
+   "description": "Include full tool input/output content in OpenTelemetry log events (requires tracing; disabled by default). See https://code.claude.com/docs/en/monitoring-usage#common-configuration-variables"
+  },
+  {
+   "name": "OTEL_LOG_TOOL_DETAILS",
+   "description": "Include tool name and parameters in OpenTelemetry log events (disabled by default). See https://code.claude.com/docs/en/monitoring-usage#common-configuration-variables"
+  },
+  {
+   "name": "OTEL_LOG_USER_PROMPTS",
+   "description": "Include user prompt text in OpenTelemetry log events (disabled by default). See https://code.claude.com/docs/en/monitoring-usage#common-configuration-variables"
+  },
+  {
+   "name": "OTEL_METRICS_EXPORTER",
+   "description": "OpenTelemetry metrics exporter(s) as a comma-separated list. Valid values: otlp, prometheus, console, none. See https://code.claude.com/docs/en/monitoring-usage#common-configuration-variables"
+  },
+  {
+   "name": "OTEL_METRICS_INCLUDE_ACCOUNT_UUID",
+   "description": "Include the user.account_uuid and user.account_id attributes on metrics (default true). See https://code.claude.com/docs/en/monitoring-usage#metrics-cardinality-control"
+  },
+  {
+   "name": "OTEL_METRICS_INCLUDE_ENTRYPOINT",
+   "description": "Include the app.entrypoint attribute on metrics (default false). See https://code.claude.com/docs/en/monitoring-usage#metrics-cardinality-control"
+  },
+  {
+   "name": "OTEL_METRICS_INCLUDE_RESOURCE_ATTRIBUTES",
+   "description": "Include configured OTEL_RESOURCE_ATTRIBUTES on metric data points (default true). See https://code.claude.com/docs/en/monitoring-usage#metrics-cardinality-control"
+  },
+  {
+   "name": "OTEL_METRICS_INCLUDE_SESSION_ID",
+   "description": "Include the session.id attribute on metrics (default true). See https://code.claude.com/docs/en/monitoring-usage#metrics-cardinality-control"
+  },
+  {
+   "name": "OTEL_METRICS_INCLUDE_VERSION",
+   "description": "Include the app.version attribute on metrics (default false). See https://code.claude.com/docs/en/monitoring-usage#metrics-cardinality-control"
+  },
+  {
+   "name": "OTEL_METRIC_EXPORT_INTERVAL",
+   "description": "Metrics export interval in milliseconds (default 60000). See https://code.claude.com/docs/en/monitoring-usage#common-configuration-variables"
+  },
+  {
+   "name": "OTEL_RESOURCE_ATTRIBUTES",
+   "description": "Comma-separated key=value resource attributes attached to all telemetry. See https://code.claude.com/docs/en/monitoring-usage#multi-team-organization-support"
+  },
+  {
+   "name": "OTEL_TRACES_EXPORTER",
+   "description": "OpenTelemetry traces exporter(s) as a comma-separated list. Valid values: otlp, console, none. See https://code.claude.com/docs/en/monitoring-usage#traces-beta"
+  },
+  {
+   "name": "OTEL_TRACES_EXPORT_INTERVAL",
+   "description": "Traces export interval in milliseconds (default 5000). See https://code.claude.com/docs/en/monitoring-usage#traces-beta"
+  },
+  {
+   "name": "SLASH_COMMAND_TOOL_CHAR_BUDGET",
+   "description": "Override the character budget for skill metadata shown to the Skill tool. The budget scales dynamically at 1% of the context window, with a fallback of 8000 characters. Legacy name kept for backwards compatibility. See https://code.claude.com/docs/en/skills#control-who-invokes-a-skill"
+  },
+  {
+   "name": "TASK_MAX_OUTPUT_LENGTH",
+   "description": "Maximum number of characters in subagent output before truncation (default 32000, maximum 160000). When truncated, the full output is saved to disk and the path is included in the response. See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "USE_BUILTIN_RIPGREP",
+   "description": "Use the bundled ripgrep binary instead of system ripgrep"
+  },
+  {
+   "name": "VERTEX_REGION_CLAUDE_3_5_HAIKU",
+   "description": "Override the Vertex AI region for Claude 3.5 Haiku (used when CLOUD_ML_REGION=global). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "VERTEX_REGION_CLAUDE_3_5_SONNET",
+   "description": "Override the Vertex AI region for Claude 3.5 Sonnet (used when CLOUD_ML_REGION=global). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "VERTEX_REGION_CLAUDE_3_7_SONNET",
+   "description": "Override the Vertex AI region for Claude 3.7 Sonnet (used when CLOUD_ML_REGION=global). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "VERTEX_REGION_CLAUDE_4_0_OPUS",
+   "description": "Override the Vertex AI region for Claude 4.0 Opus (used when CLOUD_ML_REGION=global). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "VERTEX_REGION_CLAUDE_4_0_SONNET",
+   "description": "Override the Vertex AI region for Claude 4.0 Sonnet (used when CLOUD_ML_REGION=global). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "VERTEX_REGION_CLAUDE_4_1_OPUS",
+   "description": "Override the Vertex AI region for Claude 4.1 Opus (used when CLOUD_ML_REGION=global). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "VERTEX_REGION_CLAUDE_4_5_OPUS",
+   "description": "Override the Vertex AI region for Claude Opus 4.5 (used when CLOUD_ML_REGION=global). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "VERTEX_REGION_CLAUDE_4_5_SONNET",
+   "description": "Override the Vertex AI region for Claude Sonnet 4.5 (used when CLOUD_ML_REGION=global). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "VERTEX_REGION_CLAUDE_4_6_OPUS",
+   "description": "Override the Vertex AI region for Claude Opus 4.6 (used when CLOUD_ML_REGION=global). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "VERTEX_REGION_CLAUDE_4_6_SONNET",
+   "description": "Override the Vertex AI region for Claude Sonnet 4.6 (used when CLOUD_ML_REGION=global). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "VERTEX_REGION_CLAUDE_4_7_OPUS",
+   "description": "Override the Vertex AI region for Claude Opus 4.7 (used when CLOUD_ML_REGION=global). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "VERTEX_REGION_CLAUDE_4_8_OPUS",
+   "description": "Override the Vertex AI region for Claude Opus 4.8 (used when CLOUD_ML_REGION=global). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "VERTEX_REGION_CLAUDE_5_OPUS",
+   "description": "Override region for Claude Opus 5 when using Google Cloud's Agent Platform (formerly Vertex AI). Added in v2.1.219. See https://code.claude.com/docs/en/google-vertex-ai"
+  },
+  {
+   "name": "VERTEX_REGION_CLAUDE_5_SONNET",
+   "description": "Override region for Claude Sonnet 5 when using Google Cloud's Agent Platform (formerly Vertex AI). Added in v2.1.197. See https://code.claude.com/docs/en/google-vertex-ai"
+  },
+  {
+   "name": "VERTEX_REGION_CLAUDE_FABLE_5",
+   "description": "Override the Vertex AI region for Claude Fable 5 (used when CLOUD_ML_REGION=global). See https://code.claude.com/docs/en/env-vars"
+  },
+  {
+   "name": "VERTEX_REGION_CLAUDE_HAIKU_4_5",
+   "description": "Override the Vertex AI region for Claude Haiku 4.5 (used when CLOUD_ML_REGION=global). See https://code.claude.com/docs/en/env-vars"
+  }
+ ]
+}
