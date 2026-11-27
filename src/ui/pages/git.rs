@@ -664,9 +664,13 @@ impl GitPage {
 
     fn stage_all(&mut self, cx: &mut Context<Self>) {
         let scope = self.scope.clone();
-        self.op(t("git.stage_all"), false, false, cx, move |root| async move {
-            git::stage_everything(&root, &scope).await
-        });
+        self.op(
+            t("git.stage_all"),
+            false,
+            false,
+            cx,
+            move |root| async move { git::stage_everything(&root, &scope).await },
+        );
     }
 
     fn unstage(&mut self, paths: Vec<String>, cx: &mut Context<Self>) {
@@ -677,9 +681,13 @@ impl GitPage {
 
     fn unstage_all(&mut self, cx: &mut Context<Self>) {
         let scope = self.scope.clone();
-        self.op(t("git.unstage_all"), false, false, cx, move |root| async move {
-            git::unstage_everything(&root, &scope).await
-        });
+        self.op(
+            t("git.unstage_all"),
+            false,
+            false,
+            cx,
+            move |root| async move { git::unstage_everything(&root, &scope).await },
+        );
     }
 
     fn ignore(&mut self, rule: String, cx: &mut Context<Self>) {
@@ -776,9 +784,13 @@ impl GitPage {
             if answer == Some(true) {
                 page.update(cx, |this, cx| {
                     let scope = this.scope.clone();
-                    this.op(t("git.discard_all"), false, false, cx, move |root| async move {
-                        git::discard_everything(&root, &scope).await
-                    });
+                    this.op(
+                        t("git.discard_all"),
+                        false,
+                        false,
+                        cx,
+                        move |root| async move { git::discard_everything(&root, &scope).await },
+                    );
                 });
             }
         });

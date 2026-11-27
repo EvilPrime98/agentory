@@ -6,7 +6,10 @@ use crate::state::prefs::{MAX_FONT, MIN_FONT, Map, Prefs, to_map};
 #[derive(Debug)]
 pub enum Kind {
     Bool,
-    Float { min: f32, max: f32 },
+    Float {
+        min: f32,
+        max: f32,
+    },
     Text,
     /// A key combo such as `ctrl-alt-m`; see `crate::shortcuts`.
     Shortcut,

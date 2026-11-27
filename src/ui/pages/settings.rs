@@ -712,22 +712,23 @@ impl SettingsPage {
                     } else {
                         pretty_combo(&combo)
                     });
-                let control = div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .child(field)
-                    .when(changed, |d| {
-                        d.child(small_button(
-                            SharedString::from(format!("shortcut-reset-{key}")),
-                            t("settings.shortcuts.reset"),
-                            cx.listener(move |this, _, _, cx| {
-                                this.capture = None;
-                                this.apply_shortcut(key, default, cx);
-                                cx.notify();
-                            }),
-                        ))
-                    });
+                let control =
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .child(field)
+                        .when(changed, |d| {
+                            d.child(small_button(
+                                SharedString::from(format!("shortcut-reset-{key}")),
+                                t("settings.shortcuts.reset"),
+                                cx.listener(move |this, _, _, cx| {
+                                    this.capture = None;
+                                    this.apply_shortcut(key, default, cx);
+                                    cx.notify();
+                                }),
+                            ))
+                        });
                 setting_row(t(a.label_key), None, control)
             })
             .collect();

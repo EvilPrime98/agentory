@@ -763,21 +763,15 @@ impl Render for AppRoot {
                         (!prefs.sidebar_collapsed
                             || self.sidebar_anim.filter(PanelAnim::running).is_some())
                         .then(|| {
-                            deferred(
-                                div().relative().flex_none().w(px(0.0)).h_full().child(
-                                    div()
-                                        .absolute()
-                                        .top_0()
-                                        .bottom_0()
-                                        .left_0()
-                                        .w(px(12.0))
-                                        .bg(linear_gradient(
-                                            90.0,
-                                            linear_color_stop(theme::sidebar_shadow(), 0.0),
-                                            linear_color_stop(gpui::transparent_black(), 1.0),
-                                        )),
+                            deferred(div().relative().flex_none().w(px(0.0)).h_full().child(
+                                div().absolute().top_0().bottom_0().left_0().w(px(12.0)).bg(
+                                    linear_gradient(
+                                        90.0,
+                                        linear_color_stop(theme::sidebar_shadow(), 0.0),
+                                        linear_color_stop(gpui::transparent_black(), 1.0),
+                                    ),
                                 ),
-                            )
+                            ))
                         }),
                     )
                     .child(content),
