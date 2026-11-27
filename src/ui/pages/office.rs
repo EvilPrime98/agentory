@@ -22,7 +22,7 @@ use crate::backend::spm::store::parse_skill;
 use crate::backend::tasks::{self, Plan, Task, TaskStatus};
 use crate::backend::transcripts::{ChatItem, Tail};
 use crate::i18n::{t, t_args};
-use crate::model::{Project, SessionStatus, new_id};
+use crate::model::{Folder, Project, SessionStatus, new_id};
 use crate::route::{Navigate, Route};
 use crate::runtime;
 use crate::state::dispatch::{FOREMAN_PREFIX, foreman_prompt};
@@ -91,10 +91,12 @@ fn skill_prompt(name: &str, description: &str, hint: &str) -> String {
     )
 }
 
-/// The markdown files a foreman can plan from: those in the project root and in `docs/`.
-fn markdown_files(root: &Path) -> Vec<PathBuf> {
+fn foreman_plan_files(root: &Path, docs: &str) -> Vec<PathBuf> {
     let mut found = Vec::new();
-    for dir in [root.to_path_buf(), root.join("docs")] {
+    for dir in [
+        root.to_path_buf(),
+        root.join(PathBuf::from_iter(docs.split('/'))),
+    ] {
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;
         };
@@ -833,7 +835,8 @@ impl OfficePage {
         let Some(root) = self.stores.projects.read(cx).path_of(&self.project_id) else {
             return;
         };
-        self.docs = markdown_files(&root);
+        let docs = self.stores.folder(&self.project_id, Folder::Docs, cx);
+        self.docs = foreman_plan_files(&root, &docs);
         self.issues = None;
         cx.spawn(async move |this, cx| {
             let issues = runtime::run(async move {

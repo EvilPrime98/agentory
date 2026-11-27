@@ -42,6 +42,24 @@ agentory settings get notifications
 agentory settings reset claude-command
 ```
 
+### Per-project folders
+
+`docs-dir` and `issues-dir` can also be overridden for one project: add `--project PATH` to `get`, `set` or `reset`. `PATH` must be inside a project already added in the app. No other key accepts the flag, and neither does `list`.
+
+| Command | Description |
+| --- | --- |
+| `agentory settings get KEY --project PATH` | Print the folder in effect: the project's override, else the app-wide value. |
+| `agentory settings set KEY VALUE --project PATH` | Save an override. An empty value removes it. |
+| `agentory settings reset KEY --project PATH` | Remove the override. |
+
+```sh
+agentory settings set docs-dir documentation
+agentory settings set docs-dir notes/specs --project .
+agentory settings reset docs-dir --project .
+```
+
+A folder is a relative path inside the project. Absolute paths, `..` and the project root (`.`) are rejected. Changing a folder never moves or creates files.
+
 ### Settings
 
 | Key | Type | Allowed | Default | Description |
@@ -51,7 +69,9 @@ agentory settings reset claude-command
 | `claude-command` | string | any | empty | Program started in each agent session. Empty means `claude` from `PATH`. |
 | `ask-worktree` | bool | `true`, `false` | `true` | Offer a git worktree when starting a session in a git project. |
 | `send-doc-prompt` | bool | `true`, `false` | `false` | Submit the prompt, not just type it, when running a doc from the Docs page. |
-| `doc-prompt` | string | any | `@docs/{doc} -> implement` | Prompt for running a doc from the Docs page. `{doc}` is the doc path under `docs/`. Empty restores the default. |
+| `doc-prompt` | string | any | `@{doc} -> implement` | Prompt for running a doc from the Docs page. `{doc}` is the doc path relative to the project. Empty restores the default. |
+| `docs-dir` | folder | relative path | `docs` | Docs folder, relative to the project root. Empty restores the default. |
+| `issues-dir` | folder | relative path | `issues` | Local issues folder (used without a GitHub remote), relative to the project root. Empty restores the default. |
 | `notifications` | bool | `true`, `false` | `true` | Toast when a session needs input or finishes. |
 | `fullscreen-agents` | bool | `true`, `false` | `true` | Launch agent sessions in Claude Code's fullscreen renderer. |
 | `terminal-font-size` | number | `9` to `28` | `13` | Terminal font size in points. |

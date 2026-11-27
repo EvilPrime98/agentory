@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use gpui::Context;
 
 use crate::backend::scripts::{self, DetectedCommand};
-use crate::model::{CustomCommand, GLOBAL_ID, Project, new_id};
+use crate::model::{CustomCommand, Folder, GLOBAL_ID, Project, new_id};
 use crate::state::prefs;
 
 #[derive(Default)]
@@ -287,6 +287,25 @@ impl ProjectsStore {
             self.revision += 1;
             cx.notify();
         }
+    }
+
+    pub fn set_folder(
+        &mut self,
+        id: &str,
+        folder: Folder,
+        value: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = self.items.iter_mut().find(|p| p.id == id) else {
+            return;
+        };
+        if project.is_global() || project.folder_override(folder) == value.as_deref() {
+            return;
+        }
+        *project.folder_override_mut(folder) = value;
+        self.save();
+        self.revision += 1;
+        cx.notify();
     }
 
     pub fn set_default_shell(&mut self, id: &str, shell: Option<String>, cx: &mut Context<Self>) {

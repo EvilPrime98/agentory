@@ -7,6 +7,7 @@ use gpui::{
 };
 
 use crate::i18n::{LanguagePref, t, t_args};
+use crate::model::{Folder, normalize_folder};
 use crate::platform::logging;
 use crate::route::{GoBack, Navigate};
 use crate::shortcuts::{self, ShortcutError};
@@ -76,7 +77,25 @@ pub struct SettingsPage {
     /// The shortcut row waiting for a key combo.
     capture: Option<Capture>,
     shortcut_error: Option<String>,
+    scope: Option<String>,
+    project_search: Entity<TextInput>,
+    project_list_scrollbar: Scrollbar,
+    project_detail_scrollbar: Scrollbar,
+    folder_fields: Vec<FolderField>,
     _subs: Vec<Subscription>,
+}
+
+struct FolderField {
+    folder: Folder,
+    input: Entity<TextInput>,
+    _sub: Subscription,
+}
+
+fn folder_label_key(folder: Folder) -> &'static str {
+    match folder {
+        Folder::Docs => "settings.folders.docs",
+        Folder::Issues => "settings.folders.issues",
+    }
 }
 
 struct Capture {
@@ -117,6 +136,7 @@ impl EventEmitter<GoBack> for SettingsPage {}
 const CONTROL_W: f32 = 280.0;
 const TOGGLE_W: f32 = 190.0;
 const FIELD_H: f32 = 32.0;
+const PROJECT_LIST_W: f32 = 220.0;
 const AREA_MAX_ROWS: usize = 8;
 
 fn area_height(input: &Entity<TextArea>, cx: &gpui::App) -> f32 {
@@ -252,18 +272,20 @@ fn wide_row(
                 .child(label_block(label, hint))
                 .children(toggle.map(|t| div().flex_none().w(px(TOGGLE_W)).child(t))),
         )
-        .child(
-            div()
-                .flex()
-                .h(px(height))
-                .px(px(10.0))
-                .rounded(px(6.0))
-                .border_1()
-                .border_color(theme::border_subtle())
-                .bg(theme::bg_app())
-                .child(input),
-        )
+        .child(input_box(height, input))
         .into_any_element()
+}
+
+fn input_box(height: f32, input: impl IntoElement) -> Div {
+    div()
+        .flex()
+        .h(px(height))
+        .px(px(10.0))
+        .rounded(px(6.0))
+        .border_1()
+        .border_color(theme::border_subtle())
+        .bg(theme::bg_app())
+        .child(input)
 }
 
 fn group_title(title: impl Into<SharedString>) -> gpui::Div {
@@ -271,6 +293,29 @@ fn group_title(title: impl Into<SharedString>) -> gpui::Div {
         .text_size(px(13.0))
         .font_weight(gpui::FontWeight::SEMIBOLD)
         .child(title.into())
+}
+
+fn custom_dot() -> Div {
+    div()
+        .flex_none()
+        .size(px(6.0))
+        .rounded(px(3.0))
+        .bg(theme::accent())
+}
+
+fn detail_section(title: String, hint: String, control: impl IntoElement) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(8.0))
+        .child(group_title(title))
+        .child(
+            div()
+                .text_size(px(12.0))
+                .text_color(theme::text_muted())
+                .child(hint),
+        )
+        .child(control)
 }
 
 fn prompt_area(
@@ -296,12 +341,28 @@ impl SettingsPage {
         let issue_prompt_input = prompt_area(DEFAULT_ISSUE_PROMPT, &initial, cx);
         let initial = stores.prefs.read(cx).prefs.workflow_allowed_tools.clone();
         let tools_input = prompt_area(DEFAULT_WORKFLOW_TOOLS, &initial, cx);
+        let project_search = cx.new(|cx| TextInput::new(t("settings.projects.search"), cx));
         let subs = vec![
             cx.observe(&stores.prefs, |_, _, cx| cx.notify()),
             cx.observe(&doc_prompt_input, |_, _, cx| cx.notify()),
             cx.observe(&issue_prompt_input, |_, _, cx| cx.notify()),
             cx.observe(&tools_input, |_, _, cx| cx.notify()),
-            cx.observe(&stores.projects, |_, _, cx| cx.notify()),
+            cx.observe(&stores.projects, |this, projects, cx| {
+                let removed = this
+                    .scope
+                    .as_deref()
+                    .is_some_and(|id| projects.read(cx).get(id).is_none());
+                if removed {
+                    this.select_scope(None, cx);
+                }
+                cx.notify();
+            }),
+            cx.subscribe(&project_search, |_, input, ev: &TextInputEvent, cx| {
+                if matches!(ev, TextInputEvent::Cancel) {
+                    input.update(cx, |i, cx| i.set_value("", cx));
+                }
+                cx.notify();
+            }),
             cx.observe(&stores.selfbuild, |_, _, cx| cx.notify()),
             cx.observe(&stores.speech, |_, _, cx| cx.notify()),
             cx.subscribe(&claude_input, |this, input, ev: &TextInputEvent, cx| {
@@ -341,7 +402,7 @@ impl SettingsPage {
             ),
         ];
         selfbuild_section::recheck(&stores, cx);
-        Self {
+        let mut this = Self {
             scrollbar: Scrollbar::new(),
             stores,
             claude_input,
@@ -354,7 +415,74 @@ impl SettingsPage {
             mic_devices: Vec::new(),
             capture: None,
             shortcut_error: None,
+            scope: None,
+            project_search,
+            project_list_scrollbar: Scrollbar::new(),
+            project_detail_scrollbar: Scrollbar::new(),
+            folder_fields: Vec::new(),
             _subs: subs,
+        };
+        this.select_scope(None, cx);
+        this
+    }
+
+    fn select_scope(&mut self, scope: Option<String>, cx: &mut Context<Self>) {
+        self.folder_fields = Folder::ALL
+            .into_iter()
+            .map(|folder| {
+                let initial = match &scope {
+                    None => self.stores.prefs.read(cx).prefs.folder(folder).to_string(),
+                    Some(id) => self
+                        .stores
+                        .projects
+                        .read(cx)
+                        .get(id)
+                        .and_then(|p| p.folder_override(folder))
+                        .unwrap_or_default()
+                        .to_string(),
+                };
+                let input = cx.new(|cx| TextInput::new(folder.builtin(), cx).with_value(initial));
+                let project = scope.clone();
+                let sub = cx.subscribe(&input, move |this, input, ev: &TextInputEvent, cx| {
+                    if matches!(ev, TextInputEvent::Changed) {
+                        let value = input.read(cx).value().to_string();
+                        this.save_folder(project.as_deref(), folder, &value, cx);
+                        cx.notify();
+                    }
+                });
+                FolderField {
+                    folder,
+                    input,
+                    _sub: sub,
+                }
+            })
+            .collect();
+        self.scope = scope;
+        cx.notify();
+    }
+
+    fn save_folder(
+        &mut self,
+        project: Option<&str>,
+        folder: Folder,
+        raw: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let value = normalize_folder(raw);
+        if value.is_none() && !raw.trim().is_empty() {
+            return;
+        }
+        match project {
+            None => {
+                let value = value.unwrap_or_else(|| folder.builtin().to_string());
+                self.stores
+                    .prefs
+                    .update(cx, |p, cx| p.update(cx, |p| *p.folder_mut(folder) = value));
+            }
+            Some(id) => self
+                .stores
+                .projects
+                .update(cx, |p, cx| p.set_folder(id, folder, value, cx)),
         }
     }
 
@@ -527,73 +655,280 @@ impl SettingsPage {
         col.into_any_element()
     }
 
-    fn projects_tab(&self, cx: &Context<Self>) -> AnyElement {
-        let git_projects: Vec<_> = self
+    fn folder_inputs(&self, cx: &mut Context<Self>) -> Div {
+        let scope = self.scope.as_deref();
+        let columns: Vec<_> = self
+            .folder_fields
+            .iter()
+            .map(|field| {
+                let folder = field.folder;
+                let input = field.input.clone();
+                let app = self.stores.prefs.read(cx).prefs.folder(folder).to_string();
+                let placeholder = match scope {
+                    None => folder.builtin().to_string(),
+                    Some(_) => folder.resolve(None, &app),
+                };
+                input.update(cx, |i, _| i.set_placeholder(placeholder));
+                let value = input.read(cx).value();
+                let invalid = !value.trim().is_empty() && normalize_folder(value).is_none();
+                let error = invalid.then(|| {
+                    let used = match scope {
+                        None => folder.resolve(None, &app),
+                        Some(id) => self.stores.folder(id, folder, cx),
+                    };
+                    t_args("settings.folders.invalid", &[("dir", &used)])
+                });
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(4.0))
+                    .child(
+                        div()
+                            .text_size(px(12.0))
+                            .text_color(theme::text_muted())
+                            .child(t(folder_label_key(folder))),
+                    )
+                    .child(input_box(FIELD_H, input))
+                    .when_some(error, |d, e| {
+                        d.child(
+                            div()
+                                .text_size(px(12.0))
+                                .text_color(theme::warning())
+                                .child(e),
+                        )
+                    })
+            })
+            .collect();
+        div().flex().items_start().gap(px(12.0)).children(columns)
+    }
+
+    fn scope_row(
+        &self,
+        scope: Option<String>,
+        label: String,
+        custom: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let active = self.scope == scope;
+        let id = SharedString::from(format!("scope-{}", scope.as_deref().unwrap_or_default()));
+        div()
+            .id(id)
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_between()
+            .gap(px(8.0))
+            .h(px(FIELD_H))
+            .px(px(10.0))
+            .rounded(px(6.0))
+            .text_size(px(13.0))
+            .cursor_pointer()
+            .map(|d| {
+                if active {
+                    d.bg(theme::accent_wash())
+                } else {
+                    d.hover(|s| s.bg(theme::hover()))
+                }
+            })
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if this.scope != scope {
+                    this.select_scope(scope.clone(), cx);
+                }
+            }))
+            .child(div().min_w_0().truncate().child(label))
+            .when(custom, |d| d.child(custom_dot()))
+            .into_any_element()
+    }
+
+    fn project_list(&self, cx: &mut Context<Self>) -> Div {
+        let query = self.project_search.read(cx).value().trim().to_lowercase();
+        let projects: Vec<_> = self
             .stores
             .projects
             .read(cx)
             .items
             .iter()
-            .filter(|p| p.is_git_repo())
-            .map(|p| (p.id.clone(), p.name.clone(), p.use_worktree))
+            .filter(|p| !p.is_global())
+            .map(|p| {
+                let custom =
+                    p.use_worktree.is_some() || p.docs_dir.is_some() || p.issues_dir.is_some();
+                (p.id.clone(), p.name.clone(), custom)
+            })
             .collect();
-        let projects_store = self.stores.projects.clone();
+        let none_added = projects.is_empty();
+        let rows: Vec<_> = projects
+            .into_iter()
+            .filter(|(_, name, _)| name.to_lowercase().contains(&query))
+            .map(|(id, name, custom)| self.scope_row(Some(id), name, custom, cx))
+            .collect();
+        let note = if none_added {
+            Some("settings.projects.empty")
+        } else if rows.is_empty() {
+            Some("settings.projects.no_match")
+        } else {
+            None
+        };
+        let defaults = self.scope_row(None, t("settings.projects.defaults"), false, cx);
 
-        let col = div()
+        div()
             .flex()
             .flex_col()
-            .gap(px(16.0))
-            .child(group_title(t("settings.projects.title")))
+            .flex_none()
+            .w(px(PROJECT_LIST_W))
+            .min_h_0()
+            .border_r_1()
+            .border_color(theme::border_subtle())
             .child(
                 div()
-                    .text_size(px(12.0))
+                    .flex()
+                    .flex_col()
+                    .flex_none()
+                    .gap(px(8.0))
+                    .p(px(8.0))
+                    .border_b_1()
+                    .border_color(theme::border_subtle())
+                    .child(input_box(FIELD_H, self.project_search.clone()))
+                    .child(defaults),
+            )
+            .child(
+                self.project_list_scrollbar.overlay(
+                    div()
+                        .id("settings-project-list")
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.0))
+                        .p(px(8.0))
+                        .overflow_y_scroll()
+                        .children(rows)
+                        .when_some(note, |d, key| {
+                            d.child(
+                                div()
+                                    .px(px(10.0))
+                                    .text_size(px(12.0))
+                                    .text_color(theme::text_muted())
+                                    .child(t(key)),
+                            )
+                        }),
+                ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(6.0))
+                    .px(px(18.0))
+                    .py(px(8.0))
+                    .border_t_1()
+                    .border_color(theme::border_subtle())
+                    .text_size(px(11.0))
                     .text_color(theme::text_muted())
-                    .child(t("settings.projects.hint")),
-            );
-        let body = if git_projects.is_empty() {
-            div()
-                .text_size(px(13.0))
-                .text_color(theme::text_muted())
-                .child(t("settings.projects.empty"))
-                .into_any_element()
-        } else {
-            let project_rows = git_projects
-                .into_iter()
-                .map(|(id, name, choice)| {
-                    let store = projects_store.clone();
-                    let selected = match choice {
-                        None => 0,
-                        Some(true) => 1,
-                        Some(false) => 2,
-                    };
-                    let seg_id = SharedString::from(format!("wt-{id}"));
-                    setting_row(
-                        name,
-                        None,
-                        segmented(
-                            seg_id,
-                            vec![
-                                t("settings.projects.ask").into(),
-                                t("settings.projects.worktree").into(),
-                                t("settings.projects.folder").into(),
-                            ],
-                            selected,
-                            move |i, _, cx| {
-                                let value = match i {
-                                    0 => None,
-                                    1 => Some(true),
-                                    _ => Some(false),
-                                };
-                                store.update(cx, |p, cx| p.set_use_worktree(&id, value, cx));
-                            },
-                        )
-                        .w_full(),
+                    .child(custom_dot())
+                    .child(t("settings.projects.custom")),
+            )
+    }
+
+    fn scope_detail(&self, cx: &mut Context<Self>) -> Div {
+        let project = self
+            .scope
+            .as_deref()
+            .and_then(|id| self.stores.projects.read(cx).get(id));
+        let title = project.map_or_else(|| t("settings.folders.default"), |p| p.name.clone());
+        let path = project.map(|p| p.path.display().to_string());
+        let worktree = project
+            .filter(|p| p.is_git_repo())
+            .map(|p| (p.id.clone(), p.use_worktree));
+
+        let sessions = worktree.map(|(id, choice)| {
+            let store = self.stores.projects.clone();
+            let selected = match choice {
+                None => 0,
+                Some(true) => 1,
+                Some(false) => 2,
+            };
+            let seg_id = SharedString::from(format!("wt-{id}"));
+            detail_section(
+                t("settings.projects.sessions"),
+                t("settings.projects.hint"),
+                div().flex().child(segmented(
+                    seg_id,
+                    vec![
+                        t("settings.projects.ask").into(),
+                        t("settings.projects.worktree").into(),
+                        t("settings.projects.folder").into(),
+                    ],
+                    selected,
+                    move |i, _, cx| {
+                        let value = match i {
+                            0 => None,
+                            1 => Some(true),
+                            _ => Some(false),
+                        };
+                        store.update(cx, |p, cx| p.set_use_worktree(&id, value, cx));
+                    },
+                )),
+            )
+        });
+        let folders = detail_section(
+            t("settings.folders.title"),
+            t("settings.folders.hint"),
+            self.folder_inputs(cx),
+        );
+
+        let content = div()
+            .flex()
+            .flex_col()
+            .gap(px(20.0))
+            .p(px(16.0))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.0))
+                    .child(
+                        div()
+                            .text_size(px(15.0))
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .truncate()
+                            .child(title),
                     )
-                })
-                .collect();
-            list(project_rows).into_any_element()
-        };
-        col.child(body).into_any_element()
+                    .when_some(path, |d, path| {
+                        d.child(
+                            div()
+                                .text_size(px(12.0))
+                                .text_color(theme::text_muted())
+                                .truncate()
+                                .child(path),
+                        )
+                    }),
+            )
+            .children(sessions)
+            .child(folders);
+
+        div().flex().flex_col().flex_1().min_w_0().min_h_0().child(
+            self.project_detail_scrollbar.overlay(
+                div()
+                    .id("settings-project-detail")
+                    .overflow_y_scroll()
+                    .child(content),
+            ),
+        )
+    }
+
+    fn projects_tab(&self, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .flex()
+            .flex_1()
+            .min_h_0()
+            .rounded(px(10.0))
+            .bg(theme::bg_panel())
+            .border_1()
+            .border_color(theme::border_subtle())
+            .child(self.project_list(cx))
+            .child(self.scope_detail(cx))
+            .into_any_element()
     }
 
     fn terminal_tab(&self, font: f32) -> AnyElement {
@@ -1077,33 +1412,36 @@ impl Render for SettingsPage {
             SettingsTab::Data => self.data_tab(cx),
         };
 
-        self.scrollbar.overlay(
-            div()
-                .id("settings-scroll")
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_w_0()
-                .min_h_0()
-                .overflow_y_scroll()
-                .items_center()
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(16.0))
-                        .w_full()
-                        .max_w(px(760.0))
-                        .p(px(24.0))
-                        .child(
-                            div()
-                                .text_size(px(20.0))
-                                .font_weight(gpui::FontWeight::SEMIBOLD)
-                                .child(t("settings.title")),
-                        )
-                        .child(tab_bar)
-                        .child(content),
-                ),
-        )
+        let column = div()
+            .flex()
+            .flex_col()
+            .gap(px(16.0))
+            .w_full()
+            .max_w(px(760.0))
+            .p(px(24.0))
+            .child(
+                div()
+                    .text_size(px(20.0))
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .child(t("settings.title")),
+            )
+            .child(tab_bar)
+            .child(content);
+
+        let page = div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .items_center();
+
+        if tab == SettingsTab::Projects {
+            return page.child(column.flex_1().min_h_0()).into_any_element();
+        }
+
+        self.scrollbar
+            .overlay(page.id("settings-scroll").overflow_y_scroll().child(column))
+            .into_any_element()
     }
 }

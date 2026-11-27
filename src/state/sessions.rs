@@ -811,6 +811,8 @@ fn self_project(clone_dir: PathBuf) -> Project {
         default_shell: None,
         commands: Vec::new(),
         hidden_detected: Vec::new(),
+        docs_dir: None,
+        issues_dir: None,
     }
 }
 
