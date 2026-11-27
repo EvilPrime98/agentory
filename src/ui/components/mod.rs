@@ -10,6 +10,7 @@ pub mod selectable;
 pub mod smooth_scroll;
 pub mod text_area;
 pub mod text_input;
+pub mod tooltip;
 
 pub fn is_altgr(ks: &gpui::Keystroke) -> bool {
     ks.modifiers.control
