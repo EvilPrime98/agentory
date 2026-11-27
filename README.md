@@ -29,8 +29,9 @@ one is waiting on you. Agentory puts them in one place and tells you.
   (ConPTY), rendered by a `vt100` terminal grid. Permission prompts, slash commands and everything
   else behave exactly as in your terminal.
 - **Project sidebar with live status.** Sessions are grouped under their project, and a status dot
-  shows whether each one is working, waiting for input, or done. The eye button on a project header
-  hides the page rows (Skills, Docs, Git, GitHub, Workflows, Graphify, Office, History) you don't use.
+  shows whether each one is working, waiting for input, or done. The eye button on the sidebar
+  hides the page rows (Skills, Settings, Docs, Git, GitHub, Workflows, Graphify, Office, History) you
+  don't use.
 - **Worktree isolation.** Start a session in a fresh `git worktree` on its own branch
   (`agentory/<id>`) so parallel agents never step on each other's files.
 - **Skills, managed per project.** A built-in skills page reads `spm.json` and `.claude/skills`,
@@ -39,13 +40,18 @@ one is waiting on you. Agentory puts them in one place and tells you.
   searches the SkillsMP market (set `SKILLSMP_API_KEY` for a higher quota), installs market skills pinned to
   the commit you reviewed, updates them to the latest commit after a new review, installs into the global
   skills folder, and shows each skill's context cost, usage and overlaps.
+- **Claude Code settings editor.** The **Settings** row under **Global** edits
+  `~/.claude/settings.json` (or the one in `CLAUDE_CONFIG_DIR`): every option usable in that file,
+  with search, typed controls, JSON editors for the complex keys and masked secrets in `env`. The
+  list of options ships with the app and is refreshed with
+  `python scripts/gen-claude-settings-catalog.py`.
 - **Agent office.** A pixel-art office page shows each agent session as a worker whose pose follows its
   status. Click a worker to steer it, drag a skill onto one, or use the shared task board: a foreman
   drafts a task plan from a GitHub issue or markdown file for one-click approval, workers claim
   tasks, and a finished write task opens a PR into `dev`.
 - **Voice dictation.** Optional, fully local (Whisper); toggle it with `Ctrl+Alt+M`.
-- **Touches nothing of yours.** Status comes from hooks injected with
-  `claude --settings <generated file>`. Your project and global Claude settings are never edited, and
+- **Leaves your setup alone.** Status comes from hooks injected with
+  `claude --settings <generated file>`, so tracking a session edits none of your Claude settings, and
   sessions started outside Agentory are unaffected.
 - **Small and native.** One Rust binary built on [GPUI](https://github.com/zed-industries/zed), with
   no Electron and no web runtime.

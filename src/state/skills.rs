@@ -387,6 +387,13 @@ impl SkillsStore {
         });
     }
 
+    pub fn update_one(&mut self, name: String, cx: &mut Context<Self>) {
+        let label = t_args("skills.busy.update_one", &[("name", &name)]);
+        self.mutate(label, false, cx, move |dir| async move {
+            spm::update_one(&dir, &name).await
+        });
+    }
+
     pub fn add_repo(&mut self, repo: String, cx: &mut Context<Self>) {
         let label = t_args("skills.busy.add_repo", &[("repo", &repo)]);
         self.mutate(label, true, cx, move |dir| async move {

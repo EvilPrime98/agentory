@@ -183,8 +183,9 @@ impl Render for DragGhost {
 
 const PAGES_MENU_W: f32 = 200.0;
 
-const PAGES: [(&str, &str); 9] = [
+const PAGES: [(&str, &str); 10] = [
     ("skills", "sidebar.skills"),
+    ("claude-settings", "sidebar.claude_settings"),
     ("docs", "sidebar.docs"),
     ("git", "sidebar.git"),
     ("github", "sidebar.github"),
@@ -194,6 +195,14 @@ const PAGES: [(&str, &str); 9] = [
     ("office", "sidebar.office"),
     ("commands", "sidebar.commands_extra"),
 ];
+
+fn page_applies(page: &str, is_global: bool) -> bool {
+    match page {
+        "skills" => true,
+        "claude-settings" => is_global,
+        _ => !is_global,
+    }
+}
 
 pub struct Sidebar {
     stores: Stores,
@@ -1032,6 +1041,7 @@ impl Sidebar {
         let graphify_id = project.id.clone();
         let office_active = self.route == Route::Office(project.id.clone());
         let office_id = project.id.clone();
+        let claude_settings_active = self.route == Route::ClaudeSettings;
 
         let is_global = project.is_global();
         let display_name = if is_global {
@@ -1047,9 +1057,8 @@ impl Sidebar {
             .prefs
             .hidden_sidebar_pages
             .clone();
-        let shown = |id: &str| {
-            !compact && (!is_global || id == "skills") && !hidden.iter().any(|h| h == id)
-        };
+        let shown =
+            |id: &str| !compact && page_applies(id, is_global) && !hidden.iter().any(|h| h == id);
         let page_rows = PAGES
             .iter()
             .filter(|(id, _)| *id != "commands" && shown(id))
@@ -1363,6 +1372,31 @@ impl Sidebar {
                                 .text_size(px(12.5))
                                 .text_color(theme::text())
                                 .child(t("sidebar.skills")),
+                        ),
+                )
+            })
+            .when(shown("claude-settings"), |s| {
+                s.child(
+                    div()
+                        .id("claude-settings")
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .h(px(ROW_H))
+                        .ml(px(26.0))
+                        .px(px(6.0))
+                        .rounded(px(6.0))
+                        .cursor_pointer()
+                        .when(claude_settings_active, active_row)
+                        .on_click(cx.listener(|_, _, _, cx| {
+                            cx.emit(Navigate(Route::ClaudeSettings));
+                        }))
+                        .child(icon(Icon::Gear, px(13.0)).text_color(theme::text_muted()))
+                        .child(
+                            div()
+                                .text_size(px(12.5))
+                                .text_color(theme::text())
+                                .child(t("sidebar.claude_settings")),
                         ),
                 )
             })

@@ -469,7 +469,10 @@ pub async fn repo_root(dir: &Path) -> Result<Option<(PathBuf, String)>, String> 
     let out = git(holder, &["rev-parse", "--show-toplevel"]).await?;
     let root = PathBuf::from(out.trim());
     let scope = match (dir.canonicalize(), root.canonicalize()) {
-        (Ok(d), Ok(r)) => d.strip_prefix(&r).map(Path::to_path_buf).unwrap_or_default(),
+        (Ok(d), Ok(r)) => d
+            .strip_prefix(&r)
+            .map(Path::to_path_buf)
+            .unwrap_or_default(),
         _ => PathBuf::new(),
     };
     let scope = scope.to_string_lossy().replace('\\', "/");
@@ -684,7 +687,9 @@ pub async fn stage(root: &Path, paths: &[String]) -> Result<(), String> {
 }
 
 pub async fn stage_everything(root: &Path, scope: &str) -> Result<(), String> {
-    gitl(root, &["add", "-A", "--", spec(scope)]).await.map(|_| ())
+    gitl(root, &["add", "-A", "--", spec(scope)])
+        .await
+        .map(|_| ())
 }
 
 pub async fn unstage(root: &Path, paths: &[String]) -> Result<(), String> {
@@ -1353,7 +1358,12 @@ mod tests {
         assert_eq!(st.unstaged.len(), 1);
         let c = &st.unstaged[0];
         assert!(c.path.ends_with('/'));
-        assert!(file_diff(&main, c, false).await.unwrap().contains("+inner/a.txt"));
+        assert!(
+            file_diff(&main, c, false)
+                .await
+                .unwrap()
+                .contains("+inner/a.txt")
+        );
         discard(&main, c).await.unwrap();
         assert!(!main.join("pkg").exists());
         cleanup(&main);

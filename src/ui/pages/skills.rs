@@ -16,6 +16,7 @@ use crate::ui::components::checkbox::checkbox;
 use crate::ui::components::scrollbar::Scrollbar;
 use crate::ui::components::smooth_scroll::SmoothScroll;
 use crate::ui::components::text_input::{TextInput, TextInputEvent};
+use crate::ui::components::tooltip::tooltip;
 use crate::ui::icons::{Icon, icon};
 use crate::ui::theme;
 
@@ -146,7 +147,7 @@ pub(super) fn icon_button(
     id: impl Into<gpui::ElementId>,
     glyph: Icon,
     on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
-) -> impl IntoElement {
+) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
         .flex()
@@ -604,10 +605,9 @@ impl SkillsPage {
                         .find(|s| s.name == name)
                         .map(|s| s.description_tokens)
                 });
-                let is_market = manifest
-                    .as_ref()
-                    .and_then(|m| m.skills.get(&name))
-                    .is_some_and(serde_json::Value::is_object);
+                let entry = manifest.as_ref().and_then(|m| m.skills.get(&name));
+                let is_market = entry.is_some_and(serde_json::Value::is_object);
+                let in_manifest = entry.is_some();
                 let route = project_id
                     .clone()
                     .filter(|_| on_disk)
@@ -625,6 +625,7 @@ impl SkillsPage {
                     .filter(|_| on_disk)
                     .zip(hints.get(&name).cloned());
                 let is_outdated = outdated_set.contains(&name);
+                let sync_name = name.clone();
                 let latest_name = name.clone();
                 let is_confirming = confirming.as_deref() == Some(name.as_str());
 
@@ -663,6 +664,7 @@ impl SkillsPage {
                             cx.notify();
                         }),
                     )
+                    .tooltip(tooltip(t("common.remove")))
                     .into_any_element()
                 };
 
@@ -782,37 +784,59 @@ impl SkillsPage {
                                 )),
                         )
                     })
+                    .when(in_manifest, |s| {
+                        s.child(
+                            icon_button(
+                                gpui::SharedString::from(format!("sync-skill-{name}")),
+                                Icon::Refresh,
+                                cx.listener(move |this, _, _, cx| {
+                                    let n = sync_name.clone();
+                                    this.stores.skills.update(cx, |s, cx| s.update_one(n, cx));
+                                }),
+                            )
+                            .tooltip(tooltip(t("skills.update_all"))),
+                        )
+                    })
                     .when(is_market && is_outdated, |s| {
-                        s.child(small_button(
-                            gpui::SharedString::from(format!("latest-skill-{name}")),
-                            t("skills.update_latest"),
-                            cx.listener(move |this, _, _, cx| {
-                                let n = latest_name.clone();
-                                this.stores
-                                    .skills
-                                    .update(cx, |s, cx| s.update_latest(n, cx));
-                            }),
-                        ))
+                        s.child(
+                            icon_button(
+                                gpui::SharedString::from(format!("latest-skill-{name}")),
+                                Icon::Download,
+                                cx.listener(move |this, _, _, cx| {
+                                    let n = latest_name.clone();
+                                    this.stores
+                                        .skills
+                                        .update(cx, |s, cx| s.update_latest(n, cx));
+                                }),
+                            )
+                            .tooltip(tooltip(t("skills.update_latest"))),
+                        )
                     })
                     .when_some(edit_args, |s, (pid, hint)| {
                         let skill = name.clone();
-                        s.child(icon_button(
-                            gpui::SharedString::from(format!("args-skill-{name}")),
-                            Icon::Pencil,
-                            cx.listener(move |this, _, _, cx| {
-                                this.open_args(pid.clone(), skill.clone(), hint.clone(), cx);
-                            }),
-                        ))
+                        s.child(
+                            icon_button(
+                                gpui::SharedString::from(format!("args-skill-{name}")),
+                                Icon::Pencil,
+                                cx.listener(move |this, _, _, cx| {
+                                    this.open_args(pid.clone(), skill.clone(), hint.clone(), cx);
+                                }),
+                            )
+                            .tooltip(tooltip(t("skills.args.edit"))),
+                        )
                     })
                     .when_some(play, |s, (pid, input)| {
-                        s.child(icon_button(
-                            gpui::SharedString::from(format!("play-skill-{name}")),
-                            Icon::Play,
-                            cx.listener(move |_, _, _, cx| {
-                                sessions::begin_new_input(&pid, Some(input.clone()), cx);
-                                cx.emit(Navigate(Route::Sessions));
-                            }),
-                        ))
+                        s.child(
+                            icon_button(
+                                gpui::SharedString::from(format!("play-skill-{name}")),
+                                Icon::Play,
+                                cx.listener(move |_, _, _, cx| {
+                                    sessions::begin_new_input(&pid, Some(input.clone()), cx);
+                                    cx.emit(Navigate(Route::Sessions));
+                                }),
+                            )
+                            .tooltip(tooltip(t("skills.run"))),
+                        )
                     })
                     .child(actions)
                     .into_any_element()
@@ -909,17 +933,20 @@ impl SkillsPage {
                         a.name.clone(),
                         vec![a.repo.clone(), a.description.clone()],
                     ))
-                    .child(icon_button(
-                        gpui::SharedString::from(format!("add-skill-{}", a.name)),
-                        Icon::Plus,
-                        cx.listener(move |this, _, _, cx| {
-                            let n = install_name.clone();
-                            let global = install_global;
-                            this.stores
-                                .skills
-                                .update(cx, |s, cx| s.install(vec![n], global, cx));
-                        }),
-                    ))
+                    .child(
+                        icon_button(
+                            gpui::SharedString::from(format!("add-skill-{}", a.name)),
+                            Icon::Plus,
+                            cx.listener(move |this, _, _, cx| {
+                                let n = install_name.clone();
+                                let global = install_global;
+                                this.stores
+                                    .skills
+                                    .update(cx, |s, cx| s.install(vec![n], global, cx));
+                            }),
+                        )
+                        .tooltip(tooltip(t("skills.review.install"))),
+                    )
                     .into_any_element()
             })
             .collect();
@@ -942,17 +969,20 @@ impl SkillsPage {
                         h.name.clone(),
                         vec![meta, h.description.clone()],
                     ))
-                    .child(icon_button(
-                        gpui::SharedString::from(format!("add-hit-{id}")),
-                        Icon::Plus,
-                        cx.listener(move |this, _, _, cx| {
-                            let hit = hit.clone();
-                            let global = install_global;
-                            this.stores
-                                .skills
-                                .update(cx, |s, cx| s.review_install_hit(hit, global, cx));
-                        }),
-                    ))
+                    .child(
+                        icon_button(
+                            gpui::SharedString::from(format!("add-hit-{id}")),
+                            Icon::Plus,
+                            cx.listener(move |this, _, _, cx| {
+                                let hit = hit.clone();
+                                let global = install_global;
+                                this.stores
+                                    .skills
+                                    .update(cx, |s, cx| s.review_install_hit(hit, global, cx));
+                            }),
+                        )
+                        .tooltip(tooltip(t("skills.review.install"))),
+                    )
                     .into_any_element()
             })
             .collect();
@@ -1098,14 +1128,17 @@ impl SkillsPage {
                             .text_color(theme::text_muted())
                             .child(repo.clone()),
                     )
-                    .child(icon_button(
-                        gpui::SharedString::from(format!("rm-repo-{repo}")),
-                        Icon::Close,
-                        cx.listener(move |this, _, _, cx| {
-                            let r = remove_repo.clone();
-                            this.stores.skills.update(cx, |s, cx| s.remove_repo(r, cx));
-                        }),
-                    ))
+                    .child(
+                        icon_button(
+                            gpui::SharedString::from(format!("rm-repo-{repo}")),
+                            Icon::Close,
+                            cx.listener(move |this, _, _, cx| {
+                                let r = remove_repo.clone();
+                                this.stores.skills.update(cx, |s, cx| s.remove_repo(r, cx));
+                            }),
+                        )
+                        .tooltip(tooltip(t("common.remove"))),
+                    )
                     .into_any_element()
             })
             .collect();
@@ -1360,6 +1393,7 @@ impl Render for SkillsPage {
                                                         .skills
                                                         .update(cx, |s, cx| s.refresh(cx));
                                                 }))
+                                                .tooltip(tooltip(t("skills.refresh")))
                                                 .child(
                                                     icon(Icon::Refresh, px(15.0))
                                                         .text_color(theme::text()),

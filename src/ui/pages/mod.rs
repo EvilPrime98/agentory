@@ -1,3 +1,4 @@
+pub mod claude_settings;
 pub mod doc_preview;
 pub mod docs;
 pub mod git;

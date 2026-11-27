@@ -8,6 +8,7 @@ use crate::i18n::t;
 pub enum Route {
     Sessions,
     Settings,
+    ClaudeSettings,
     Skills(String),
     Docs(String),
     /// Source control of this project id's repo.
@@ -35,6 +36,7 @@ impl Route {
         t(match self {
             Self::Sessions => "route.sessions",
             Self::Settings => "settings.title",
+            Self::ClaudeSettings => "claude_settings.title",
             Self::Skills(_) => "skills.title",
             Self::Docs(_) => "docs.title",
             Self::Git(_) => "git.title",

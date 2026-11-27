@@ -30,6 +30,7 @@ icons! {
     ChevronDown => "chevron-down",
     ChevronRight => "chevron-right",
     Close => "close",
+    Download => "download",
     Eye => "eye",
     File => "file",
     Folder => "folder",

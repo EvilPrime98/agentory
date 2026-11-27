@@ -703,60 +703,72 @@ pub async fn uninstall(project: &Path, skill: &str) -> Result<String, String> {
 /// pinned commit.
 pub async fn update(project: &Path) -> Result<String, String> {
     let project = project.to_path_buf();
-    blocking(move || {
-        let p = Paths::of(&project);
-        let mut cfg = load(&p)?;
-        let targets: Vec<String> = cfg.manifest.skills.keys().cloned().collect();
-        if targets.is_empty() {
-            return Ok("No skills installed in this project.".into());
+    blocking(move || update_sync(&project, None)).await
+}
+
+pub async fn update_one(project: &Path, skill: &str) -> Result<String, String> {
+    let (project, skill) = (project.to_path_buf(), skill.to_string());
+    blocking(move || update_sync(&project, Some(&skill))).await
+}
+
+fn update_sync(project: &Path, only: Option<&str>) -> Result<String, String> {
+    let p = Paths::of(project);
+    let mut cfg = load(&p)?;
+    let targets: Vec<String> = match only {
+        Some(name) if !cfg.manifest.skills.contains_key(name) => {
+            return Err(format!("✗ {name}: not installed"));
         }
-        let pool = load_pool(&repos_for(&cfg.manifest, &targets)?)?;
-        let (mut log, mut failed) = (Vec::new(), Vec::new());
-        for name in &targets {
-            let dest = p.skills.join(name);
-            let wanted = pinned_repo(&cfg.manifest, name);
-            let Some(found) = pick_candidate(pool.get(name), wanted.as_deref()) else {
-                failed.push(match wanted {
-                    Some(w) => format!("✗ {name}: no longer in the repo ({w})"),
-                    None => format!("✗ {name}: no longer in the repo pool"),
-                });
-                continue;
-            };
-            let market = is_market(cfg.manifest.skills.get(name));
-            if !spm_repo_set() && !market {
-                cfg.manifest
-                    .skills
-                    .insert(name.clone(), Value::String(found.repo.clone()));
-            }
-            let repo_hash = store::hash_dir(&found.src).map_err(io)?;
-            let local_hash = dest
-                .exists()
-                .then(|| store::hash_dir(&dest))
-                .transpose()
-                .map_err(io)?;
-            if local_hash.as_deref() == Some(repo_hash.as_str()) {
-                cfg.state
-                    .insert(name.clone(), store::state_entry(&repo_hash, &found.sha));
-                log.push(format!("• {name}: up to date"));
-                continue;
-            }
-            let edited = local_hash.is_some() && local_hash != store::state_hash(&cfg.state, name);
-            store::copy_skill(&found.src, &dest).map_err(io)?;
+        Some(name) => vec![name.to_string()],
+        None => cfg.manifest.skills.keys().cloned().collect(),
+    };
+    if targets.is_empty() {
+        return Ok("No skills installed in this project.".into());
+    }
+    let pool = load_pool(&repos_for(&cfg.manifest, &targets)?)?;
+    let (mut log, mut failed) = (Vec::new(), Vec::new());
+    for name in &targets {
+        let dest = p.skills.join(name);
+        let wanted = pinned_repo(&cfg.manifest, name);
+        let Some(found) = pick_candidate(pool.get(name), wanted.as_deref()) else {
+            failed.push(match wanted {
+                Some(w) => format!("✗ {name}: no longer in the repo ({w})"),
+                None => format!("✗ {name}: no longer in the repo pool"),
+            });
+            continue;
+        };
+        let market = is_market(cfg.manifest.skills.get(name));
+        if !spm_repo_set() && !market {
+            cfg.manifest
+                .skills
+                .insert(name.clone(), Value::String(found.repo.clone()));
+        }
+        let repo_hash = store::hash_dir(&found.src).map_err(io)?;
+        let local_hash = dest
+            .exists()
+            .then(|| store::hash_dir(&dest))
+            .transpose()
+            .map_err(io)?;
+        if local_hash.as_deref() == Some(repo_hash.as_str()) {
             cfg.state
                 .insert(name.clone(), store::state_entry(&repo_hash, &found.sha));
-            log.push(format!(
-                "✓ {name}: updated{}",
-                if edited {
-                    " (local edits overwritten)"
-                } else {
-                    ""
-                }
-            ));
+            log.push(format!("• {name}: up to date"));
+            continue;
         }
-        save(&p, &cfg)?;
-        finish(log, failed)
-    })
-    .await
+        let edited = local_hash.is_some() && local_hash != store::state_hash(&cfg.state, name);
+        store::copy_skill(&found.src, &dest).map_err(io)?;
+        cfg.state
+            .insert(name.clone(), store::state_entry(&repo_hash, &found.sha));
+        log.push(format!(
+            "✓ {name}: updated{}",
+            if edited {
+                " (local edits overwritten)"
+            } else {
+                ""
+            }
+        ));
+    }
+    save(&p, &cfg)?;
+    finish(log, failed)
 }
 
 pub async fn repo_add(project: &Path, repo: &str) -> Result<String, String> {
@@ -1041,6 +1053,19 @@ mod tests {
                     .unwrap()
                     .contains("alpha: up to date")
             );
+
+            install(&project, &["beta".into()]).await.unwrap();
+            for name in ["alpha", "beta"] {
+                let extra = project.join(".claude/skills").join(name).join("extra.txt");
+                fs::write(extra, "mine").unwrap();
+            }
+            let out = update_one(&project, "alpha").await.unwrap();
+            assert_eq!(out, "✓ alpha: updated (local edits overwritten)");
+            assert!(!project.join(".claude/skills/alpha/extra.txt").exists());
+            assert!(project.join(".claude/skills/beta/extra.txt").is_file());
+            let err = update_one(&project, "missing").await.unwrap_err();
+            assert!(err.contains("not installed"), "{err}");
+            uninstall(&project, "beta").await.unwrap();
 
             // Reinstalling from spm.json recreates a deleted folder.
             fs::remove_dir_all(project.join(".claude/skills/alpha")).unwrap();
