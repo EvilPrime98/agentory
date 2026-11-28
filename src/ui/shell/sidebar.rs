@@ -46,6 +46,16 @@ fn active_row<E: Styled>(row: E) -> E {
         .border_color(theme::accent_soft())
 }
 
+fn row_highlight<E: Styled + InteractiveElement>(active: bool) -> impl FnOnce(E) -> E {
+    move |row| {
+        if active {
+            active_row(row)
+        } else {
+            row.hover(|s| s.bg(theme::hover()))
+        }
+    }
+}
+
 fn avatar(project_id: &str, name: &str) -> gpui::Div {
     let color = theme::avatar(project_id);
     let mut tint = color;
@@ -906,11 +916,14 @@ impl Sidebar {
         let shell_picker = open.then(|| self.default_shell_picker(project, cx));
         let chevron = fold_chevron(11.0, format!("commands-chevron-{pid}"), fold);
         let header = div()
+            .id(gpui::SharedString::from(format!("commands-header-{pid}")))
             .flex()
             .items_center()
             .h(px(ROW_H))
             .ml(px(26.0))
             .px(px(6.0))
+            .rounded(px(6.0))
+            .hover(|s| s.bg(theme::hover()))
             .child(
                 div()
                     .id(gpui::SharedString::from(format!("commands-toggle-{pid}")))
@@ -1151,6 +1164,7 @@ impl Sidebar {
             .h(px(32.0))
             .px(px(6.0))
             .rounded(px(6.0))
+            .hover(|s| s.bg(theme::hover()))
             .when(selected || context_open, |s| s.bg(theme::hover()))
             .when(!is_global, |s| {
                 let menu_project = project.clone();
@@ -1405,7 +1419,7 @@ impl Sidebar {
                         .px(px(6.0))
                         .rounded(px(6.0))
                         .cursor_pointer()
-                        .when(skills_active, active_row)
+                        .map(row_highlight(skills_active))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.stores
                                 .projects
@@ -1433,7 +1447,7 @@ impl Sidebar {
                         .px(px(6.0))
                         .rounded(px(6.0))
                         .cursor_pointer()
-                        .when(claude_settings_active, active_row)
+                        .map(row_highlight(claude_settings_active))
                         .on_click(cx.listener(|_, _, _, cx| {
                             cx.emit(Navigate(Route::ClaudeSettings));
                         }))
@@ -1458,7 +1472,7 @@ impl Sidebar {
                         .px(px(6.0))
                         .rounded(px(6.0))
                         .cursor_pointer()
-                        .when(docs_active, active_row)
+                        .map(row_highlight(docs_active))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.stores
                                 .projects
@@ -1486,7 +1500,7 @@ impl Sidebar {
                         .px(px(6.0))
                         .rounded(px(6.0))
                         .cursor_pointer()
-                        .when(git_active, active_row)
+                        .map(row_highlight(git_active))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.stores
                                 .projects
@@ -1526,7 +1540,7 @@ impl Sidebar {
                         .px(px(6.0))
                         .rounded(px(6.0))
                         .cursor_pointer()
-                        .when(github_active, active_row)
+                        .map(row_highlight(github_active))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.stores
                                 .projects
@@ -1554,7 +1568,7 @@ impl Sidebar {
                         .px(px(6.0))
                         .rounded(px(6.0))
                         .cursor_pointer()
-                        .when(history_active, active_row)
+                        .map(row_highlight(history_active))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.stores
                                 .projects
@@ -1585,7 +1599,7 @@ impl Sidebar {
                         .px(px(6.0))
                         .rounded(px(6.0))
                         .cursor_pointer()
-                        .when(workflows_active, active_row)
+                        .map(row_highlight(workflows_active))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.stores
                                 .projects
@@ -1613,7 +1627,7 @@ impl Sidebar {
                         .px(px(6.0))
                         .rounded(px(6.0))
                         .cursor_pointer()
-                        .when(graphify_active, active_row)
+                        .map(row_highlight(graphify_active))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.stores
                                 .projects
@@ -1641,7 +1655,7 @@ impl Sidebar {
                         .px(px(6.0))
                         .rounded(px(6.0))
                         .cursor_pointer()
-                        .when(office_active, active_row)
+                        .map(row_highlight(office_active))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.stores
                                 .projects
@@ -1665,13 +1679,14 @@ impl Sidebar {
                 let (pick_id, close_id) = (id.clone(), id.clone());
                 let is_active = on_sessions && active.as_deref() == Some(id.as_str());
                 div()
+                    .id(gpui::SharedString::from(format!("session-row-{id}")))
                     .flex()
                     .items_center()
                     .h(px(ROW_H))
                     .ml(px(26.0))
                     .px(px(6.0))
                     .rounded(px(6.0))
-                    .when(is_active, active_row)
+                    .map(row_highlight(is_active))
                     .child(
                         div()
                             .id(gpui::SharedString::from(format!("session-{}", id.clone())))
@@ -1733,13 +1748,14 @@ impl Sidebar {
                 let (pick_id, close_id) = (id.clone(), id.clone());
                 let is_active = on_sessions && active.as_deref() == Some(id.as_str());
                 div()
+                    .id(gpui::SharedString::from(format!("terminal-row-{id}")))
                     .flex()
                     .items_center()
                     .h(px(ROW_H))
                     .ml(px(26.0))
                     .px(px(6.0))
                     .rounded(px(6.0))
-                    .when(is_active, active_row)
+                    .map(row_highlight(is_active))
                     .child(
                         div()
                             .id(gpui::SharedString::from(format!("terminal-{id}")))
@@ -1899,13 +1915,14 @@ impl Sidebar {
                     let (pick_id, close_id, review_id) = (id.clone(), id.clone(), id.clone());
                     let is_active = on_sessions && active.as_deref() == Some(id.as_str());
                     div()
+                        .id(gpui::SharedString::from(format!("modify-row-{id}")))
                         .flex()
                         .items_center()
                         .h(px(ROW_H))
                         .ml(px(26.0))
                         .px(px(6.0))
                         .rounded(px(6.0))
-                        .when(is_active, active_row)
+                        .map(row_highlight(is_active))
                         .child(
                             div()
                                 .id(gpui::SharedString::from(format!("modify-{id}")))
