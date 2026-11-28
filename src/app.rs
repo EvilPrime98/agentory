@@ -47,6 +47,7 @@ actions!(
         OpenSkills,
         RequestClose,
         OpenTerminal,
+        NewSession,
         NextSession,
         PrevSession,
         ToggleMicrophone
@@ -63,6 +64,7 @@ pub fn bind_keys(cx: &mut App, prefs: &Prefs) {
     };
     // Only combos a terminal does not need: everything else goes to the PTY.
     cx.bind_keys([
+        gpui::KeyBinding::new(&combo("shortcut-new-session"), NewSession, None),
         gpui::KeyBinding::new(&combo("shortcut-toggle-fullscreen"), ToggleFullscreen, None),
         gpui::KeyBinding::new(&combo("shortcut-toggle-sidebar"), ToggleSidebar, None),
         gpui::KeyBinding::new(&combo("shortcut-open-skills"), OpenSkills, None),
@@ -726,6 +728,20 @@ impl Render for AppRoot {
                     this.navigate(Route::Sessions, window, cx);
                     sessions::begin_shell(&id, None, sessions::ShellDir::Project, cx);
                 }
+            }))
+            .on_action(cx.listener(|this, _: &NewSession, window, cx| {
+                let projects = this.stores.projects.read(cx);
+                let on_screen = matches!(this.history.current(), Route::Sessions)
+                    .then(|| this.stores.sessions.read(cx).active_session())
+                    .flatten()
+                    .map(|s| &s.project_id)
+                    .filter(|id| projects.get(id).is_some());
+                let Some(id) = on_screen.or(projects.selected.as_ref()).cloned() else {
+                    return;
+                };
+                this.stores.projects.update(cx, |p, cx| p.select(&id, cx));
+                this.navigate(Route::Sessions, window, cx);
+                sessions::begin_new(&id, cx);
             }))
             .on_action(cx.listener(|this, _: &ToggleMicrophone, _, cx| {
                 if !matches!(this.history.current(), Route::Sessions) {

@@ -14,7 +14,7 @@ pub struct Action {
     pub default: &'static str,
 }
 
-pub const ACTIONS: [Action; 7] = [
+pub const ACTIONS: [Action; 8] = [
     Action {
         key: "shortcut-toggle-fullscreen",
         field: "shortcutToggleFullscreen",
@@ -44,6 +44,12 @@ pub const ACTIONS: [Action; 7] = [
         field: "shortcutToggleMicrophone",
         label_key: "settings.shortcuts.toggle_microphone",
         default: "ctrl-alt-m",
+    },
+    Action {
+        key: "shortcut-new-session",
+        field: "shortcutNewSession",
+        label_key: "settings.shortcuts.new_session",
+        default: "ctrl-alt-n",
     },
     Action {
         key: "shortcut-next-session",
@@ -127,6 +133,7 @@ impl Prefs {
             "shortcut-open-skills" => &self.shortcut_open_skills,
             "shortcut-open-terminal" => &self.shortcut_open_terminal,
             "shortcut-toggle-microphone" => &self.shortcut_toggle_microphone,
+            "shortcut-new-session" => &self.shortcut_new_session,
             "shortcut-next-session" => &self.shortcut_next_session,
             "shortcut-prev-session" => &self.shortcut_prev_session,
             _ => "",
@@ -140,6 +147,7 @@ impl Prefs {
             "shortcut-open-skills" => &mut self.shortcut_open_skills,
             "shortcut-open-terminal" => &mut self.shortcut_open_terminal,
             "shortcut-toggle-microphone" => &mut self.shortcut_toggle_microphone,
+            "shortcut-new-session" => &mut self.shortcut_new_session,
             "shortcut-next-session" => &mut self.shortcut_next_session,
             "shortcut-prev-session" => &mut self.shortcut_prev_session,
             _ => return,

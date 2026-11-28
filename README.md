@@ -85,6 +85,7 @@ folder or in a new worktree.
 | `Ctrl+Alt+S` | Open the skills page |
 | `Ctrl+Alt+T` | Open a terminal in the selected project |
 | `Ctrl+Alt+M` | Toggle voice dictation in the active session |
+| `Ctrl+Alt+N` | New agent session in the project on screen, else the selected one |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous session |
 | `F11` | Fullscreen |
 | `Ctrl+Shift+V` or `Shift+Insert` | Paste |
