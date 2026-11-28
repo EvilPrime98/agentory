@@ -6,8 +6,8 @@ use std::time::{Duration, Instant};
 
 use gpui::{
     Animation, AnimationExt, AnyElement, Context, EventEmitter, InteractiveElement, IntoElement,
-    ParentElement, Render, Rgba, StatefulInteractiveElement, Styled, Transformation, Window,
-    deferred, div, prelude::*, px, radians,
+    ParentElement, Render, Rgba, SharedString, StatefulInteractiveElement, Styled, Transformation,
+    Window, deferred, div, prelude::*, px, radians,
 };
 
 use crate::backend::git;
@@ -22,8 +22,10 @@ use crate::state::sessions::{self, SessionKind, ShellDir};
 use crate::ui::command_editor;
 use crate::ui::components::checkbox::checkbox;
 use crate::ui::components::context_menu::{MenuItem, context_menu};
+use crate::ui::components::dropdown::icon_dropdown;
 use crate::ui::components::scrollbar::Scrollbar;
 use crate::ui::components::text_input::{TextInput, TextInputEvent};
+use crate::ui::components::tooltip::tooltip;
 use crate::ui::confirm::{self, ConfirmOptions};
 use crate::ui::icons::{Icon, icon};
 use crate::ui::theme;
@@ -216,6 +218,8 @@ pub struct Sidebar {
     menu_focus: gpui::FocusHandle,
     commands_folds: HashMap<String, Fold>,
     shell_menu_closed_at: Option<Instant>,
+    default_shell_menu: Option<ShellMenu>,
+    default_shell_menu_closed: Option<(String, Instant)>,
     pages_menu: bool,
     pages_menu_closed_at: Option<Instant>,
     compact: bool,
@@ -235,7 +239,6 @@ fn settings_file(project: &Path) -> PathBuf {
     project.join(".claude").join("settings.json")
 }
 
-/// The open "new terminal" menu of one project.
 struct ShellMenu {
     project_id: String,
     shells: Vec<Shell>,
@@ -297,6 +300,8 @@ impl Sidebar {
             menu_focus: cx.focus_handle(),
             commands_folds: HashMap::new(),
             shell_menu_closed_at: None,
+            default_shell_menu: None,
+            default_shell_menu_closed: None,
             pages_menu: false,
             pages_menu_closed_at: None,
             compact: false,
@@ -350,6 +355,9 @@ impl Sidebar {
     fn toggle_commands(&mut self, project_id: &str, cx: &mut Context<Self>) {
         let fold = Fold::toggle(self.commands_folds.get(project_id).copied());
         self.commands_folds.insert(project_id.to_string(), fold);
+        if !fold.open() {
+            self.close_default_shell_menu(project_id, cx);
+        }
         Self::rerender_after(fold, cx);
     }
 
@@ -383,6 +391,75 @@ impl Sidebar {
             });
             cx.notify();
         }
+    }
+
+    fn set_default_shell_menu(&mut self, project_id: &str, open: bool, cx: &mut Context<Self>) {
+        if !open {
+            return self.close_default_shell_menu(project_id, cx);
+        }
+        let same_click = self
+            .default_shell_menu_closed
+            .as_ref()
+            .is_some_and(|(id, t)| id == project_id && t.elapsed().as_millis() <= REOPEN_GUARD_MS);
+        if !same_click {
+            self.default_shell_menu = Some(ShellMenu {
+                project_id: project_id.to_string(),
+                shells: shells::detect(),
+            });
+            cx.notify();
+        }
+    }
+
+    fn close_default_shell_menu(&mut self, project_id: &str, cx: &mut Context<Self>) {
+        if self
+            .default_shell_menu
+            .take_if(|m| m.project_id == project_id)
+            .is_some()
+        {
+            self.default_shell_menu_closed = Some((project_id.to_string(), Instant::now()));
+            cx.notify();
+        }
+    }
+
+    fn default_shell_picker(&self, project: &Project, cx: &mut Context<Self>) -> gpui::Div {
+        let menu = self
+            .default_shell_menu
+            .as_ref()
+            .filter(|m| m.project_id == project.id);
+        let shells = menu.map_or(&[][..], |m| m.shells.as_slice());
+        let mut labels: Vec<SharedString> = vec![t("commands.shell_default").into()];
+        labels.extend(shells.iter().map(|s| SharedString::from(s.label)));
+        let selected = project
+            .default_shell
+            .as_deref()
+            .and_then(|id| shells.iter().position(|s| s.id == id))
+            .map_or(0, |i| i + 1);
+        let ids: Vec<&'static str> = shells.iter().map(|s| s.id).collect();
+        let (toggle_id, select_id) = (project.id.clone(), project.id.clone());
+        let this = cx.entity();
+        let this_select = this.clone();
+        icon_dropdown(
+            format!("commands-shell-{}", project.id),
+            Icon::Terminal,
+            t("commands.default_shell"),
+            labels,
+            selected,
+            menu.is_some(),
+            move |open, _, cx| {
+                this.update(cx, |this, cx| {
+                    this.set_default_shell_menu(&toggle_id, open, cx)
+                });
+            },
+            move |i, _, cx| {
+                let shell = i.checked_sub(1).map(|n| ids[n].to_string());
+                this_select.update(cx, |this, cx| {
+                    this.close_default_shell_menu(&select_id, cx);
+                    this.stores
+                        .projects
+                        .update(cx, |p, cx| p.set_default_shell(&select_id, shell, cx));
+                });
+            },
+        )
     }
 
     /// Select the project and show the sessions page, where a new terminal appears.
@@ -764,7 +841,8 @@ impl Sidebar {
         let pid = project.id.clone();
         let fold = self.commands_folds.get(&pid).copied();
         let animating = fold.filter(|f| f.running());
-        let show_body = animating.is_some() || fold.is_some_and(|f| f.open());
+        let open = fold.is_some_and(|f| f.open());
+        let show_body = animating.is_some() || open;
         let detected = self
             .stores
             .projects
@@ -774,14 +852,7 @@ impl Sidebar {
             .cloned()
             .unwrap_or_default();
         let custom = project.commands.clone();
-        let shell_label = project
-            .default_shell
-            .as_deref()
-            .and_then(shells::label)
-            .map_or_else(|| t("commands.shell_default").to_string(), str::to_string);
-        let hidden = project.hidden_detected.len();
-        let rows = 1 + detected.len() + custom.len() + usize::from(hidden > 0);
-        let body_h = ROW_H * rows as f32;
+        let body_h = ROW_H * (detected.len() + custom.len()) as f32;
         let height = ROW_H + if show_body { body_h } else { 0.0 };
 
         let row = |id: String| {
@@ -822,6 +893,17 @@ impl Sidebar {
 
         let toggle_id = pid.clone();
         let add_id = pid.clone();
+        let restore = (open && !project.hidden_detected.is_empty()).then(|| {
+            let restore_pid = pid.clone();
+            tool(format!("commands-restore-{pid}"), Icon::Undo)
+                .tooltip(tooltip(t("commands.restore_tooltip")))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.stores
+                        .projects
+                        .update(cx, |p, cx| p.restore_detected(&restore_pid, cx));
+                }))
+        });
+        let shell_picker = open.then(|| self.default_shell_picker(project, cx));
         let chevron = fold_chevron(11.0, format!("commands-chevron-{pid}"), fold);
         let header = div()
             .flex()
@@ -847,41 +929,21 @@ impl Sidebar {
                     .child(chevron)
                     .child(t("sidebar.commands")),
             )
+            .children(restore)
+            .children(shell_picker)
             .child(
-                tool(format!("commands-add-{pid}"), Icon::Plus).on_click(cx.listener(
-                    move |this, _, _, cx| {
+                tool(format!("commands-add-{pid}"), Icon::Plus)
+                    .tooltip(tooltip(t("commands.add")))
+                    .on_click(cx.listener(move |this, _, _, cx| {
                         if !this.commands_open(&add_id) {
                             this.toggle_commands(&add_id, cx);
                         }
                         command_editor::open(&add_id, None, cx);
-                    },
-                )),
+                    })),
             );
 
         let mut body = div().flex().flex_col();
         if show_body {
-            let shell_pid = pid.clone();
-            body = body.child(
-                row(format!("commands-shell-{pid}"))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        let shells = shells::detect();
-                        let current = this
-                            .stores
-                            .projects
-                            .read(cx)
-                            .get(&shell_pid)
-                            .and_then(|p| p.default_shell.clone());
-                        let next =
-                            shells::next(&shells, current.as_deref()).map(|s| s.id.to_string());
-                        this.stores
-                            .projects
-                            .update(cx, |p, cx| p.set_default_shell(&shell_pid, next, cx));
-                    }))
-                    .child(icon(Icon::Terminal, px(13.0)).text_color(theme::text_muted()))
-                    .child(label(
-                        t_args("commands.shell_row", &[("shell", &shell_label)]).to_string(),
-                    )),
-            );
             for (ix, d) in detected.into_iter().enumerate() {
                 let (run_pid, del_pid, line) = (pid.clone(), pid.clone(), d.command);
                 let del_label = d.label.clone();
@@ -902,22 +964,6 @@ impl Sidebar {
                                     });
                                 })),
                         ),
-                );
-            }
-            if hidden > 0 {
-                let restore_pid = pid.clone();
-                body = body.child(
-                    row(format!("commands-restore-{pid}"))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.stores
-                                .projects
-                                .update(cx, |p, cx| p.restore_detected(&restore_pid, cx));
-                        }))
-                        .child(icon(Icon::Undo, px(12.0)).text_color(theme::text_muted()))
-                        .child(label(
-                            t_args("commands.restore_hidden", &[("count", &hidden.to_string())])
-                                .to_string(),
-                        )),
                 );
             }
             for c in custom {
