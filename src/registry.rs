@@ -127,6 +127,12 @@ pub const SETTINGS: &[Setting] = &[
         description: "Start or stop dictation in the active session (Sessions page only).",
     },
     Setting {
+        key: "shortcut-new-session",
+        field: "shortcutNewSession",
+        kind: Kind::Shortcut,
+        description: "Start an agent session in the project on screen, else the selected one.",
+    },
+    Setting {
         key: "shortcut-next-session",
         field: "shortcutNextSession",
         kind: Kind::Shortcut,

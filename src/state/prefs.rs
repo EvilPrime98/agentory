@@ -106,6 +106,7 @@ pub struct Prefs {
     pub shortcut_open_skills: String,
     pub shortcut_open_terminal: String,
     pub shortcut_toggle_microphone: String,
+    pub shortcut_new_session: String,
     pub shortcut_next_session: String,
     pub shortcut_prev_session: String,
 }
@@ -190,6 +191,7 @@ impl Default for Prefs {
             shortcut_open_skills: "ctrl-alt-s".into(),
             shortcut_open_terminal: "ctrl-alt-t".into(),
             shortcut_toggle_microphone: "ctrl-alt-m".into(),
+            shortcut_new_session: "ctrl-alt-n".into(),
             shortcut_next_session: "ctrl-tab".into(),
             shortcut_prev_session: "ctrl-shift-tab".into(),
         }

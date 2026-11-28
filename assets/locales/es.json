@@ -628,6 +628,7 @@
   "settings.shortcuts.open_skills": "Abrir skills",
   "settings.shortcuts.open_terminal": "Abrir terminal",
   "settings.shortcuts.toggle_microphone": "Alternar micrófono (página Sesiones)",
+  "settings.shortcuts.new_session": "Nueva sesión de agente",
   "settings.shortcuts.next_session": "Sesión siguiente",
   "settings.shortcuts.prev_session": "Sesión anterior",
   "settings.shortcuts.err_invalid": "`{combo}` no es una combinación de teclas válida",
